@@ -1,0 +1,280 @@
+/**
+ * Sidecar CSS Injection
+ *
+ * Spec Reference:
+ * - 9.2 Electron Shell
+ * - 14.3 Styling Investigation
+ *
+ * This CSS is injected into the OpenCode web UI to:
+ * 1. Apply dark theme matching Claude Code Desktop
+ * 2. Hide unnecessary UI elements (sidebar, nav)
+ * 3. Make room for custom title bar and FOLD button
+ *
+ * TODO: Replace placeholder colors with values extracted from Claude Code Desktop
+ * See Spec 14.3 for investigation plan:
+ * - Unpack Claude Code Desktop's .asar archive
+ * - Extract CSS variables for colors, fonts, spacing
+ * - Update this file with accurate values
+ */
+
+/* ============================================================================
+ * CSS Variables - Design Tokens
+ * ============================================================================
+ * These should be extracted from Claude Code Desktop per spec 14.3.
+ * Current values are reasonable approximations for dark theme.
+ */
+:root {
+  /* Background colors */
+  --sidecar-bg-primary: #0d0d0d;
+  --sidecar-bg-secondary: #1a1a1a;
+  --sidecar-bg-tertiary: #2a2a2a;
+
+  /* Text colors */
+  --sidecar-text-primary: #e0e0e0;
+  --sidecar-text-secondary: #888888;
+  --sidecar-text-muted: #666666;
+
+  /* Accent colors */
+  --sidecar-accent: #d97706;
+  --sidecar-accent-hover: #f59e0b;
+
+  /* FOLD button colors (spec 9.2) */
+  --sidecar-fold-bg: #2d5a27;
+  --sidecar-fold-hover: #3d7a37;
+
+  /* Border colors */
+  --sidecar-border: #333333;
+  --sidecar-border-light: #444444;
+
+  /* Spacing */
+  --sidecar-title-height: 28px;
+  --sidecar-padding: 12px;
+
+  /* Typography */
+  --sidecar-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --sidecar-font-size-sm: 11px;
+  --sidecar-font-size-base: 13px;
+  --sidecar-font-size-lg: 15px;
+
+  /* Border radius */
+  --sidecar-radius-sm: 4px;
+  --sidecar-radius-md: 6px;
+  --sidecar-radius-lg: 8px;
+}
+
+/* ============================================================================
+ * Hide Sidebar/Nav Elements
+ * ============================================================================
+ * Spec Reference: 9.2 - "Hide sidebar/nav elements"
+ *
+ * OpenCode may have various navigation elements that we hide to maximize
+ * the conversation area and simplify the UI for sidecar use.
+ */
+aside,
+header:not(.sidecar-title),
+nav,
+footer,
+[role="navigation"],
+[data-sidebar],
+[data-nav],
+.sidebar,
+.navigation,
+.nav-panel,
+.header-bar,
+.footer-bar {
+  display: none !important;
+}
+
+/* ============================================================================
+ * Main Content Adjustment
+ * ============================================================================
+ * Make room for the custom title bar at the top.
+ */
+body {
+  background: var(--sidecar-bg-primary) !important;
+  padding-top: 32px !important;
+  margin: 0 !important;
+  font-family: var(--sidecar-font-family) !important;
+}
+
+main,
+[role="main"],
+.main-content {
+  padding-top: var(--sidecar-padding) !important;
+  background: var(--sidecar-bg-primary) !important;
+  min-height: calc(100vh - 32px) !important;
+}
+
+/* ============================================================================
+ * Dark Theme Overrides
+ * ============================================================================
+ * Override OpenCode's default colors to match Claude Code Desktop.
+ */
+
+/* General containers */
+div[class*="container"],
+div[class*="wrapper"],
+section {
+  background-color: var(--sidecar-bg-primary) !important;
+}
+
+/* Message bubbles */
+[data-role="user"],
+.user-message,
+[class*="user-message"] {
+  background: var(--sidecar-bg-tertiary) !important;
+  color: var(--sidecar-text-primary) !important;
+  border-radius: var(--sidecar-radius-md) !important;
+}
+
+[data-role="assistant"],
+.assistant-message,
+[class*="assistant-message"] {
+  background: var(--sidecar-bg-secondary) !important;
+  color: var(--sidecar-text-primary) !important;
+  border-radius: var(--sidecar-radius-md) !important;
+}
+
+/* Input area */
+textarea,
+input[type="text"],
+.chat-input,
+[class*="input"] {
+  background: var(--sidecar-bg-secondary) !important;
+  color: var(--sidecar-text-primary) !important;
+  border: 1px solid var(--sidecar-border) !important;
+  border-radius: var(--sidecar-radius-md) !important;
+}
+
+textarea:focus,
+input[type="text"]:focus {
+  border-color: var(--sidecar-border-light) !important;
+  outline: none !important;
+}
+
+/* Buttons */
+button:not(#fold-btn) {
+  background: var(--sidecar-bg-secondary) !important;
+  color: var(--sidecar-text-primary) !important;
+  border: 1px solid var(--sidecar-border) !important;
+  border-radius: var(--sidecar-radius-sm) !important;
+}
+
+button:not(#fold-btn):hover {
+  background: var(--sidecar-bg-tertiary) !important;
+  border-color: var(--sidecar-border-light) !important;
+}
+
+/* Submit/send button */
+button[type="submit"],
+.send-button,
+[class*="send"] {
+  background: var(--sidecar-accent) !important;
+  border-color: var(--sidecar-accent) !important;
+}
+
+button[type="submit"]:hover,
+.send-button:hover {
+  background: var(--sidecar-accent-hover) !important;
+}
+
+/* Code blocks */
+pre,
+code,
+[class*="code"] {
+  background: #1e1e1e !important;
+  color: #d4d4d4 !important;
+  border-radius: var(--sidecar-radius-sm) !important;
+  font-family: "SF Mono", Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
+}
+
+/* Links */
+a {
+  color: var(--sidecar-accent) !important;
+}
+
+a:hover {
+  color: var(--sidecar-accent-hover) !important;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--sidecar-bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--sidecar-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--sidecar-border-light);
+}
+
+/* ============================================================================
+ * Resume Notice Styling
+ * ============================================================================
+ * When resuming a session, a notice is shown at the top.
+ */
+#resume-notice {
+  background: var(--sidecar-bg-tertiary) !important;
+  color: var(--sidecar-text-secondary) !important;
+  font-size: var(--sidecar-font-size-sm) !important;
+  border-bottom: 1px solid var(--sidecar-border) !important;
+}
+
+/* ============================================================================
+ * Loading States
+ * ============================================================================
+ */
+.loading,
+.spinner,
+[class*="loading"],
+[class*="spinner"] {
+  color: var(--sidecar-text-secondary) !important;
+}
+
+/* ============================================================================
+ * Error States
+ * ============================================================================
+ */
+.error,
+[class*="error"] {
+  color: #ef4444 !important;
+  background: rgba(239, 68, 68, 0.1) !important;
+  border-color: rgba(239, 68, 68, 0.3) !important;
+}
+
+/* ============================================================================
+ * Animations
+ * ============================================================================
+ * Subtle animations for a polished feel.
+ */
+button,
+input,
+textarea,
+a {
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+/* ============================================================================
+ * Print Styles (hidden)
+ * ============================================================================
+ * Hide UI elements when printing, if needed.
+ */
+@media print {
+  body::before,
+  #fold-btn,
+  #resume-notice {
+    display: none !important;
+  }
+
+  body {
+    padding-top: 0 !important;
+  }
+}

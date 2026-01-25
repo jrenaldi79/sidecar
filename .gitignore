@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Coverage
+coverage/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Test artifacts
+*.tmp
+*.temp
+
+# Package lock (optional - some prefer to commit it)
+# package-lock.json
+
+# Sidecar session data (user-specific)
+.claude/sidecar_sessions/
