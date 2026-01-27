@@ -21,8 +21,8 @@ const os = require('os');
  * // Returns: '-Users-john-myproject'
  */
 function encodeProjectPath(projectPath) {
-  // Replace both forward slashes and backslashes with dashes
-  return projectPath.replace(/[/\\]/g, '-');
+  // Replace slashes, backslashes, and underscores with dashes (matching Claude Code behavior)
+  return projectPath.replace(/[/\\_]/g, '-');
 }
 
 /**

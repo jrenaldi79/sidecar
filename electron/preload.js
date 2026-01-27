@@ -54,5 +54,84 @@ contextBridge.exposeInMainWorld('electronAPI', {
    * @param {string} msg.timestamp - ISO timestamp
    * @returns {Promise<void>}
    */
-  logMessage: (msg) => ipcRenderer.invoke('log-message', msg)
+  logMessage: (msg) => ipcRenderer.invoke('log-message', msg),
+
+  /**
+   * Get the sidecar configuration.
+   *
+   * @returns {Promise<Object>} Configuration object
+   */
+  getConfig: () => ipcRenderer.invoke('get-config'),
+
+  /**
+   * Spawn a sub-agent.
+   *
+   * @param {Object} config - Sub-agent configuration
+   * @param {string} config.agentType - Type of agent (general, explore, security, test)
+   * @param {string} config.briefing - Task description
+   * @param {string} config.parentSessionId - Parent session ID
+   * @returns {Promise<Object>} Sub-agent result with childSessionId
+   */
+  spawnSubagent: (config) => ipcRenderer.invoke('spawn-subagent', config),
+
+  /**
+   * Get sub-agent status.
+   *
+   * @param {string} childSessionId - Child session ID
+   * @returns {Promise<Object>} Status object with completed flag
+   */
+  getSubagentStatus: (childSessionId) => ipcRenderer.invoke('get-subagent-status', childSessionId),
+
+  /**
+   * Get sub-agent result.
+   *
+   * @param {string} childSessionId - Child session ID
+   * @returns {Promise<Object>} Result object with summary
+   */
+  getSubagentResult: (childSessionId) => ipcRenderer.invoke('get-subagent-result', childSessionId),
+
+  /**
+   * Cancel the current in-flight request.
+   *
+   * When called:
+   * 1. Main process aborts the current OpenCode API request
+   * 2. Session returns to idle state
+   * 3. User can send new messages
+   *
+   * @returns {Promise<{success: boolean, message: string}>} Cancellation result
+   */
+  cancelRequest: () => ipcRenderer.invoke('cancel-request'),
+
+  /**
+   * Check the OpenCode server health status.
+   *
+   * Used for connection status indicator in the UI.
+   * Returns immediately with cached status or performs health check.
+   *
+   * @returns {Promise<{healthy: boolean, lastCheck: string}>} Health status
+   */
+  checkServerHealth: () => ipcRenderer.invoke('check-server-health'),
+
+  /**
+   * Get agent-model configuration.
+   *
+   * Returns the current configuration for which models to use with each agent type.
+   * Each agent can be set to 'inherit' (use parent model) or 'select' (use specific model).
+   *
+   * @returns {Promise<Object>} Configuration with Explore, Plan, General settings
+   */
+  getAgentModelConfig: () => ipcRenderer.invoke('get-agent-model-config'),
+
+  /**
+   * Save agent-model configuration.
+   *
+   * Persists the agent-model settings to disk (~/.config/sidecar/agent-models.json).
+   *
+   * @param {Object} config - Configuration object
+   * @param {Object} config.Explore - Explore agent settings
+   * @param {Object} config.Plan - Plan agent settings
+   * @param {Object} config.General - General agent settings
+   * @returns {Promise<boolean>} True if saved successfully
+   */
+  setAgentModelConfig: (config) => ipcRenderer.invoke('set-agent-model-config', config)
 });

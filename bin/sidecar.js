@@ -7,6 +7,10 @@
  * Routes commands to appropriate handlers.
  */
 
+// Load environment variables from .env file
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+
 const { parseArgs, validateStartArgs, getUsage } = require('../src/cli');
 
 const VERSION = '0.1.0';
@@ -71,6 +75,9 @@ async function handleStart(args) {
   // Lazy load to avoid circular dependencies and improve startup time
   const { startSidecar } = require('../src/index');
 
+  // Determine agent: --agent takes precedence, otherwise use --mode
+  const agent = args.agent || args.mode;
+
   await startSidecar({
     model: args.model,
     briefing: args.briefing,
@@ -80,7 +87,10 @@ async function handleStart(args) {
     contextSince: args['context-since'],
     contextMaxTokens: args['context-max-tokens'],
     headless: args.headless,
-    timeout: args.timeout
+    timeout: args.timeout,
+    agent,
+    mcp: args.mcp,
+    mcpConfig: args['mcp-config']
   });
 }
 
@@ -116,7 +126,9 @@ async function handleResume(args) {
 
   await resumeSidecar({
     taskId,
-    project: args.project
+    project: args.project,
+    headless: args.headless,
+    timeout: args.timeout
   });
 }
 
@@ -146,7 +158,9 @@ async function handleContinue(args) {
     model: args.model,
     project: args.project,
     contextTurns: args['context-turns'],
-    contextMaxTokens: args['context-max-tokens']
+    contextMaxTokens: args['context-max-tokens'],
+    headless: args.headless,
+    timeout: args.timeout
   });
 }
 

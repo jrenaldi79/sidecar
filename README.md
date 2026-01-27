@@ -25,23 +25,58 @@ npm install -g claude-sidecar
 ### Prerequisites
 
 - Node.js 18+
-- [OpenCode CLI](https://opencode.ai) — the engine that powers sidecars
-- API keys configured for your chosen models
+- [OpenCode CLI](https://opencode.ai) (`npm install -g opencode-ai`) — the engine that powers sidecars
+
+### Configure API Access
+
+Choose one of these options:
+
+**Option A: OpenRouter (recommended for multi-model access)**
+
+```bash
+# Interactive setup
+npx opencode-ai
+# In the OpenCode UI, type: /connect
+# Select "OpenRouter" and paste your API key
+
+# Or create auth file directly
+mkdir -p ~/.local/share/opencode
+echo '{"openrouter": {"apiKey": "sk-or-v1-YOUR_KEY"}}' > ~/.local/share/opencode/auth.json
+```
+
+**Option B: Direct API keys**
+
+```bash
+export GEMINI_API_KEY=your-google-api-key    # For Google models
+export OPENAI_API_KEY=your-openai-api-key    # For OpenAI models
+export ANTHROPIC_API_KEY=your-anthropic-key  # For Anthropic models
+```
 
 ## Quick Start
 
 ```bash
-# Interactive sidecar with Gemini
+# Interactive sidecar with Gemini (via OpenRouter)
 sidecar start \
-  --model google/gemini-2.5-pro \
+  --model openrouter/google/gemini-2.5-pro \
   --briefing "Debug the auth race condition in TokenManager.ts"
 
-# Headless (autonomous) test generation
+# Headless (autonomous) test generation with direct API key
 sidecar start \
   --model google/gemini-2.5-flash \
   --briefing "Generate Jest tests for src/utils/" \
   --headless
 ```
+
+## Model Naming
+
+The model name format determines which authentication is used:
+
+| Access Method | Model Format | Example |
+|---------------|--------------|---------|
+| OpenRouter | `openrouter/provider/model` | `openrouter/google/gemini-2.5-flash` |
+| Direct Google API | `google/model` | `google/gemini-2.5-flash` |
+| Direct OpenAI API | `openai/model` | `openai/gpt-4o` |
+| Direct Anthropic API | `anthropic/model` | `anthropic/claude-sonnet-4` |
 
 ## Commands
 
@@ -86,14 +121,25 @@ Claude Code will automatically know how to use sidecars after installation.
 
 ## Models Supported
 
-Any model supported by OpenCode:
+### Via OpenRouter (prefix with `openrouter/`)
 
-- `google/gemini-2.5-pro` — Large context window
-- `google/gemini-2.5-flash` — Fast and cost-effective
-- `openai/o3` — Complex reasoning
-- `openai/gpt-4.1` — General purpose
-- `anthropic/claude-sonnet-4` — Balanced
-- And [75+ more](https://opencode.ai/docs/models)
+| Model | Name | Best For |
+|-------|------|----------|
+| Gemini 2.5 Pro | `openrouter/google/gemini-2.5-pro` | Large context |
+| Gemini 2.5 Flash | `openrouter/google/gemini-2.5-flash` | Fast, cost-effective |
+| GPT-4o | `openrouter/openai/gpt-4o` | General purpose |
+| o3 | `openrouter/openai/o3` | Complex reasoning |
+| Claude Sonnet 4 | `openrouter/anthropic/claude-sonnet-4` | Balanced |
+
+### Via Direct API Keys (no prefix)
+
+| Model | Name | Required Env Var |
+|-------|------|------------------|
+| Gemini 2.5 Pro | `google/gemini-2.5-pro` | `GEMINI_API_KEY` |
+| Gemini 2.5 Flash | `google/gemini-2.5-flash` | `GEMINI_API_KEY` |
+| GPT-4o | `openai/gpt-4o` | `OPENAI_API_KEY` |
+| o3 | `openai/o3` | `OPENAI_API_KEY` |
+| Claude Sonnet 4 | `anthropic/claude-sonnet-4` | `ANTHROPIC_API_KEY` |
 
 ## Features
 

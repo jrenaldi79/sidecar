@@ -28,6 +28,9 @@ npm-debug.log*
 .env.local
 .env.*.local
 
+# OpenCode config (may contain API keys)
+opencode.json
+
 # Test artifacts
 *.tmp
 *.temp

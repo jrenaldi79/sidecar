@@ -10,48 +10,51 @@
  * 2. Hide unnecessary UI elements (sidebar, nav)
  * 3. Make room for custom title bar and FOLD button
  *
- * TODO: Replace placeholder colors with values extracted from Claude Code Desktop
- * See Spec 14.3 for investigation plan:
- * - Unpack Claude Code Desktop's .asar archive
- * - Extract CSS variables for colors, fonts, spacing
- * - Update this file with accurate values
+ * Theme values extracted from Claude Desktop app.asar (2025-01-25)
+ * Source: /Applications/Claude.app/Contents/Resources/app.asar
  */
 
 /* ============================================================================
- * CSS Variables - Design Tokens
+ * CSS Variables - Design Tokens (Extracted from Claude Desktop)
  * ============================================================================
- * These should be extracted from Claude Code Desktop per spec 14.3.
- * Current values are reasonable approximations for dark theme.
+ * These values match Claude Desktop's dark theme (.darkTheme class)
+ * Source: window-shared.css in Claude Desktop app bundle
  */
 :root {
-  /* Background colors */
-  --sidecar-bg-primary: #0d0d0d;
-  --sidecar-bg-secondary: #1a1a1a;
-  --sidecar-bg-tertiary: #2a2a2a;
+  /* Background colors - Claude Desktop dark theme */
+  --sidecar-bg-primary: #262624;      /* bg-000 in dark theme */
+  --sidecar-bg-secondary: #252523;    /* bg-100 in dark theme (60 2.7% 14.5%) */
+  --sidecar-bg-tertiary: #1f1e1d;     /* bg-200 in dark theme (30 3.3% 11.8%) */
+  --sidecar-bg-deep: #141413;         /* bg-300 in dark theme (60 2.6% 7.6%) */
 
-  /* Text colors */
-  --sidecar-text-primary: #e0e0e0;
-  --sidecar-text-secondary: #888888;
-  --sidecar-text-muted: #666666;
+  /* Text colors - Claude Desktop dark theme */
+  --sidecar-text-primary: #f5f4ef;    /* text-100 in dark theme */
+  --sidecar-text-secondary: #e5e5e2;  /* text-200 in dark theme */
+  --sidecar-text-muted: #b8b5a9;      /* text-400 in dark theme */
+  --sidecar-text-description: #ceccc5; /* description-text in dark theme */
 
-  /* Accent colors */
-  --sidecar-accent: #d97706;
-  --sidecar-accent-hover: #f59e0b;
+  /* Accent colors - Claude brand */
+  --sidecar-accent: #d97757;          /* Claude clay orange (brand color) */
+  --sidecar-accent-hover: #c9674a;    /* Slightly darker for hover */
 
-  /* FOLD button colors (spec 9.2) */
-  --sidecar-fold-bg: #2d5a27;
-  --sidecar-fold-hover: #3d7a37;
+  /* FOLD button colors - success green */
+  --sidecar-fold-bg: #4a9137;         /* success-100 in dark theme */
+  --sidecar-fold-hover: #5aaf44;      /* Lighter for hover */
 
-  /* Border colors */
-  --sidecar-border: #333333;
-  --sidecar-border-light: #444444;
+  /* Border colors - Claude Desktop dark theme */
+  --sidecar-border: rgba(108, 106, 96, 0.25);      /* border-300 approx */
+  --sidecar-border-strong: rgba(108, 106, 96, 0.58); /* border-300-more */
+
+  /* Secondary colors */
+  --sidecar-secondary: #a6a39a;       /* secondary color in dark theme */
 
   /* Spacing */
   --sidecar-title-height: 28px;
   --sidecar-padding: 12px;
 
-  /* Typography */
-  --sidecar-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  /* Typography - Claude Desktop system font stack */
+  --sidecar-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+  --sidecar-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --sidecar-font-size-sm: 11px;
   --sidecar-font-size-base: 13px;
   --sidecar-font-size-lg: 15px;
@@ -260,6 +263,92 @@ input,
 textarea,
 a {
   transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+/* ============================================================================
+ * Model Selector
+ * ============================================================================
+ * Styles for the model dropdown and display.
+ */
+#model-selector {
+  position: relative;
+  display: inline-block;
+}
+
+#model-selector-display {
+  background: var(--sidecar-bg-secondary);
+  border: 1px solid var(--sidecar-border);
+  color: var(--sidecar-text-secondary);
+  padding: 4px 8px;
+  border-radius: var(--sidecar-radius-md);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--sidecar-font-size-sm);
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+#model-selector-display:hover {
+  background: var(--sidecar-bg-tertiary);
+  border-color: var(--sidecar-border-light);
+}
+
+#model-selector-dropdown {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 4px;
+  background: var(--sidecar-bg-deep);
+  border: 1px solid var(--sidecar-border-strong);
+  border-radius: var(--sidecar-radius-md);
+  padding: 4px;
+  z-index: 100;
+  min-width: 250px;
+  max-height: 300px;
+  overflow-y: auto;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+
+#model-selector-dropdown.visible {
+  display: block;
+}
+
+.model-option {
+  padding: 6px 10px;
+  cursor: pointer;
+  border-radius: var(--sidecar-radius-sm);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: var(--sidecar-font-size-base);
+}
+
+.model-option:hover {
+  background: var(--sidecar-bg-tertiary);
+}
+
+.model-option.selected {
+  background: var(--sidecar-accent);
+  color: #fff;
+}
+
+.model-name-display {
+  font-weight: 500;
+}
+
+.model-context-size {
+  font-size: var(--sidecar-font-size-sm);
+  color: var(--sidecar-text-muted);
+  background: var(--sidecar-bg-secondary);
+  padding: 2px 5px;
+  border-radius: var(--sidecar-radius-sm);
+}
+
+.model-option.selected .model-context-size {
+  color: #fff;
+  background: rgba(0,0,0,0.2);
 }
 
 /* ============================================================================

@@ -1,69 +1,49 @@
 /**
- * Electron Main Process
+ * Electron Main Process - Version 2
  *
- * Spec Reference:
- * - 9.2 Electron Shell
- * - 14.3 Styling Investigation
- *
- * Creates the sidecar GUI window wrapping OpenCode's web UI.
- *
- * Window Configuration (per spec):
- * - 500x900 dimensions
- * - Frameless
- * - Always on top
- * - Dark background (#0d0d0d)
- *
- * Environment Variables:
- * - SIDECAR_TASK_ID: Unique identifier for this sidecar session
- * - SIDECAR_MODEL: Model being used (e.g., google/gemini-2.5)
- * - SIDECAR_SYSTEM_PROMPT: Initial system prompt for the conversation
- * - SIDECAR_PROJECT: Project directory path
- * - SIDECAR_RESUME: 'true' if resuming a previous session
- * - SIDECAR_CONVERSATION: Previous conversation JSONL for resume
+ * Uses custom chat UI instead of hacking OpenCode's web interface.
+ * Communicates with OpenCode via HTTP API.
  */
 
 const { app, BrowserWindow, ipcMain } = require('electron');
-const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const http = require('http');
-const net = require('net');
+const {
+  createSession: sdkCreateSession,
+  createChildSession,
+  checkHealth,
+  startServer: sdkStartServer,
+  sendPrompt,
+  getMessages,
+  getSessionStatus
+} = require('../src/opencode-client');
+const { validateAgentType, getAgentType, getAgentTools } = require('../src/agent-types');
+const { ensurePortAvailable } = require('../src/utils/server-setup');
+const { getModelForAgent, loadConfig, saveConfig } = require('../src/utils/agent-model-config');
+const { ensureNodeModulesBinInPath } = require('../src/utils/path-setup');
+const { logger } = require('../src/utils/logger');
 
 // ============================================================================
-// Configuration (Spec 9.2)
+// Configuration
 // ============================================================================
 
-/** Window dimensions per spec */
 const WINDOW_CONFIG = {
-  width: 500,
-  height: 900,
-  frame: false,
-  alwaysOnTop: true,
-  backgroundColor: '#0d0d0d'
+  width: 720,
+  height: 850,
+  minWidth: 550,
+  minHeight: 600,
+  frame: true,
+  backgroundColor: '#262624',
+  title: 'Sidecar',
+  titleBarStyle: 'hiddenInset',
+  trafficLightPosition: { x: 12, y: 12 }
 };
 
-/** Starting port for OpenCode server */
 const START_PORT = 4440;
-
-/** Server readiness check configuration */
 const SERVER_CHECK = {
   maxRetries: 30,
   retryDelayMs: 500
 };
-
-/** Summary prompt injected on Fold (Spec 6.1) */
-const SUMMARY_PROMPT = `Generate a handoff summary of our conversation. Format as:
-
-## Sidecar Results: [Brief Title]
-
-**Task:** [What was requested]
-**Findings:** [Key discoveries]
-**Recommendations:** [Suggested actions]
-**Code Changes:** (if any with file paths)
-**Files Modified/Created:** (if any)
-**Open Questions:** (if any)
-
-Be concise but complete enough to act on immediately.`;
 
 // ============================================================================
 // Environment Variables
@@ -72,189 +52,190 @@ Be concise but complete enough to act on immediately.`;
 const taskId = process.env.SIDECAR_TASK_ID || 'unknown';
 const model = process.env.SIDECAR_MODEL || 'unknown';
 const systemPrompt = process.env.SIDECAR_SYSTEM_PROMPT || '';
+const userMessage = process.env.SIDECAR_USER_MESSAGE || '';
 const project = process.env.SIDECAR_PROJECT || process.cwd();
-const isResume = process.env.SIDECAR_RESUME === 'true';
-const existingConversation = process.env.SIDECAR_CONVERSATION || '';
+const agent = process.env.SIDECAR_AGENT || 'code';
+
+// Parse MCP config from environment (passed as JSON string)
+let mcpConfig = null;
+if (process.env.SIDECAR_MCP_CONFIG) {
+  try {
+    mcpConfig = JSON.parse(process.env.SIDECAR_MCP_CONFIG);
+    logger.info('MCP config loaded', { serverCount: Object.keys(mcpConfig).length });
+  } catch (err) {
+    logger.error('Failed to parse MCP config', { error: err.message });
+  }
+}
 
 // ============================================================================
 // State
 // ============================================================================
 
 let mainWindow = null;
-let serverProcess = null;
-let conversationLog = [];
+let sdkServer = null;
+let sdkClient = null;
+let sessionId = null;
+const conversationLog = [];
 
-/** Session directory for this sidecar */
+// Request cancellation state
+let currentAbortController = null;
+let isRequestInFlight = false;
+
+// Health check state
+let lastHealthCheck = null;
+// Health status is tracked but currently unused (for future health monitoring)
+// eslint-disable-next-line no-unused-vars
+let lastHealthStatus = false;
+
 const sessionDir = path.join(project, '.claude', 'sidecar_sessions', taskId);
 
 // ============================================================================
-// Port Finding
+// Server Management
 // ============================================================================
 
 /**
- * Find an available port starting from the given port number.
- * Spec Reference: 9.2 - "Find available port starting at 4440"
- *
- * @param {number} startPort - Port to start searching from
- * @returns {Promise<number>} Available port number
+ * Wait for the OpenCode server to be ready using SDK health check
  */
-async function findAvailablePort(startPort) {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-
-    server.listen(startPort, () => {
-      const port = server.address().port;
-      server.close(() => {
-        resolve(port);
-      });
-    });
-
-    server.on('error', (err) => {
-      if (err.code === 'EADDRINUSE') {
-        // Port is in use, try next one
-        findAvailablePort(startPort + 1).then(resolve).catch(reject);
-      } else {
-        reject(err);
-      }
-    });
-  });
-}
-
-// ============================================================================
-// Server Readiness
-// ============================================================================
-
-/**
- * Wait for the OpenCode server to be ready.
- * Spec Reference: 9.2 - "Wait for server to be ready before loading URL"
- *
- * @param {string} url - Server URL to check
- * @param {number} retries - Number of retries remaining
- * @param {number} delay - Delay between retries in ms
- * @returns {Promise<void>}
- */
-async function waitForServer(url, retries = SERVER_CHECK.maxRetries, delay = SERVER_CHECK.retryDelayMs) {
+async function waitForServer(client, retries = SERVER_CHECK.maxRetries) {
   for (let i = 0; i < retries; i++) {
     try {
-      await new Promise((resolve, reject) => {
-        const req = http.get(url, (res) => {
-          resolve(res.statusCode);
-        });
-
-        req.on('error', reject);
-        req.setTimeout(1000, () => {
-          req.destroy();
-          reject(new Error('Timeout'));
-        });
-      });
-
-      // Server responded, it's ready
-      return;
+      const isHealthy = await checkHealth(client);
+      if (isHealthy) {
+        return true;
+      }
     } catch (err) {
-      // Server not ready, wait and retry
-      await new Promise((r) => setTimeout(r, delay));
+      // Server not ready yet
     }
+    await new Promise(r => setTimeout(r, SERVER_CHECK.retryDelayMs));
+  }
+  throw new Error('Server failed to start');
+}
+
+/**
+ * Start OpenCode server using SDK (no CLI spawning)
+ */
+async function startOpenCodeServer() {
+  logger.info('Starting OpenCode server via SDK');
+
+  // CRITICAL: Ensure node_modules/.bin is in PATH so SDK can find 'opencode' wrapper
+  // Without this, SDK's spawn('opencode', ...) fails with ENOENT
+  ensureNodeModulesBinInPath();
+  logger.debug('PATH configured for opencode lookup');
+
+  // Ensure port is available (kills stale processes from previous sessions)
+  if (!ensurePortAvailable(START_PORT)) {
+    throw new Error(`Port ${START_PORT} is in use and could not be freed`);
+  }
+  logger.debug('Port available', { port: START_PORT });
+
+  // Build server options with MCP config if available
+  const serverOptions = { port: START_PORT };
+  if (mcpConfig) {
+    serverOptions.mcp = mcpConfig;
+    logger.info('MCP servers will be loaded', { servers: Object.keys(mcpConfig) });
   }
 
-  throw new Error('Server failed to start');
+  // Use SDK to start the server programmatically
+  logger.debug('Spawning OpenCode server process');
+  try {
+    const result = await sdkStartServer(serverOptions);
+    sdkServer = result.server;
+    sdkClient = result.client;
+    logger.info('Server process started', { url: sdkServer.url });
+  } catch (err) {
+    logger.error('Failed to start server', {
+      error: err.message,
+      hint: 'opencode command not found - check opencode-ai is installed'
+    });
+    throw err;
+  }
+
+  logger.debug('Waiting for server health check', { url: sdkServer.url });
+  await waitForServer(sdkClient);
+  logger.info('Server ready and accepting connections');
+
+  return { serverUrl: sdkServer.url, client: sdkClient };
 }
 
 // ============================================================================
 // Window Creation
 // ============================================================================
 
-/**
- * Create the main Electron window.
- * Spec Reference: 9.2 - Window configuration
- */
 async function createWindow() {
-  // Find an available port
-  const port = await findAvailablePort(START_PORT);
-  console.error(`[Sidecar] Using port ${port}`);
-
   // Ensure session directory exists
   fs.mkdirSync(sessionDir, { recursive: true });
 
-  // Save initial context (system prompt) if not resuming
-  if (!isResume) {
-    fs.writeFileSync(path.join(sessionDir, 'initial_context.md'), systemPrompt);
-  }
+  // Save initial context
+  fs.writeFileSync(path.join(sessionDir, 'initial_context.md'), systemPrompt);
 
-  // Load existing conversation if resuming
-  if (isResume && existingConversation) {
-    conversationLog = existingConversation
-      .split('\n')
-      .filter(Boolean)
-      .map((line) => {
-        try {
-          return JSON.parse(line);
-        } catch {
-          return null;
-        }
-      })
-      .filter(Boolean);
-    console.error(`[Sidecar] Resuming with ${conversationLog.length} previous messages`);
-  }
+  // Start OpenCode server (returns SDK client)
+  const { serverUrl: apiBase, client } = await startOpenCodeServer();
 
-  // Start OpenCode server
-  serverProcess = spawn('opencode', ['serve', '--port', String(port)], {
-    cwd: project,
-    env: { ...process.env, OPENCODE_MODEL: model },
-    stdio: ['ignore', 'pipe', 'pipe']
-  });
-
-  // Log server output to stderr (not stdout - per spec 11.2)
-  serverProcess.stdout.on('data', (data) => {
-    console.error(`[OpenCode] ${data.toString().trim()}`);
-  });
-
-  serverProcess.stderr.on('data', (data) => {
-    console.error(`[OpenCode] ${data.toString().trim()}`);
-  });
-
-  serverProcess.on('error', (err) => {
-    console.error(`[Sidecar] Failed to start OpenCode: ${err.message}`);
-    process.exit(1);
-  });
-
-  // Create the browser window with spec configuration
-  mainWindow = new BrowserWindow({
-    ...WINDOW_CONFIG,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false
-    }
-  });
-
-  // Wait for server to be ready
-  const serverUrl = `http://localhost:${port}`;
-  console.error(`[Sidecar] Waiting for server at ${serverUrl}...`);
-
+  // Create a session via SDK
   try {
-    await waitForServer(serverUrl);
-    console.error(`[Sidecar] Server ready, loading UI`);
+    logger.debug('Creating session');
+    sessionId = await sdkCreateSession(client);
+    logger.info('Session created', { sessionId });
   } catch (err) {
-    console.error(`[Sidecar] ${err.message}`);
+    logger.error('Failed to create session', { error: err.message });
     cleanup();
     process.exit(1);
   }
 
-  // Load the OpenCode UI
-  await mainWindow.loadURL(serverUrl);
-
-  // Inject custom UI after page loads
-  mainWindow.webContents.on('did-finish-load', () => {
-    injectUI();
-
-    // If resuming, show previous conversation notice
-    if (isResume && conversationLog.length > 0) {
-      injectResumeNotice();
+  // Create browser window
+  mainWindow = new BrowserWindow({
+    ...WINDOW_CONFIG,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload-v2.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      // Allow file:// to localhost API requests (needed for OpenCode)
+      webSecurity: false
     }
-
-    // Set up message observer for conversation capture
-    setupMessageObserver();
   });
+
+  // Load our custom UI
+  const uiPath = path.join(__dirname, 'ui', 'index.html');
+  await mainWindow.loadFile(uiPath);
+
+  // Inject configuration AFTER page loads
+  // Pass system prompt and user message separately for proper OpenCode API usage
+  await mainWindow.webContents.executeJavaScript(`
+    window.sidecarConfig = {
+      taskId: '${taskId}',
+      model: '${model}',
+      apiBase: '${apiBase}',
+      sessionId: '${sessionId}',
+      systemPrompt: ${JSON.stringify(systemPrompt)},
+      userMessage: ${JSON.stringify(userMessage)},
+      agent: '${agent}'
+    };
+    console.log('[Sidecar] Config injected:', window.sidecarConfig);
+  `);
+
+  // Re-initialize the UI with the config
+  await mainWindow.webContents.executeJavaScript(`
+    if (typeof init === 'function') {
+      init();
+    }
+  `);
+
+
+  // For testing, capture a screenshot if a specific env var is set
+  if (process.env.SIDECAR_SCREENSHOT_PATH) {
+    mainWindow.webContents.on('did-finish-load', () => {
+      mainWindow.webContents.capturePage().then(image => {
+        require('fs').writeFile(process.env.SIDECAR_SCREENSHOT_PATH, image.toPNG(), (err) => {
+          if (err) {
+            logger.error('Failed to capture screenshot', { error: err.message });
+          } else {
+            logger.debug('Screenshot captured', { path: process.env.SIDECAR_SCREENSHOT_PATH });
+          }
+
+        });
+      });
+    });
+  }
 
   // Handle window close
   mainWindow.on('closed', () => {
@@ -264,126 +245,10 @@ async function createWindow() {
 }
 
 // ============================================================================
-// UI Injection (Spec 14.3)
-// ============================================================================
-
-/**
- * Inject custom UI elements into the OpenCode page.
- * Spec Reference: 14.3 - Styling Investigation
- *
- * TODO: Replace hardcoded colors with values extracted from Claude Code Desktop
- * See Spec 14.3 for investigation plan
- */
-function injectUI() {
-  // Load and inject CSS file
-  const cssPath = path.join(__dirname, 'inject.css');
-  if (fs.existsSync(cssPath)) {
-    const css = fs.readFileSync(cssPath, 'utf-8');
-    mainWindow.webContents.insertCSS(css);
-  }
-
-  // Inject title bar via CSS pseudo-element
-  const titleBarCSS = `
-    body::before {
-      content: 'Sidecar ${taskId.slice(0, 6)} | ${model}';
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 60px;
-      height: 28px;
-      background: #1a1a1a;
-      color: #888;
-      font-size: 11px;
-      line-height: 28px;
-      padding-left: 12px;
-      -webkit-app-region: drag;
-      z-index: 10000;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    }
-  `;
-  mainWindow.webContents.insertCSS(titleBarCSS);
-
-  // Inject FOLD button via JavaScript
-  const foldButtonJS = `
-    (function() {
-      // Remove existing button if present (for re-injection)
-      const existing = document.getElementById('fold-btn');
-      if (existing) existing.remove();
-
-      const btn = document.createElement('button');
-      btn.id = 'fold-btn';
-      btn.textContent = 'FOLD';
-      btn.style.cssText = 'position:fixed;top:4px;right:8px;padding:4px 14px;background:#2d5a27;color:white;border:none;border-radius:4px;cursor:pointer;z-index:10001;font-weight:bold;font-size:12px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;';
-
-      btn.onmouseenter = function() { btn.style.background = '#3d7a37'; };
-      btn.onmouseleave = function() { btn.style.background = '#2d5a27'; };
-      btn.onclick = function() { window.electronAPI.fold(); };
-
-      document.body.appendChild(btn);
-    })();
-  `;
-  mainWindow.webContents.executeJavaScript(foldButtonJS);
-}
-
-/**
- * Inject resume notice when resuming a session.
- */
-function injectResumeNotice() {
-  const noticeJS = `
-    (function() {
-      const notice = document.createElement('div');
-      notice.id = 'resume-notice';
-      notice.style.cssText = 'background:#2a2a2a;color:#888;padding:8px 12px;font-size:12px;border-bottom:1px solid #333;position:fixed;top:28px;left:0;right:0;z-index:9999;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;';
-      notice.textContent = 'Resumed session with ${conversationLog.length} previous messages';
-      document.body.appendChild(notice);
-    })();
-  `;
-  mainWindow.webContents.executeJavaScript(noticeJS);
-}
-
-/**
- * Set up message observer for conversation capture.
- * Spec Reference: 8.2 - "Electron shell intercepts all messages and writes to conversation.jsonl in real-time"
- */
-function setupMessageObserver() {
-  const observerJS = `
-    (function() {
-      const observer = new MutationObserver(function(mutations) {
-        mutations.forEach(function(m) {
-          m.addedNodes.forEach(function(node) {
-            if (node.nodeType === 1) {
-              const role = node.getAttribute ? node.getAttribute('data-role') : null;
-              const content = node.textContent ? node.textContent.trim() : '';
-              if (role && content) {
-                window.electronAPI.logMessage({
-                  role: role,
-                  content: content,
-                  timestamp: new Date().toISOString()
-                });
-              }
-            }
-          });
-        });
-      });
-
-      // Start observing (adjust selector based on OpenCode's DOM structure)
-      const chatContainer = document.querySelector('main') || document.body;
-      observer.observe(chatContainer, { childList: true, subtree: true });
-    })();
-  `;
-  mainWindow.webContents.executeJavaScript(observerJS);
-}
-
-// ============================================================================
 // IPC Handlers
 // ============================================================================
 
-/**
- * Handle log-message IPC call.
- * Captures conversation messages in real-time.
- * Spec Reference: 8.2 - Conversation Capture
- */
-ipcMain.handle('log-message', (event, msg) => {
+ipcMain.handle('log-message', (_event, msg) => {
   conversationLog.push(msg);
 
   // Write to file in real-time
@@ -391,63 +256,14 @@ ipcMain.handle('log-message', (event, msg) => {
   fs.appendFileSync(conversationPath, JSON.stringify(msg) + '\n');
 });
 
-/**
- * Handle fold IPC call.
- * Injects summary prompt, waits for response, outputs to stdout, quits.
- * Spec Reference: 6.1 - The Fold Mechanism
- */
 ipcMain.handle('fold', async () => {
-  console.error('[Sidecar] Fold triggered, generating summary...');
+  logger.info('Fold triggered');
 
-  // Inject summary request
-  const injectPromptJS = `
-    (function() {
-      const input = document.querySelector('textarea');
-      if (input) {
-        input.value = ${JSON.stringify(SUMMARY_PROMPT)};
-        input.dispatchEvent(new Event('input', { bubbles: true }));
+  // Get the last assistant message as summary
+  const lastAssistant = [...conversationLog].reverse().find(m => m.role === 'assistant');
+  const summary = lastAssistant?.content || 'Session ended without summary.';
 
-        // Try to submit the form
-        const form = input.closest('form');
-        if (form) {
-          form.dispatchEvent(new Event('submit', { bubbles: true }));
-        } else {
-          // Try pressing Enter
-          input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
-        }
-      }
-    })();
-  `;
-
-  try {
-    await mainWindow.webContents.executeJavaScript(injectPromptJS);
-  } catch (err) {
-    console.error(`[Sidecar] Failed to inject summary prompt: ${err.message}`);
-  }
-
-  // Wait for response (spec says wait 6 seconds)
-  await new Promise((r) => setTimeout(r, 6000));
-
-  // Extract summary from the last assistant message
-  let summary = '';
-  try {
-    summary = await mainWindow.webContents.executeJavaScript(`
-      (function() {
-        const msgs = document.querySelectorAll('[data-role="assistant"]');
-        return msgs.length > 0 ? msgs[msgs.length - 1].textContent.trim() : '';
-      })();
-    `);
-  } catch (err) {
-    console.error(`[Sidecar] Failed to extract summary: ${err.message}`);
-  }
-
-  // Use fallback if no summary extracted
-  if (!summary) {
-    summary = 'Sidecar session ended without summary.';
-  }
-
-  // Output summary to stdout (per spec 11.2)
-  // This is the ONLY thing that should go to stdout
+  // Output summary to stdout
   process.stdout.write(summary);
 
   // Save summary to file
@@ -459,18 +275,286 @@ ipcMain.handle('fold', async () => {
   app.quit();
 });
 
+ipcMain.handle('get-config', () => {
+  return {
+    taskId,
+    model,
+    apiBase: sdkServer ? sdkServer.url : '',
+    sessionId,
+    systemPrompt,
+    userMessage
+  };
+});
+
+// ============================================================================
+// Sub-Agent IPC Handlers
+// ============================================================================
+
+// Store for tracking sub-agent sessions
+const subagentSessions = new Map();
+
+ipcMain.handle('spawn-subagent', async (_event, config) => {
+  const { agentType, briefing, parentSessionId, model: explicitModel } = config;
+
+  // Validate agent type
+  if (!validateAgentType(agentType)) {
+    throw new Error(`Invalid agent type: ${agentType}`);
+  }
+
+  if (!briefing) {
+    throw new Error('Briefing is required');
+  }
+
+  // Resolve model using agent-model configuration
+  // Priority: explicit model > configured model for agent type > parent model
+  let resolvedModel = model; // Parent model from environment
+  let modelWasRouted = false;
+
+  if (explicitModel) {
+    resolvedModel = explicitModel;
+    modelWasRouted = false;
+  } else {
+    const modelConfig = getModelForAgent(agentType, model);
+    resolvedModel = modelConfig.model;
+    modelWasRouted = modelConfig.wasRouted;
+  }
+
+  logger.info('Spawning sub-agent', {
+    agentType,
+    model: resolvedModel,
+    modelWasRouted,
+    briefingPreview: briefing.substring(0, 50)
+  });
+
+  try {
+    // Create child session
+    const childSessionId = await createChildSession(sdkClient, parentSessionId);
+
+    // Build system prompt for sub-agent
+    const agentConfig = getAgentType(agentType);
+    const tools = getAgentTools(agentType);
+
+    let subagentSystemPrompt = `You are a ${agentType} sub-agent. ${agentConfig.description}\n\n`;
+    subagentSystemPrompt += 'Tool Permissions:\n';
+    subagentSystemPrompt += `- Read files: ${tools.read ? 'Yes' : 'No'}\n`;
+    subagentSystemPrompt += `- Write files: ${tools.write ? 'Yes' : 'No'}\n`;
+    subagentSystemPrompt += `- Run bash: ${tools.bash === true ? 'Yes' : tools.bash === false ? 'No' : tools.bash}\n`;
+    subagentSystemPrompt += `- Spawn sub-tasks: ${tools.task ? 'Yes' : 'No'}\n\n`;
+    subagentSystemPrompt += 'When you have completed your task, provide a concise summary of your findings.';
+
+    // Send initial prompt to child session with resolved model
+    await sendPrompt(sdkClient, childSessionId, {
+      model: resolvedModel,
+      system: subagentSystemPrompt,
+      parts: [{ type: 'text', text: briefing }],
+      tools
+    });
+
+    // Track the sub-agent session with model info
+    subagentSessions.set(childSessionId, {
+      agentType,
+      briefing,
+      model: resolvedModel,
+      modelWasRouted,
+      parentSessionId,
+      startedAt: new Date(),
+      completed: false,
+      result: null
+    });
+
+    // Create sub-agent directory for persistence
+    const subagentDir = path.join(sessionDir, 'subagents', childSessionId);
+    fs.mkdirSync(subagentDir, { recursive: true });
+
+    // Log the spawn with model info
+    fs.writeFileSync(path.join(subagentDir, 'metadata.json'), JSON.stringify({
+      agentType,
+      briefing,
+      model: resolvedModel,
+      modelWasRouted,
+      parentSessionId,
+      startedAt: new Date().toISOString()
+    }, null, 2));
+
+    return {
+      childSessionId,
+      model: resolvedModel,
+      modelWasRouted
+    };
+
+  } catch (error) {
+    logger.error('Failed to spawn sub-agent', { error: error.message, agentType });
+    throw error;
+  }
+});
+
+ipcMain.handle('get-subagent-status', async (_event, childSessionId) => {
+  const subagent = subagentSessions.get(childSessionId);
+
+  if (!subagent) {
+    throw new Error(`Sub-agent not found: ${childSessionId}`);
+  }
+
+  if (subagent.completed) {
+    return { completed: true };
+  }
+
+  try {
+    // Check session status via SDK
+    const status = await getSessionStatus(sdkClient, childSessionId);
+
+    // Check if the session has completed (no pending operations)
+    const completed = status.status === 'completed' || status.status === 'idle';
+
+    if (completed && !subagent.completed) {
+      subagent.completed = true;
+      subagent.completedAt = new Date();
+    }
+
+    return { completed };
+
+  } catch (error) {
+    logger.warn('Error checking sub-agent status', { error: error.message, childSessionId });
+    return { completed: false };
+  }
+});
+
+ipcMain.handle('get-subagent-result', async (_event, childSessionId) => {
+  const subagent = subagentSessions.get(childSessionId);
+
+  if (!subagent) {
+    throw new Error(`Sub-agent not found: ${childSessionId}`);
+  }
+
+  try {
+    // Get messages from child session
+    const messages = await getMessages(sdkClient, childSessionId);
+
+    // Find the last assistant message as the summary
+    const lastAssistant = [...messages].reverse().find(m =>
+      m.role === 'assistant' || (m.parts && m.parts.some(p => p.type === 'text'))
+    );
+
+    let summary = 'No result available.';
+    if (lastAssistant) {
+      if (lastAssistant.content) {
+        summary = lastAssistant.content;
+      } else if (lastAssistant.parts) {
+        const textPart = lastAssistant.parts.find(p => p.type === 'text');
+        if (textPart) {
+          summary = textPart.text;
+        }
+      }
+    }
+
+    // Save the result
+    subagent.result = summary;
+
+    // Persist to file
+    const subagentDir = path.join(sessionDir, 'subagents', childSessionId);
+    fs.writeFileSync(path.join(subagentDir, 'summary.md'), summary);
+
+    return { summary };
+
+  } catch (error) {
+    logger.error('Error getting sub-agent result', { error: error.message, childSessionId });
+    throw error;
+  }
+});
+
+// ============================================================================
+// Agent-Model Configuration IPC Handlers
+// ============================================================================
+
+ipcMain.handle('get-agent-model-config', () => {
+  return loadConfig();
+});
+
+ipcMain.handle('set-agent-model-config', (_event, config) => {
+  return saveConfig(config);
+});
+
+// ============================================================================
+// Request Cancellation IPC Handlers
+// ============================================================================
+
+ipcMain.handle('cancel-request', async () => {
+  logger.info('Cancel request triggered');
+
+  if (!isRequestInFlight) {
+    return { success: false, message: 'No request in flight' };
+  }
+
+  try {
+    // Abort the current request if we have an AbortController
+    if (currentAbortController) {
+      currentAbortController.abort();
+      currentAbortController = null;
+    }
+
+    isRequestInFlight = false;
+
+    // Notify the renderer that the request was cancelled
+    if (mainWindow && mainWindow.webContents) {
+      mainWindow.webContents.send('request-cancelled');
+    }
+
+    return { success: true, message: 'Request cancelled' };
+  } catch (error) {
+    logger.error('Error cancelling request', { error: error.message });
+    return { success: false, message: error.message };
+  }
+});
+
+ipcMain.handle('set-request-state', (_event, inFlight) => {
+  isRequestInFlight = inFlight;
+  if (inFlight) {
+    currentAbortController = new AbortController();
+  } else {
+    currentAbortController = null;
+  }
+  return { success: true };
+});
+
+ipcMain.handle('get-abort-signal', () => {
+  // Note: AbortSignal cannot be directly passed via IPC
+  // The renderer will need to handle cancellation via the 'request-cancelled' event
+  return { hasController: !!currentAbortController };
+});
+
+// ============================================================================
+// Server Health Check IPC Handlers
+// ============================================================================
+
+ipcMain.handle('check-server-health', async () => {
+  try {
+    if (!sdkClient) {
+      return { healthy: false, lastCheck: new Date().toISOString() };
+    }
+
+    const isHealthy = await checkHealth(sdkClient);
+    lastHealthStatus = isHealthy;
+    lastHealthCheck = new Date().toISOString();
+
+    return { healthy: isHealthy, lastCheck: lastHealthCheck };
+  } catch (error) {
+    logger.warn('Health check error', { error: error.message });
+    lastHealthStatus = false;
+    lastHealthCheck = new Date().toISOString();
+    return { healthy: false, lastCheck: lastHealthCheck };
+  }
+});
+
 // ============================================================================
 // Cleanup
 // ============================================================================
 
-/**
- * Clean up resources before exit.
- */
 function cleanup() {
-  if (serverProcess) {
-    console.error('[Sidecar] Stopping OpenCode server...');
-    serverProcess.kill();
-    serverProcess = null;
+  if (sdkServer) {
+    logger.info('Stopping OpenCode server');
+    sdkServer.close();
+    sdkServer = null;
+    sdkClient = null;
   }
 }
 
@@ -478,29 +562,32 @@ function cleanup() {
 // App Lifecycle
 // ============================================================================
 
-// Start the app when ready
 app.whenReady().then(createWindow).catch((err) => {
-  console.error(`[Sidecar] Failed to start: ${err.message}`);
+  logger.error('Failed to start Electron app', { error: err.message });
   process.exit(1);
 });
 
-// Quit when all windows are closed
 app.on('window-all-closed', () => {
+  logger.info('Window closed without FOLD');
+
+  // Get the last assistant message as summary (same as fold)
+  const lastAssistant = [...conversationLog].reverse().find(m => m.role === 'assistant');
+  const summary = lastAssistant?.content || '';
+
+  // If we have a summary, output it
+  if (summary) {
+    // Save summary to file
+    const summaryPath = path.join(sessionDir, 'summary.md');
+    fs.writeFileSync(summaryPath, summary);
+
+    // Output to stdout so CLI receives it
+    process.stdout.write(summary);
+  }
+
   cleanup();
   app.quit();
 });
 
-// Handle app quit
-app.on('quit', () => {
-  cleanup();
-});
+app.on('quit', cleanup);
 
-// Export for testing
-module.exports = {
-  WINDOW_CONFIG,
-  START_PORT,
-  SERVER_CHECK,
-  SUMMARY_PROMPT,
-  findAvailablePort,
-  waitForServer
-};
+module.exports = { WINDOW_CONFIG, START_PORT };

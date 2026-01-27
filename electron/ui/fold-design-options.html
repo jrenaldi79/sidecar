@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fold Button - Option B Variations</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-base: #262624;
+      --bg-elevated: #2d2d2b;
+      --bg-card: #3d3d3b;
+      --text-primary: #f5f4ef;
+      --text-secondary: #e5e5e2;
+      --text-muted: #a6a39a;
+      --border-color: rgba(108, 106, 96, 0.25);
+      --accent-brand: #da7756;
+      --accent-success: #4a9137;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #1a1a18;
+      color: var(--text-primary);
+      padding: 40px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    h1 {
+      font-size: 24px;
+      font-weight: 500;
+      margin-bottom: 8px;
+      color: var(--text-primary);
+    }
+
+    .subtitle {
+      font-size: 14px;
+      font-weight: 300;
+      color: var(--text-muted);
+      margin-bottom: 40px;
+    }
+
+    .options-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 32px;
+      max-width: 1400px;
+    }
+
+    .option {
+      background: var(--bg-base);
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--border-color);
+    }
+
+    .option-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border-color);
+      background: rgba(0,0,0,0.2);
+    }
+
+    .option-title {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-primary);
+      margin-bottom: 4px;
+    }
+
+    .option-desc {
+      font-size: 12px;
+      font-weight: 300;
+      color: var(--text-muted);
+    }
+
+    .mock-window {
+      height: 380px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .mock-titlebar {
+      height: 40px;
+      background: var(--bg-base);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      padding: 0 16px 0 80px;
+      flex-shrink: 0;
+    }
+
+    .mock-titlebar .title-info {
+      font-size: 12px;
+      font-weight: 300;
+      color: var(--text-muted);
+      display: flex;
+      gap: 8px;
+    }
+
+    .mock-titlebar .separator {
+      color: var(--border-color);
+    }
+
+    .mock-titlebar .model-name {
+      color: var(--accent-brand);
+    }
+
+    .mock-chat {
+      flex: 1;
+      background: var(--bg-base);
+      padding: 20px;
+      overflow: hidden;
+    }
+
+    .mock-message {
+      background: var(--bg-elevated);
+      border-radius: 12px;
+      padding: 12px 16px;
+      margin-bottom: 12px;
+      font-size: 13px;
+      color: var(--text-secondary);
+      font-weight: 300;
+    }
+
+    .mock-message.system {
+      background: transparent;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+
+    .mock-input-area {
+      padding: 12px 16px 12px;
+      background: var(--bg-base);
+      flex-shrink: 0;
+    }
+
+    .mock-input-wrapper {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 12px 16px;
+    }
+
+    .mock-textarea {
+      font-size: 14px;
+      color: var(--text-muted);
+      font-weight: 300;
+      margin-bottom: 12px;
+    }
+
+    .mock-controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .mock-controls-left,
+    .mock-controls-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .mock-mode-bar {
+      padding: 8px 4px 0;
+    }
+
+    /* Button styles */
+    .btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      height: 36px;
+      padding: 0 14px;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    .btn-icon {
+      width: 36px;
+      height: 36px;
+      padding: 0;
+      justify-content: center;
+    }
+
+    .btn-small {
+      height: 28px;
+      padding: 0 10px;
+      font-size: 12px;
+      font-weight: 400;
+    }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-muted);
+    }
+
+    .btn-dark {
+      background: var(--bg-card);
+      color: var(--text-primary);
+    }
+
+    .btn-brand {
+      background: var(--accent-brand);
+      color: white;
+    }
+
+    svg {
+      flex-shrink: 0;
+    }
+
+    /* Bottom bar variations */
+    .mock-bottom-bar {
+      padding: 12px 16px;
+      display: flex;
+      flex-shrink: 0;
+    }
+
+    /* B1: Full width solid green */
+    .bottom-bar-v1 {
+      background: var(--bg-base);
+      border-top: 1px solid var(--border-color);
+      justify-content: center;
+    }
+
+    .bottom-bar-v1 .return-btn {
+      width: 100%;
+      max-width: 280px;
+      height: 40px;
+      background: var(--accent-success);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    /* B2: Outline style, right-aligned */
+    .bottom-bar-v2 {
+      background: var(--bg-base);
+      border-top: 1px solid var(--border-color);
+      justify-content: flex-end;
+    }
+
+    .bottom-bar-v2 .return-btn {
+      height: 36px;
+      background: transparent;
+      color: var(--accent-success);
+      border: 1px solid var(--accent-success);
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      gap: 6px;
+    }
+
+    /* B3: Subtle bar with text hint */
+    .bottom-bar-v3 {
+      background: rgba(74, 145, 55, 0.08);
+      border-top: 1px solid rgba(74, 145, 55, 0.2);
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .bottom-bar-v3 .hint-text {
+      font-size: 12px;
+      font-weight: 300;
+      color: var(--text-muted);
+    }
+
+    .bottom-bar-v3 .return-btn {
+      height: 36px;
+      background: transparent;
+      color: var(--accent-success);
+      border: 1px solid var(--accent-success);
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      gap: 6px;
+    }
+
+    /* B4: Compact pill centered */
+    .bottom-bar-v4 {
+      background: var(--bg-base);
+      border-top: 1px solid var(--border-color);
+      justify-content: center;
+      padding: 10px 16px;
+    }
+
+    .bottom-bar-v4 .return-btn {
+      height: 32px;
+      background: rgba(74, 145, 55, 0.15);
+      color: var(--accent-success);
+      border: 1px solid rgba(74, 145, 55, 0.3);
+      border-radius: 16px;
+      font-size: 12px;
+      font-weight: 500;
+      gap: 6px;
+      padding: 0 16px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Option B Variations - Bottom Action Bar</h1>
+  <p class="subtitle">Different styles for the bottom "Return to Claude" action</p>
+
+  <div class="options-grid">
+
+    <!-- B1: Full width solid green -->
+    <div class="option">
+      <div class="option-header">
+        <div class="option-title">B1: Full Width Solid</div>
+        <div class="option-desc">Prominent centered button - strong CTA</div>
+      </div>
+      <div class="mock-window">
+        <div class="mock-titlebar">
+          <div class="title-info">
+            <span>8c7ec8df</span>
+            <span class="separator">|</span>
+            <span class="model-name">Gemini 2.5 Flash</span>
+          </div>
+        </div>
+        <div class="mock-chat">
+          <div class="mock-message system">Task: Analyze the authentication flow</div>
+          <div class="mock-message">I've analyzed the authentication flow...</div>
+        </div>
+        <div class="mock-input-area">
+          <div class="mock-input-wrapper">
+            <div class="mock-textarea">Ask a follow-up...</div>
+            <div class="mock-controls">
+              <div class="mock-controls-left">
+                <button class="btn btn-icon btn-ghost">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                </button>
+              </div>
+              <div class="mock-controls-right">
+                <button class="btn btn-dark btn-small">Gemini 2.5 Flash <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg></button>
+                <button class="btn btn-icon btn-brand"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+              </div>
+            </div>
+          </div>
+          <div class="mock-mode-bar">
+            <button class="btn btn-dark btn-small"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="3 5 11 12 3 19"/><polygon points="13 5 21 12 13 19"/></svg> Edit automatically</button>
+          </div>
+        </div>
+        <div class="mock-bottom-bar bottom-bar-v1">
+          <button class="btn return-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12l5 5L20 7"/></svg>
+            Complete & Return
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- B2: Outline right-aligned -->
+    <div class="option">
+      <div class="option-header">
+        <div class="option-title">B2: Outline Right-Aligned</div>
+        <div class="option-desc">Subtle outline button on the right</div>
+      </div>
+      <div class="mock-window">
+        <div class="mock-titlebar">
+          <div class="title-info">
+            <span>8c7ec8df</span>
+            <span class="separator">|</span>
+            <span class="model-name">Gemini 2.5 Flash</span>
+          </div>
+        </div>
+        <div class="mock-chat">
+          <div class="mock-message system">Task: Analyze the authentication flow</div>
+          <div class="mock-message">I've analyzed the authentication flow...</div>
+        </div>
+        <div class="mock-input-area">
+          <div class="mock-input-wrapper">
+            <div class="mock-textarea">Ask a follow-up...</div>
+            <div class="mock-controls">
+              <div class="mock-controls-left">
+                <button class="btn btn-icon btn-ghost">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                </button>
+              </div>
+              <div class="mock-controls-right">
+                <button class="btn btn-dark btn-small">Gemini 2.5 Flash <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg></button>
+                <button class="btn btn-icon btn-brand"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+              </div>
+            </div>
+          </div>
+          <div class="mock-mode-bar">
+            <button class="btn btn-dark btn-small"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="3 5 11 12 3 19"/><polygon points="13 5 21 12 13 19"/></svg> Edit automatically</button>
+          </div>
+        </div>
+        <div class="mock-bottom-bar bottom-bar-v2">
+          <button class="btn return-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+            Return to Claude
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- B3: Subtle bar with hint -->
+    <div class="option">
+      <div class="option-header">
+        <div class="option-title">B3: Contextual Bar with Hint</div>
+        <div class="option-desc">Green tinted bar with helper text</div>
+      </div>
+      <div class="mock-window">
+        <div class="mock-titlebar">
+          <div class="title-info">
+            <span>8c7ec8df</span>
+            <span class="separator">|</span>
+            <span class="model-name">Gemini 2.5 Flash</span>
+          </div>
+        </div>
+        <div class="mock-chat">
+          <div class="mock-message system">Task: Analyze the authentication flow</div>
+          <div class="mock-message">I've analyzed the authentication flow...</div>
+        </div>
+        <div class="mock-input-area">
+          <div class="mock-input-wrapper">
+            <div class="mock-textarea">Ask a follow-up...</div>
+            <div class="mock-controls">
+              <div class="mock-controls-left">
+                <button class="btn btn-icon btn-ghost">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                </button>
+              </div>
+              <div class="mock-controls-right">
+                <button class="btn btn-dark btn-small">Gemini 2.5 Flash <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg></button>
+                <button class="btn btn-icon btn-brand"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+              </div>
+            </div>
+          </div>
+          <div class="mock-mode-bar">
+            <button class="btn btn-dark btn-small"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="3 5 11 12 3 19"/><polygon points="13 5 21 12 13 19"/></svg> Edit automatically</button>
+          </div>
+        </div>
+        <div class="mock-bottom-bar bottom-bar-v3">
+          <span class="hint-text">Fold this conversation back into Claude</span>
+          <button class="btn return-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 10l-5 5 5 5"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/></svg>
+            Fold & Return
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- B4: Compact pill -->
+    <div class="option">
+      <div class="option-header">
+        <div class="option-title">B4: Compact Pill</div>
+        <div class="option-desc">Small centered pill button - minimal footprint</div>
+      </div>
+      <div class="mock-window">
+        <div class="mock-titlebar">
+          <div class="title-info">
+            <span>8c7ec8df</span>
+            <span class="separator">|</span>
+            <span class="model-name">Gemini 2.5 Flash</span>
+          </div>
+        </div>
+        <div class="mock-chat">
+          <div class="mock-message system">Task: Analyze the authentication flow</div>
+          <div class="mock-message">I've analyzed the authentication flow...</div>
+        </div>
+        <div class="mock-input-area">
+          <div class="mock-input-wrapper">
+            <div class="mock-textarea">Ask a follow-up...</div>
+            <div class="mock-controls">
+              <div class="mock-controls-left">
+                <button class="btn btn-icon btn-ghost">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                </button>
+              </div>
+              <div class="mock-controls-right">
+                <button class="btn btn-dark btn-small">Gemini 2.5 Flash <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg></button>
+                <button class="btn btn-icon btn-brand"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+              </div>
+            </div>
+          </div>
+          <div class="mock-mode-bar">
+            <button class="btn btn-dark btn-small"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="3 5 11 12 3 19"/><polygon points="13 5 21 12 13 19"/></svg> Edit automatically</button>
+          </div>
+        </div>
+        <div class="mock-bottom-bar bottom-bar-v4">
+          <button class="btn return-btn">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 10l-5 5 5 5"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/></svg>
+            Return to Claude
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>

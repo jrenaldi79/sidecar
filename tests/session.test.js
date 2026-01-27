@@ -48,9 +48,9 @@ describe('Session Resolver', () => {
       expect(result).toBe('C:-Users-john-myproject');
     });
 
-    it('should preserve other special characters', () => {
+    it('should convert underscores to dashes (matching Claude Code behavior)', () => {
       const result = encodeProjectPath('/Users/john/my-project_v2');
-      expect(result).toBe('-Users-john-my-project_v2');
+      expect(result).toBe('-Users-john-my-project-v2');
     });
   });
 

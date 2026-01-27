@@ -32,8 +32,9 @@ function main() {
     console.log('  sidecar start --model google/gemini-2.5-pro --briefing "Your task"');
     console.log('');
     console.log('[claude-sidecar] Prerequisites:');
-    console.log('  - OpenCode CLI: npm install -g opencode');
-    console.log('  - Configure API keys for your chosen models');
+    console.log('  - OpenCode CLI: npm install -g opencode-ai');
+    console.log('  - Configure API: Run `npx opencode-ai` and use /connect');
+    console.log('  - Or set direct API keys: GEMINI_API_KEY, OPENAI_API_KEY, etc.');
     
   } catch (err) {
     console.error('[claude-sidecar] Warning: Could not install skill automatically.');

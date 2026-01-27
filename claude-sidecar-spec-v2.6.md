@@ -1004,57 +1004,72 @@ async function runInteractive(model, systemPrompt, taskId, project) {
 async function runHeadless(model, systemPrompt, taskId, project, timeoutMs) {
   const sessionDir = path.join(project, '.claude', 'sidecar_sessions', taskId);
   const conversationPath = path.join(sessionDir, 'conversation.jsonl');
-  
-  return new Promise((resolve) => {
-    // Write system prompt to temp file
-    const promptFile = `/tmp/sidecar_${taskId}_prompt.txt`;
-    fs.writeFileSync(promptFile, systemPrompt);
-    
-    // Log system prompt as first message
-    fs.appendFileSync(conversationPath, JSON.stringify({
-      role: 'system',
-      content: systemPrompt,
-      timestamp: new Date().toISOString()
-    }) + '\n');
-    
-    const child = spawn('opencode', ['run', `Read instructions from ${promptFile} and execute.`], {
-      cwd: project,
-      env: { ...process.env, OPENCODE_MODEL: model },
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
-    
-    let output = '';
-    
-    child.stdout.on('data', (data) => {
-      const text = data.toString();
-      output += text;
-      
-      // Log assistant output
-      fs.appendFileSync(conversationPath, JSON.stringify({
-        role: 'assistant',
-        content: text,
-        timestamp: new Date().toISOString()
-      }) + '\n');
-      
-      // Check for completion marker
-      if (output.includes('[SIDECAR_COMPLETE]')) {
-        child.kill();
-      }
-    });
-    
-    // Timeout handler
-    const timer = setTimeout(() => {
-      child.kill();
-      resolve(output || 'Sidecar timed out without output.');
-    }, timeoutMs);
-    
-    child.on('close', () => {
-      clearTimeout(timer);
-      // Extract summary (everything before [SIDECAR_COMPLETE])
-      const summary = output.split('[SIDECAR_COMPLETE]')[0].trim();
-      resolve(summary || 'Sidecar completed without summary.');
-    });
+
+  // Log system prompt as first message
+  fs.appendFileSync(conversationPath, JSON.stringify({
+    role: 'system',
+    content: systemPrompt,
+    timestamp: new Date().toISOString()
+  }) + '\n');
+
+  // Find available port for OpenCode server
+  const port = await findAvailablePort(14440);
+
+  // Start OpenCode server (HTTP API mode)
+  // See: https://opencode.ai/docs/cli/#serve
+  const serverProcess = spawn('npx', ['opencode-ai', 'serve', '--port', String(port)], {
+    cwd: project,
+    env: { ...process.env, OPENCODE_MODEL: model },
+    stdio: ['pipe', 'pipe', 'pipe']
   });
+
+  try {
+    // Wait for server to be ready
+    await waitForServer(port);
+
+    // Create a session via HTTP API
+    const sessionResp = await httpRequest('POST', `http://127.0.0.1:${port}/session`, {});
+    const sessionId = sessionResp.id;
+
+    // Send the system prompt as a message
+    const msgResp = await httpRequest('POST', `http://127.0.0.1:${port}/session/${sessionId}/message`, {
+      parts: [{ type: 'text', text: systemPrompt }]
+    });
+
+    let output = '';
+
+    // Process response parts
+    if (msgResp.parts) {
+      for (const part of msgResp.parts) {
+        if (part.type === 'text' && part.text) {
+          output += part.text;
+          fs.appendFileSync(conversationPath, JSON.stringify({
+            role: 'assistant',
+            content: part.text,
+            timestamp: new Date().toISOString()
+          }) + '\n');
+        }
+      }
+    }
+
+    // Poll for completion or timeout
+    const startTime = Date.now();
+    while (!output.includes('[SIDECAR_COMPLETE]') && (Date.now() - startTime) < timeoutMs) {
+      await sleep(2000);
+      const messages = await httpRequest('GET', `http://127.0.0.1:${port}/session/${sessionId}/message`);
+      // Process any new messages...
+    }
+
+    serverProcess.kill();
+
+    // Extract summary (everything before [SIDECAR_COMPLETE])
+    const summary = output.split('[SIDECAR_COMPLETE]')[0].trim();
+    return summary || 'Sidecar completed without summary.';
+
+  } catch (error) {
+    serverProcess.kill();
+    throw error;
+  }
 }
 
 function buildSystemPrompt(briefing, context, project, headless) {
@@ -2182,4 +2197,6 @@ OpenCode has its own theme. We need to inject CSS that overrides it to match Cla
 | 2.3 | 2025-01-25 | Added persistence, resume, headless mode |
 | 2.4 | 2025-01-25 | Simplified to blocking CLI with stdout return |
 | 2.5 | 2025-01-25 | Added conflict detection, drift warnings, session resolution |
+| 2.6 | 2025-01-25 | Full spec consolidation |
+| 2.7 | 2026-01-25 | Headless mode uses `opencode serve` HTTP API instead of `opencode run` |
 | 2.6 | 2025-01-25 | Added Claude Code Skill, npm distribution, implementation task tracking, Claude Desktop styling investigation plan |
