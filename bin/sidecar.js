@@ -90,7 +90,9 @@ async function handleStart(args) {
     timeout: args.timeout,
     agent,
     mcp: args.mcp,
-    mcpConfig: args['mcp-config']
+    mcpConfig: args['mcp-config'],
+    thinking: args.thinking,
+    summaryLength: args['summary-length']
   });
 }
 

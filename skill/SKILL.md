@@ -168,7 +168,24 @@ sidecar start \
 - `--headless`: Run autonomously without GUI (for bulk tasks)
 - `--timeout <min>`: Headless timeout (default: 15)
 - `--context-turns <N>`: Max conversation turns to include (default: 50)
+- `--context-since <duration>`: Time filter for context (e.g., `2h`, `30m`, `1d`). Overrides `--context-turns`.
 - `--context-max-tokens <N>`: Max context size (default: 80000)
+- `--thinking <level>`: Model thinking/reasoning effort level:
+  - `none` - No extended thinking
+  - `minimal` - Minimal thinking (may be adjusted if unsupported by model)
+  - `low` - Low thinking effort
+  - `medium` - Medium thinking effort (default)
+  - `high` - High thinking effort
+  - `xhigh` - Extra high thinking effort
+  Note: If the model doesn't support the specified level, it will be automatically adjusted.
+- `--summary-length <length>`: Summary verbosity:
+  - `brief` - Concise summary
+  - `normal` - Standard summary (default)
+  - `verbose` - Detailed summary
+- `--mcp <spec>`: Add MCP server for enhanced tool access. Formats:
+  - `name=url` - Remote MCP server (e.g., `--mcp "db=postgresql://localhost:5432/mydb"`)
+  - `name=command` - Local MCP server (spawns process)
+- `--mcp-config <path>`: Path to opencode.json file with MCP server configuration. Alternative to `--mcp` for complex setups.
 - `--agent <agent>`: OpenCode agent type (controls tool access via native framework):
 
   **Primary Agents (for `sidecar start`):**
@@ -242,7 +259,14 @@ sidecar start --model openrouter/google/gemini-2.5-flash --briefing "Task"
 sidecar list
 sidecar list --status complete
 sidecar list --all  # All projects
+sidecar list --json # Output as JSON
 ```
+
+**Optional:**
+- `--status <filter>`: Filter by status (`running`, `complete`)
+- `--all`: Show sessions from all projects
+- `--json`: Output as JSON format (for programmatic use)
+- `--project <path>`: Project directory (default: current directory)
 
 ### Resume a Sidecar
 
@@ -252,22 +276,47 @@ sidecar resume <task_id>
 
 Reopens a previous session with full conversation history.
 
+**Optional:**
+- `--headless`: Continue session in autonomous mode
+- `--timeout <minutes>`: Timeout for headless mode (default: 15)
+- `--project <path>`: Project directory (default: current directory)
+
 ### Continue from a Sidecar
 
 ```bash
-sidecar continue <task_id> --model <model> --briefing "<new task>"
+sidecar continue <task_id> --briefing "<new task>"
 ```
 
 Starts a NEW sidecar that inherits the old sidecar's conversation as context.
+
+**Required:**
+- `--briefing`: New task description for the continuation
+
+**Optional:**
+- `--model <model>`: Override model (defaults to original session's model)
+- `--context-turns <N>`: Max turns from previous session to include (default: 50)
+- `--context-max-tokens <N>`: Max tokens for context (default: 80000)
+- `--headless`: Run in autonomous mode
+- `--timeout <minutes>`: Timeout for headless mode (default: 15)
+- `--project <path>`: Project directory (default: current directory)
 
 ### Read Sidecar Output
 
 ```bash
 sidecar read <task_id>                 # Show summary
 sidecar read <task_id> --conversation  # Show full conversation
+sidecar read <task_id> --metadata      # Show session metadata
 ```
 
+**Optional:**
+- `--summary`: Show summary (default if no option specified)
+- `--conversation`: Show full conversation history
+- `--metadata`: Show session metadata (model, agent, timestamps, etc.)
+- `--project <path>`: Project directory (default: current directory)
+
 ### Subagent Commands
+
+> 🚧 **Planned Feature**: Subagent commands are documented for future reference but are **not yet implemented** in the current CLI. Running these commands will result in "Unknown command: subagent" errors. This section describes the planned API for when the feature is released.
 
 Spawn and manage subagents within a sidecar session. Subagents run in parallel with the main session.
 
@@ -339,6 +388,20 @@ In interactive mode, these 6 models are available in the dropdown for quick swit
 - **OpenAI:** GPT-4o, o3-mini
 - **Anthropic:** Claude Sonnet 4
 - **DeepSeek:** DeepSeek Chat
+
+### Verifying Model Names
+
+**Note:** Model names change frequently as providers release new versions. To verify current model names:
+
+```bash
+# List available OpenRouter models
+curl https://openrouter.ai/api/v1/models | jq '.data[].id' | grep -i gemini
+
+# Or check the OpenRouter website
+# https://openrouter.ai/models
+```
+
+Always verify model names before using them in production scripts.
 
 ---
 
