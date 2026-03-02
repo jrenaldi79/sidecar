@@ -52,6 +52,22 @@ let requestStartTime = null;
 let isCancelMode = false;
 let cancelClickHandler = null;
 
+// SSE Streaming State
+let sseSubscribed = false;
+let streamingTextBuffer = '';
+let streamingMessageEl = null;
+let streamingRequestResolve = null; // Resolve function for streaming promise
+let streamingToolsCalled = [];
+let streamingProcessedReasoningIds = new Set();
+let sseMessageAddedForCurrentRequest = false; // Track if SSE added a message for current request
+let userSentMessageContents = new Set(); // Track message contents we've sent to filter from SSE
+let currentStreamingMessageId = null; // Track the message ID we're currently streaming
+
+// Response Block State (unified text + tools)
+let currentResponseBlock = null;
+let responseBlockToolStats = { total: 0, completed: 0, running: 0, failed: 0 };
+let pendingPermissionsForTools = new Map(); // callId -> permission data
+
 // Status Indicator State
 let statusCheckInterval = null;
 let lastStatusCheck = null;
@@ -61,6 +77,870 @@ const STATUS_CHECK_INTERVAL = 10000; // Check every 10 seconds
 const subagents = new Map();
 // OpenCode native subagent types only: General (full access) and Explore (read-only)
 const VALID_SUBAGENT_TYPES = ['general', 'explore'];
+
+// Context Panel State
+let contextPanelState = null;
+let contextModalVisible = false;
+
+// ============================================================================
+// Error Reporting Utility
+// ============================================================================
+
+/**
+ * Report an error to the main process for logging and diagnostics
+ * @param {string} source - Error source (e.g., 'fetch', 'api', 'init')
+ * @param {string} message - Error message
+ * @param {object} [context] - Additional context
+ * @param {Error} [error] - Original error object
+ */
+async function reportError(source, message, context = {}, error = null) {
+  console.error(`[Sidecar][${source}] ${message}`, context, error);
+
+  // Report to main process if API is available
+  if (window.electronAPI?.reportError) {
+    try {
+      await window.electronAPI.reportError({
+        source,
+        message,
+        context: {
+          ...context,
+          url: window.location?.href,
+          timestamp: Date.now()
+        },
+        stack: error?.stack
+      });
+    } catch (e) {
+      // Ignore reporting errors
+      console.warn('[Sidecar] Failed to report error to main:', e);
+    }
+  }
+}
+
+/**
+ * Use IPC proxy for API calls (bypasses Chromium network service issues)
+ * @param {string} endpoint - API endpoint (e.g., '/session/abc/message')
+ * @param {object} options - Fetch-like options
+ * @returns {Promise<{ok: boolean, status: number, data: any}>}
+ */
+async function proxyFetch(endpoint, options = {}) {
+  // Check if IPC proxy is available
+  if (window.electronAPI?.proxyApiCall) {
+    try {
+      const body = options.body ? JSON.parse(options.body) : undefined;
+      const result = await window.electronAPI.proxyApiCall({
+        method: options.method || 'GET',
+        endpoint,
+        body
+      });
+
+      // If proxy returned an error field, throw it
+      if (result.error) {
+        throw new Error(result.error);
+      }
+
+      return result;
+    } catch (err) {
+      await reportError('proxy', `IPC proxy failed: ${err.message}`, { endpoint }, err);
+      throw err;
+    }
+  }
+
+  // Fallback to direct fetch if proxy not available
+  return safeFetch(`${config.apiBase}${endpoint}`, options);
+}
+
+/**
+ * Wrap fetch with error reporting (used when IPC proxy not available)
+ * @param {string} url - URL to fetch
+ * @param {object} options - Fetch options
+ * @returns {Promise<Response>}
+ */
+async function safeFetch(url, options = {}) {
+  try {
+    const response = await fetch(url, options);
+
+    // Check for empty response that should have content
+    if (response.ok && options.method === 'POST') {
+      const contentLength = response.headers.get('content-length');
+      if (contentLength === '0') {
+        await reportError('api', 'API returned empty response', {
+          url,
+          status: response.status,
+          method: options.method
+        });
+      }
+    }
+
+    // Convert response to our standard format
+    const text = await response.text();
+    return {
+      ok: response.ok,
+      status: response.status,
+      data: text ? JSON.parse(text) : null
+    };
+  } catch (err) {
+    // Report network-level errors
+    await reportError('network', `Fetch failed: ${err.message}`, {
+      url,
+      method: options.method || 'GET'
+    }, err);
+    throw err;
+  }
+}
+
+/**
+ * Parse JSON response with error handling
+ * @param {Response} response - Fetch response
+ * @returns {Promise<object>}
+ */
+async function safeJsonParse(response) {
+  const text = await response.text();
+
+  if (!text || text.length === 0) {
+    await reportError('api', 'Empty response body', {
+      status: response.status,
+      url: response.url
+    });
+    throw new Error('Server returned empty response - API may be unavailable');
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    await reportError('api', 'JSON parse failed', {
+      status: response.status,
+      url: response.url,
+      bodyPreview: text.slice(0, 200)
+    }, err);
+    throw new Error(`Invalid JSON response: ${err.message}`);
+  }
+}
+
+// ============================================================================
+// SSE Streaming Functions
+// ============================================================================
+
+/**
+ * Subscribe to SSE events for real-time streaming
+ */
+async function subscribeToSSE() {
+  if (sseSubscribed) {
+    console.log('[Sidecar] SSE already subscribed');
+    return;
+  }
+
+  if (!window.electronAPI?.subscribeSSE) {
+    console.warn('[Sidecar] SSE not available - using sync mode');
+    return;
+  }
+
+  try {
+    const result = await window.electronAPI.subscribeSSE();
+    if (result.success) {
+      sseSubscribed = true;
+      console.log('[Sidecar] ✅ SSE subscription active');
+
+      // Set up event listener
+      window.electronAPI.onSSEEvent(handleSSEEvent);
+    } else {
+      console.warn('[Sidecar] SSE subscription failed:', result.message);
+    }
+  } catch (err) {
+    console.error('[Sidecar] SSE subscription error:', err);
+  }
+}
+
+/**
+ * Unsubscribe from SSE events
+ */
+async function unsubscribeFromSSE() {
+  if (!sseSubscribed) return;
+
+  if (window.electronAPI?.unsubscribeSSE) {
+    await window.electronAPI.unsubscribeSSE();
+  }
+  sseSubscribed = false;
+  console.log('[Sidecar] SSE unsubscribed');
+}
+
+/**
+ * Handle SSE events from the server
+ * @param {{type: string, data: object}} event - SSE event
+ */
+function handleSSEEvent(event) {
+  // OpenCode wraps events in a payload object
+  // Format: { payload: { type: "message.part.updated", properties: {...} } }
+  const payload = event.data?.payload || event.data;
+  const eventType = payload?.type || event.type;
+  const properties = payload?.properties || payload;
+
+  console.log('[Sidecar] SSE event:', eventType, properties);
+
+  switch (eventType) {
+    case 'message.delta':
+    case 'message.part.updated':
+      handleMessagePartUpdate(properties);
+      break;
+
+    case 'message.complete':
+    case 'message.updated':
+      handleMessageUpdate(properties);
+      // Capture usage data if present
+      if (properties?.usage) {
+        updateContextUsage(properties.usage);
+      }
+      break;
+
+    case 'session.idle':
+      handleSessionIdle(properties);
+      break;
+
+    case 'session.complete':
+    case 'session.status':
+      handleSessionStatus(properties);
+      break;
+
+    case 'tool.start':
+    case 'session.tool.start':
+      handleToolStart(properties);
+      break;
+
+    case 'tool.complete':
+    case 'session.tool.complete':
+      handleToolComplete(properties);
+      break;
+
+    case 'reasoning':
+    case 'session.reasoning':
+      handleStreamingReasoning(properties);
+      break;
+
+    case 'error':
+    case 'session.error':
+      handleStreamingError(properties);
+      break;
+
+    case 'server.connected':
+      console.log('[Sidecar] SSE server connected');
+      break;
+
+    case 'session.updated':
+    case 'session.diff':
+      // Informational events, no action needed
+      break;
+
+    case 'question.asked':
+      handleQuestionAsked(properties);
+      break;
+
+    case 'permission.asked':
+    case 'permission.updated':
+      handlePermissionAsked(properties);
+      break;
+
+    default:
+      console.log('[Sidecar] Unhandled SSE event type:', eventType);
+  }
+}
+
+/**
+ * Handle message part update (streaming text chunks)
+ * @param {object} properties - Part properties
+ */
+function handleMessagePartUpdate(properties) {
+  const part = properties?.part || properties;
+  if (!part) return;
+
+  // Get message ID from the part
+  const messageId = part?.messageID || properties?.messageID;
+
+  // Handle text parts
+  if (part.type === 'text' && part.text) {
+    const textContent = part.text.trim();
+
+    // Skip messages we've sent as user - they are echoed back via SSE
+    // Check if this text matches something we sent
+    if (userSentMessageContents.has(textContent)) {
+      console.log('[Sidecar] Skipping user message (content match):', textContent.slice(0, 50));
+      return;
+    }
+
+    // If we're already streaming a different message, don't overwrite
+    if (currentStreamingMessageId && messageId && currentStreamingMessageId !== messageId) {
+      // Check if the new message is one we sent by content
+      if (userSentMessageContents.has(textContent)) {
+        console.log('[Sidecar] Skipping user message during stream:', textContent.slice(0, 50));
+        return;
+      }
+      // New assistant message - finalize the old one first
+      if (streamingMessageEl) {
+        streamingMessageEl.classList.remove('streaming');
+        streamingMessageEl = null;
+        streamingTextBuffer = '';
+      }
+    }
+
+    // Track this as the current streaming message
+    if (messageId) {
+      currentStreamingMessageId = messageId;
+    }
+
+    const cleanText = part.text.replace(/\[REDACTED\]/gi, '');
+    if (!cleanText) return;
+
+    // Mark that SSE is handling this message
+    sseMessageAddedForCurrentRequest = true;
+
+    // Update or create streaming message (standalone, not in response block)
+    if (!streamingMessageEl) {
+      removeTypingIndicator();
+
+      // Close current tool group when AI text response starts
+      // This ensures subsequent tools/reasoning go into a NEW group
+      if (currentToolGroup && currentToolGroup.dataset.active === 'true') {
+        currentToolGroup.dataset.active = 'false';
+        // Don't collapse yet - just mark inactive so new tools create new group
+      }
+
+      streamingMessageEl = document.createElement('div');
+      streamingMessageEl.className = 'message assistant streaming';
+
+      const contentEl = document.createElement('div');
+      contentEl.className = 'message-content';
+      streamingMessageEl.appendChild(contentEl);
+
+      messagesContainer.appendChild(streamingMessageEl);
+    }
+
+    // Replace entire buffer with current text (part.text is cumulative)
+    streamingTextBuffer = cleanText;
+
+    const contentEl = streamingMessageEl.querySelector('.message-content');
+    if (contentEl) {
+      contentEl.innerHTML = formatMessageContent(streamingTextBuffer);
+      scrollToBottom();
+    }
+  }
+
+  // Handle reasoning parts
+  if ((part.type === 'reasoning' || part.type === 'thinking') && part.text) {
+    const reasoningText = part.text.replace(/\[REDACTED\]/gi, '');
+    if (reasoningText && !streamingProcessedReasoningIds.has(part.id)) {
+      streamingProcessedReasoningIds.add(part.id || `reason-${Date.now()}`);
+      addReasoningToGroup(reasoningText);
+    }
+  }
+
+  // Handle tool parts
+  if (part.type === 'tool') {
+    handleToolPart(part);
+  }
+}
+
+/**
+ * Handle message update event
+ * @param {object} properties - Message properties
+ */
+function handleMessageUpdate(properties) {
+  // Message update may contain completed message info
+  const message = properties?.message || properties;
+
+  // Check if message has parts with text
+  if (message?.parts) {
+    for (const part of message.parts) {
+      if (part.type === 'text' && part.text) {
+        const cleanText = part.text.replace(/\[REDACTED\]/gi, '');
+        if (cleanText && streamingMessageEl) {
+          streamingTextBuffer = cleanText;
+          const contentEl = streamingMessageEl.querySelector('.message-content');
+          if (contentEl) {
+            contentEl.innerHTML = formatMessageContent(cleanText);
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Handle session idle event (work complete)
+ * @param {object} properties - Session properties
+ */
+function handleSessionIdle(properties) {
+  console.log('[Sidecar] Session idle:', properties);
+
+  // Finalize streaming message
+  if (streamingMessageEl) {
+    streamingMessageEl.classList.remove('streaming');
+
+    // Log the message
+    if (window.electronAPI?.logMessage && streamingTextBuffer) {
+      window.electronAPI.logMessage({
+        role: 'assistant',
+        content: streamingTextBuffer,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    streamingMessageEl = null;
+  }
+
+  // Finalize tool group
+  if (streamingToolsCalled.length > 0) {
+    finalizeToolGroup();
+  }
+
+  // Reset state
+  streamingTextBuffer = '';
+  streamingToolsCalled = [];
+  streamingProcessedReasoningIds.clear();
+
+  // Resolve streaming promise
+  if (streamingRequestResolve) {
+    streamingRequestResolve();
+    streamingRequestResolve = null;
+  }
+
+  // Reset UI
+  removeTypingIndicator();
+  isWaitingForResponse = false;
+  sendBtn.disabled = false;
+  messageInput.focus();
+  stopRequestTimer();
+
+  // Recalculate context usage after message completes
+  recalculateContext();
+}
+
+/**
+ * Handle session status event
+ * @param {object} properties - Status properties
+ */
+function handleSessionStatus(properties) {
+  const status = properties?.status;
+  console.log('[Sidecar] Session status:', status);
+
+  // Update typing indicator based on status
+  if (status === 'running' || status === 'busy') {
+    if (!streamingMessageEl && isWaitingForResponse) {
+      showTypingIndicator('Processing...');
+    }
+  }
+}
+
+/**
+ * Handle tool part from SSE
+ * @param {object} part - Tool part data
+ */
+function handleToolPart(part) {
+  const callId = part.callID || part.id;
+  const toolName = part.tool || part.name;
+  const status = part.state?.status || 'running';
+
+  if (!callId || !toolName) return;
+
+  // Check if this is a question tool that needs user interaction
+  // Question tools have input but no output yet (waiting for user response)
+  const isQuestion = toolName?.toLowerCase() === 'question' || toolName?.toLowerCase() === 'askuserquestion';
+  if (isQuestion && part.state?.input && !part.state?.output) {
+    // Skip if already answered or pending
+    if (!pendingQuestions.has(callId) && !answeredQuestions.has(callId)) {
+      console.log('[Sidecar] SSE detected question tool, showing UI:', callId);
+      showQuestionUI(callId, part.state.input);
+    }
+    // Don't add question tools to normal tool tracking
+    return;
+  }
+
+  // Check if already tracked
+  const existing = streamingToolsCalled.find(t => t.callID === callId);
+  if (existing) {
+    if (existing.status !== status) {
+      updateToolStatus(callId, status);
+      existing.status = status;
+    }
+
+    // Update tool content if we have new input/output data
+    const input = part.state?.input;
+    const output = part.state?.output;
+    if (input || output) {
+      updateToolContent(callId, toolName, input, output);
+    }
+  } else {
+    streamingToolsCalled.push({
+      callID: callId,
+      name: toolName,
+      status,
+      title: part.state?.title || toolName
+    });
+    // Add to tool group (grouped design with icons)
+    addToolStatus(toolName, status, part.state?.input, part.state?.output, callId);
+  }
+}
+
+/**
+ * Update tool content with new input/output data
+ * @param {string} callId - Tool call ID
+ * @param {string} toolName - Tool name
+ * @param {object} input - Tool input data
+ * @param {object} output - Tool output data
+ */
+function updateToolContent(callId, toolName, input, output) {
+  const toolEl = document.querySelector(`[data-call-id="${callId}"]`);
+  if (!toolEl) return;
+
+  const toolRow = toolEl.querySelector('.tool-item-row');
+
+  // Update title, subtitle, and badge if we have input data now
+  if (input && toolRow) {
+    const titleInfo = getToolTitleInfo(toolName, input);
+
+    // Update title
+    const titleEl = toolRow.querySelector('.tool-item-title');
+    if (titleEl && titleInfo.title) {
+      titleEl.textContent = titleInfo.title;
+    }
+
+    // Update subtitle
+    let subtitleEl = toolRow.querySelector('.tool-item-subtitle');
+    if (titleInfo.subtitle) {
+      if (!subtitleEl) {
+        // Create subtitle element if it doesn't exist
+        subtitleEl = document.createElement('span');
+        subtitleEl.className = 'tool-item-subtitle';
+        // Insert after title
+        if (titleEl && titleEl.nextSibling) {
+          toolRow.insertBefore(subtitleEl, titleEl.nextSibling);
+        } else if (titleEl) {
+          titleEl.insertAdjacentElement('afterend', subtitleEl);
+        }
+      }
+      subtitleEl.textContent = titleInfo.subtitle;
+    } else if (subtitleEl) {
+      subtitleEl.remove();
+    }
+
+    // Update badge
+    let badgeEl = toolRow.querySelector('.tool-item-badge');
+    if (titleInfo.badge) {
+      if (!badgeEl) {
+        // Create badge element if it doesn't exist
+        badgeEl = document.createElement('span');
+        badgeEl.className = 'tool-item-badge';
+        // Insert after subtitle (or title if no subtitle)
+        const insertAfter = subtitleEl || titleEl;
+        if (insertAfter && insertAfter.nextSibling) {
+          toolRow.insertBefore(badgeEl, insertAfter.nextSibling);
+        } else if (insertAfter) {
+          insertAfter.insertAdjacentElement('afterend', badgeEl);
+        }
+      }
+      badgeEl.textContent = titleInfo.badge;
+    } else if (badgeEl) {
+      badgeEl.remove();
+    }
+  }
+
+  // Re-render the details panel with actual content
+  const detailsEl = toolEl.querySelector('.tool-item-details');
+  if (detailsEl && (input || output)) {
+    const newContent = formatToolOutput(toolName, input, output);
+    // Only update if content changed (avoid flickering)
+    if (detailsEl.innerHTML !== newContent) {
+      detailsEl.innerHTML = newContent; // formatToolOutput handles escaping
+    }
+  }
+}
+
+/**
+ * Format message content for display (markdown rendering)
+ * @param {string} content - Raw message content
+ * @returns {string} HTML-formatted content
+ */
+function formatMessageContent(content) {
+  if (typeof marked !== 'undefined') {
+    try {
+      return marked.parse(content);
+    } catch (e) {
+      console.warn('[Sidecar] Markdown parse error:', e);
+      return escapeHtml(content);
+    }
+  }
+  return escapeHtml(content);
+}
+
+
+/**
+ * Handle tool start event
+ * @param {object} data - Tool start data
+ */
+function handleToolStart(data) {
+  const toolName = data.tool || data.name;
+  const callId = data.callID || data.id;
+
+  if (!toolName || !callId) return;
+
+  // Check if this is a question tool - handle separately
+  const isQuestion = toolName?.toLowerCase() === 'question' || toolName?.toLowerCase() === 'askuserquestion';
+  if (isQuestion && data.input) {
+    // Skip if already answered or pending
+    if (!pendingQuestions.has(callId) && !answeredQuestions.has(callId)) {
+      console.log('[Sidecar] SSE tool.start detected question tool:', callId);
+      showQuestionUI(callId, data.input);
+    }
+    return;
+  }
+
+  // Check if already tracked
+  if (streamingToolsCalled.find(t => t.callID === callId)) return;
+
+  // Add to tracking
+  streamingToolsCalled.push({
+    callID: callId,
+    name: toolName,
+    status: 'running',
+    title: data.title || toolName
+  });
+
+  // Display tool status in tool group
+  addToolStatus(toolName, 'running', data.input, null, callId);
+
+  // Update typing indicator
+  updateTypingIndicator(`Running ${toolName}...`);
+}
+
+/**
+ * Handle tool complete event
+ * @param {object} data - Tool completion data
+ */
+function handleToolComplete(data) {
+  const callId = data.callID || data.id;
+  if (!callId) return;
+
+  console.log('[Sidecar] tool.complete:', callId, JSON.stringify(data).slice(0, 500));
+
+  // Update tool status
+  updateToolStatus(callId, 'completed');
+
+  // Update tracking
+  const trackedTool = streamingToolsCalled.find(t => t.callID === callId);
+  if (trackedTool) {
+    trackedTool.status = 'completed';
+  }
+
+  // Get tool name from tracking or data
+  const toolEl = document.querySelector(`[data-call-id="${callId}"]`);
+  const toolName = trackedTool?.name || data.tool || data.name || toolEl?.dataset?.toolName;
+
+  // Update tool content if we have data
+  if (toolName) {
+    const input = data.input || data.state?.input;
+    const output = data.output || data.state?.output;
+    if (input || output) {
+      updateToolContent(callId, toolName, input, output);
+    }
+  }
+}
+
+/**
+ * Handle streaming reasoning
+ * @param {object} data - Reasoning data
+ */
+function handleStreamingReasoning(data) {
+  const text = data.text || data.content || '';
+  if (!text || text === '[REDACTED]') return;
+
+  const reasoningId = data.id || `stream-${Date.now()}-${text.slice(0, 20)}`;
+  if (streamingProcessedReasoningIds.has(reasoningId)) return;
+
+  streamingProcessedReasoningIds.add(reasoningId);
+  addReasoningToGroup(text);
+}
+
+/**
+ * Handle streaming error
+ * @param {object} data - Error data
+ */
+function handleStreamingError(data) {
+  console.error('[Sidecar] Streaming error:', data);
+
+  // Extract error message, handling nested objects
+  let message = 'Unknown streaming error';
+  if (typeof data === 'string') {
+    message = data;
+  } else if (data.message && typeof data.message === 'string') {
+    message = data.message;
+  } else if (data.error) {
+    if (typeof data.error === 'string') {
+      message = data.error;
+    } else if (data.error.message) {
+      message = data.error.message;
+    } else {
+      message = JSON.stringify(data.error);
+    }
+  } else if (data.info?.error?.message) {
+    message = data.info.error.message;
+  }
+
+  showError(`Streaming error: ${message}`);
+
+  // Reset streaming state
+  streamingTextBuffer = '';
+  streamingMessageEl = null;
+  isWaitingForResponse = false;
+  sendBtn.disabled = false;
+  stopRequestTimer();
+
+  // Reject the streaming promise if waiting
+  if (streamingRequestResolve) {
+    streamingRequestResolve();
+    streamingRequestResolve = null;
+  }
+}
+
+/**
+ * Handle question.asked SSE event
+ * This event is sent by OpenCode when a Question/AskUserQuestion tool needs user input
+ * @param {object} data - Question event data
+ */
+function handleQuestionAsked(data) {
+  console.log('[Sidecar] question.asked event received:', JSON.stringify(data).slice(0, 500));
+
+  // Extract IDs from the event
+  // data.id is the question request ID (e.g., "que_xxx") for the /question/{requestID}/reply endpoint
+  // data.tool?.callID is the tool call ID for UI tracking
+  const requestId = data.id;  // The question request ID for API reply
+  const callId = data.tool?.callID || data.callID || data.id || data.toolCallId || `question-${Date.now()}`;
+
+  // Skip if already answered or pending
+  if (pendingQuestions.has(callId) || answeredQuestions.has(callId)) {
+    console.log('[Sidecar] question.asked skipping - already handled:', callId);
+    return;
+  }
+
+  // Store the request ID for later use when replying
+  if (requestId) {
+    questionRequestIds.set(callId, requestId);
+    console.log('[Sidecar] Stored question request ID:', requestId, 'for callId:', callId);
+  }
+
+  // Try to extract question data from various possible formats
+  let questionData = data.questions || data.input?.questions || data;
+
+  // If questionData is an array, wrap it
+  if (Array.isArray(questionData)) {
+    questionData = { questions: questionData };
+  }
+
+  // If it has a single 'question' property, normalize it
+  if (data.question && !data.questions) {
+    questionData = {
+      questions: [{
+        question: data.question,
+        options: data.options || data.answers || [],
+        header: data.header || '',
+        multiSelect: data.multiSelect || false
+      }]
+    };
+  }
+
+  console.log('[Sidecar] question.asked showing UI for:', callId, questionData);
+  showQuestionUI(callId, questionData);
+}
+
+/**
+ * Send message using SSE streaming (async mode)
+ * @param {string} content - Message content
+ * @param {string} [systemPrompt] - Optional system prompt
+ * @param {boolean} [rethrowOnError=false] - If true, re-throw errors instead of just displaying them
+ * @returns {Promise<void>}
+ */
+async function sendToAPIStreaming(content, systemPrompt = null, rethrowOnError = false) {
+  if (!sessionId) {
+    const error = new Error('No active session');
+    showError(error.message);
+    if (rethrowOnError) throw error;
+    return;
+  }
+
+  if (!window.electronAPI?.sendMessageAsync) {
+    console.warn('[Sidecar] Async API not available, falling back to sync');
+    await sendToAPI(content, systemPrompt, rethrowOnError);
+    return;
+  }
+
+  isWaitingForResponse = true;
+  sendBtn.disabled = true;
+  showTypingIndicator();
+  startRequestTimer();
+
+  // Track this message content so we can filter it from SSE
+  userSentMessageContents.add(content.trim());
+
+  // Reset streaming state
+  streamingTextBuffer = '';
+  streamingMessageEl = null;
+  streamingToolsCalled = [];
+  streamingProcessedReasoningIds.clear();
+  currentStreamingMessageId = null;
+
+  try {
+    // Build model for API
+    const modelToUse = currentModel || config.model;
+    const modelForAPI = typeof window.ModelPicker !== 'undefined'
+      ? window.ModelPicker.formatModelForAPI(modelToUse)
+      : { providerID: 'openrouter', modelID: modelToUse.replace('openrouter/', '') };
+
+    // Build reasoning config
+    const thinkingToUse = currentThinking || 'medium';
+    let reasoning = null;
+    if (typeof window.ThinkingPicker !== 'undefined') {
+      reasoning = window.ThinkingPicker.formatThinkingForAPI(thinkingToUse);
+    }
+
+    console.log(`[Sidecar] ▶ Sending async message with model: ${modelToUse}, thinking: ${thinkingToUse}`);
+
+    // Create a promise that will be resolved when streaming completes
+    const streamingPromise = new Promise((resolve) => {
+      streamingRequestResolve = resolve;
+    });
+
+    // Send async message
+    const result = await window.electronAPI.sendMessageAsync({
+      sessionId,
+      content,
+      model: modelForAPI,
+      system: systemPrompt,
+      reasoning
+    });
+
+    if (!result.ok) {
+      throw new Error(`API error: ${result.status || result.error}`);
+    }
+
+    // Wait for streaming to complete (resolved by handleSessionComplete or handleStreamingComplete)
+    // Add timeout to prevent infinite waiting
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Streaming timeout')), 120000); // 2 minute timeout
+    });
+
+    await Promise.race([streamingPromise, timeoutPromise]);
+
+  } catch (error) {
+    console.error('[Sidecar] Streaming error:', error);
+    removeTypingIndicator();
+    finalizeToolGroup();
+    showError(`Error: ${error.message}`);
+    if (rethrowOnError) throw error;
+  } finally {
+    isWaitingForResponse = false;
+    sendBtn.disabled = false;
+    messageInput.focus();
+    stopRequestTimer();
+  }
+}
+
+// ============================================================================
 
 /**
  * Parse @agent syntax from message content
@@ -319,6 +1199,74 @@ function scrollToBottom(smooth = true) {
   }
 }
 
+/**
+ * Scroll to the first pending permission that needs user action.
+ * This ensures the user sees permissions in order and doesn't miss earlier ones.
+ */
+function scrollToFirstPendingPermission() {
+  // Find all pending permission elements (both accordion and standalone)
+  const pendingAccordions = document.querySelectorAll('.tool-permission-accordion.pending');
+  const pendingContainers = document.querySelectorAll('.permission-container:not(.permission-collapsed)');
+
+  // Find the first (oldest) pending permission in DOM order
+  let firstPending = null;
+  const allPending = [...pendingAccordions, ...pendingContainers];
+
+  if (allPending.length > 0) {
+    // Sort by DOM position to find the first one
+    allPending.sort((a, b) => {
+      const position = a.compareDocumentPosition(b);
+      if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+      if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+      return 0;
+    });
+    firstPending = allPending[0];
+  }
+
+  if (firstPending) {
+    // Scroll the first pending permission into view
+    firstPending.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    // Add a brief highlight effect
+    firstPending.classList.add('permission-highlight');
+    setTimeout(() => {
+      firstPending.classList.remove('permission-highlight');
+    }, 2000);
+  } else {
+    // No pending permissions, scroll to bottom as usual
+    scrollToBottom();
+  }
+
+  // Update pending permissions badge
+  updatePendingPermissionsBadge();
+}
+
+/**
+ * Update the floating badge showing count of pending permissions
+ */
+function updatePendingPermissionsBadge() {
+  const pendingAccordions = document.querySelectorAll('.tool-permission-accordion.pending');
+  const pendingContainers = document.querySelectorAll('.permission-container:not(.permission-collapsed)');
+  const totalPending = pendingAccordions.length + pendingContainers.length;
+
+  let badge = document.getElementById('pending-permissions-badge');
+
+  if (totalPending > 0) {
+    if (!badge) {
+      // Create badge
+      badge = document.createElement('div');
+      badge.id = 'pending-permissions-badge';
+      badge.className = 'pending-permissions-badge';
+      badge.onclick = scrollToFirstPendingPermission;
+      document.body.appendChild(badge);
+    }
+    badge.textContent = `⚠ ${totalPending} permission${totalPending > 1 ? 's' : ''} pending`;
+    badge.style.display = 'flex';
+  } else if (badge) {
+    badge.style.display = 'none';
+  }
+}
+
 // Set up auto-scroll observer
 function setupAutoScroll() {
   const chatContainer = document.getElementById('chat-container');
@@ -422,6 +1370,9 @@ async function init() {
    // Initialize status indicator
    initStatusIndicator();
 
+   // Initialize context panel
+   initContextPanel();
+
    // Create session and send initial briefing
    createSession();
  }
@@ -443,12 +1394,10 @@ async function createSession() {
     }
 
     // Verify server connectivity before sending messages
+    // Uses IPC proxy to bypass Chromium network service issues
     console.log('[Sidecar] Testing server connectivity...');
     try {
-      const healthResponse = await fetch(`${config.apiBase}/config`, {
-        method: 'GET',
-        signal: AbortSignal.timeout(5000)
-      });
+      const healthResponse = await proxyFetch('/config', { method: 'GET' });
       if (healthResponse.ok) {
         console.log('[Sidecar] ✅ Server is reachable');
       } else {
@@ -462,6 +1411,9 @@ async function createSession() {
       return;
     }
 
+    // Subscribe to SSE events for streaming responses
+    await subscribeToSSE();
+
     // Send initial task if provided
     if (config.userMessage) {
       addMessage('system', `Task: ${config.userMessage}`);
@@ -469,13 +1421,14 @@ async function createSession() {
       // Send with proper system/user separation
       // system: instruction-level context (role, environment, previous conversation reference)
       // parts: the actual task as a user message
-      // Retry logic for initial message (server may still be warming up)
+      // Use SYNC API for initial message (has retry logic and more reliable error handling)
+      // SSE streaming is used for subsequent messages
       const maxRetries = 3;
       let lastError = null;
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
           console.log(`[Sidecar] Sending initial message (attempt ${attempt}/${maxRetries})...`);
-          // Use rethrowOnError=true so we can catch and retry
+          // Use sync API with rethrowOnError=true so we can catch and retry
           await sendToAPI(config.userMessage, config.systemPrompt, true);
           console.log('[Sidecar] ✅ Initial message sent successfully');
           lastError = null; // Success
@@ -499,6 +1452,14 @@ async function createSession() {
   } catch (error) {
     console.error('[Sidecar] ❌ Session error:', error);
     console.error('[Sidecar] Stack trace:', error.stack);
+
+    // Report error to main process for diagnostics
+    await reportError('init', 'Session initialization failed', {
+      sessionId: config?.sessionId,
+      model: config?.model,
+      apiBase: config?.apiBase
+    }, error);
+
     showError('Failed to start session: ' + error.message);
   }
 }
@@ -642,10 +1603,618 @@ async function copyMessageToClipboard(messageEl) {
 // Current tool group for collecting related tool calls
 let currentToolGroup = null;
 
+// Global set to track all displayed tool call IDs (prevents duplicates across messages)
+const displayedToolCallIds = new Set();
+
 // Chevron SVGs for expand/collapse
 const chevronRightSvg = `<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 2L8 6L4 10"/></svg>`;
 const chevronDownSvg = `<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4L6 8L10 4"/></svg>`;
 const chevronUpSvg = `<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 8L6 4L10 8"/></svg>`;
+
+// ============================================================================
+// Response Block Functions (Unified Text + Tools)
+// ============================================================================
+
+/**
+ * Get or create the current response block for unified text + tools display
+ * @returns {HTMLElement} The response block container
+ */
+function getOrCreateResponseBlock() {
+  // If there's an existing active response block, return it
+  if (currentResponseBlock && currentResponseBlock.dataset.active === 'true') {
+    return currentResponseBlock;
+  }
+
+  // Create new response block
+  const blockEl = document.createElement('div');
+  blockEl.className = 'response-block expanded';
+  blockEl.dataset.active = 'true';
+  blockEl.dataset.expanded = 'true';
+
+  // Content container for text and tools
+  const contentEl = document.createElement('div');
+  contentEl.className = 'response-block-content';
+  blockEl.appendChild(contentEl);
+
+  // Summary header (collapsed state - hidden by default)
+  const summaryEl = document.createElement('div');
+  summaryEl.className = 'response-block-summary';
+
+  const chevronSpan = document.createElement('span');
+  chevronSpan.className = 'response-block-chevron';
+  chevronSpan.innerHTML = chevronRightSvg; // Safe: constant defined in this file
+
+  const countSpan = document.createElement('span');
+  countSpan.className = 'response-block-count';
+  countSpan.textContent = 'Show tool calls';
+
+  summaryEl.appendChild(chevronSpan);
+  summaryEl.appendChild(countSpan);
+  summaryEl.style.display = 'none'; // Hidden until there are tools
+
+  // Toggle expand/collapse on summary click
+  summaryEl.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (blockEl._animating) return;
+
+    const isExpanded = blockEl.dataset.expanded === 'true';
+    if (isExpanded) {
+      collapseResponseBlock(blockEl);
+    } else {
+      expandResponseBlock(blockEl);
+    }
+  });
+
+  blockEl.appendChild(summaryEl);
+  messagesContainer.appendChild(blockEl);
+
+  currentResponseBlock = blockEl;
+  responseBlockToolStats = { total: 0, completed: 0, running: 0, failed: 0 };
+
+  return blockEl;
+}
+
+/**
+ * Add text to the current response block
+ * @param {string} text - Text content to add
+ * @param {boolean} isStreaming - Whether this is streaming text
+ * @returns {HTMLElement} The text element
+ */
+function addTextToResponseBlock(text, isStreaming = false) {
+  const block = getOrCreateResponseBlock();
+  const contentEl = block.querySelector('.response-block-content');
+
+  // Check if we have a streaming text element to update
+  let textEl = contentEl.querySelector('.response-text.streaming');
+
+  if (!textEl) {
+    // Create new text element
+    textEl = document.createElement('div');
+    textEl.className = 'response-text' + (isStreaming ? ' streaming' : '');
+    contentEl.appendChild(textEl);
+  }
+
+  // Update content using formatMessageContent (handles markdown safely)
+  textEl.innerHTML = formatMessageContent(text); // Uses marked.parse with escapeHtml fallback
+
+  if (!isStreaming) {
+    textEl.classList.remove('streaming');
+  }
+
+  scrollToBottom();
+  return textEl;
+}
+
+/**
+ * Add a tool to the current response block
+ * @param {string} tool - Tool name
+ * @param {string} status - Tool status
+ * @param {object} input - Tool input
+ * @param {object} output - Tool output
+ * @param {string} callID - Tool call ID
+ * @returns {HTMLElement} The tool element
+ */
+function addToolToResponseBlock(tool, status, input, output, callID) {
+  const block = getOrCreateResponseBlock();
+  const contentEl = block.querySelector('.response-block-content');
+  const summaryEl = block.querySelector('.response-block-summary');
+
+  // Finalize any streaming text before adding tool
+  const streamingTextEl = contentEl.querySelector('.response-text.streaming');
+  if (streamingTextEl) {
+    streamingTextEl.classList.remove('streaming');
+  }
+
+  // Create the tool item element
+  const toolEl = createToolItemElement(tool, status, input, output, callID);
+  contentEl.appendChild(toolEl);
+
+  // Update stats
+  responseBlockToolStats.total++;
+  if (status === 'completed') {
+    responseBlockToolStats.completed++;
+  } else if (status === 'running') {
+    responseBlockToolStats.running++;
+  } else if (status === 'error' || status === 'failed') {
+    responseBlockToolStats.failed++;
+  }
+
+  // Show summary and update count
+  summaryEl.style.display = 'flex';
+  updateResponseBlockSummary(block);
+
+  // Check for pending permission for this tool
+  if (callID && pendingPermissionsForTools.has(callID)) {
+    const permData = pendingPermissionsForTools.get(callID);
+    pendingPermissionsForTools.delete(callID);
+    attachPermissionToTool(toolEl, permData.requestId, permData);
+  }
+
+  scrollToBottom();
+  return toolEl;
+}
+
+/**
+ * Create a tool item element (extracted from addToolStatus)
+ * @param {string} tool - Tool name
+ * @param {string} status - Tool status
+ * @param {object} input - Tool input
+ * @param {object} output - Tool output
+ * @param {string} callID - Tool call ID
+ * @returns {HTMLElement} The tool element
+ */
+function createToolItemElement(tool, status, input, output, callID) {
+  const toolLower = tool.toLowerCase();
+
+  // Create tool item container
+  const toolEl = document.createElement('div');
+  toolEl.className = `tool-item ${status}`;
+  toolEl.dataset.toolName = tool;
+  toolEl.dataset.expanded = 'false';
+  toolEl.dataset.status = status;
+  if (callID) {
+    toolEl.dataset.callId = callID;
+  }
+
+  // Get display info
+  const titleInfo = getToolTitleInfo(tool, input);
+  const resultText = toolLower === 'edit' ? getEditLineCounts(input) : getToolResult(tool, output);
+  const metaText = getToolMeta(tool, output);
+
+  // Read tool is not expandable
+  const isExpandable = toolLower !== 'read';
+
+  // Tool header row - build with DOM methods for safety
+  const toolRow = document.createElement('div');
+  toolRow.className = 'tool-item-row';
+
+  // Icon
+  const iconSpan = document.createElement('span');
+  iconSpan.className = 'tool-item-icon';
+  iconSpan.innerHTML = getToolIcon(tool); // Safe: getToolIcon returns known SVG constants
+  toolRow.appendChild(iconSpan);
+
+  // Title
+  const titleSpan = document.createElement('span');
+  titleSpan.className = 'tool-item-title';
+  titleSpan.textContent = titleInfo.title;
+  toolRow.appendChild(titleSpan);
+
+  // Subtitle (if present)
+  if (titleInfo.subtitle) {
+    const subtitleSpan = document.createElement('span');
+    subtitleSpan.className = 'tool-item-subtitle';
+    subtitleSpan.textContent = titleInfo.subtitle;
+    toolRow.appendChild(subtitleSpan);
+  }
+
+  // Badge (if present)
+  if (titleInfo.badge) {
+    const badgeSpan = document.createElement('span');
+    badgeSpan.className = 'tool-item-badge';
+    badgeSpan.textContent = titleInfo.badge;
+    toolRow.appendChild(badgeSpan);
+  }
+
+  // Meta
+  const metaSpan = document.createElement('span');
+  metaSpan.className = 'tool-item-meta';
+  metaSpan.textContent = metaText;
+  toolRow.appendChild(metaSpan);
+
+  // Chevron (for expandable tools)
+  if (isExpandable) {
+    const chevronSpan = document.createElement('span');
+    chevronSpan.className = 'tool-item-chevron';
+    chevronSpan.innerHTML = chevronRightSvg; // Safe: constant defined in this file
+    toolRow.appendChild(chevronSpan);
+  }
+
+  toolEl.appendChild(toolRow);
+
+  // Create details panel for expandable tools
+  if (isExpandable) {
+    const detailsEl = document.createElement('div');
+    detailsEl.className = toolLower === 'bash' ? 'tool-item-details bash-details' : 'tool-item-details';
+    detailsEl.innerHTML = formatToolOutput(tool, input, output); // formatToolOutput handles escaping
+
+    toolEl.appendChild(detailsEl);
+
+    // Auto-expand Edit and Write tools
+    const autoExpand = toolLower === 'edit' || toolLower === 'write';
+    if (autoExpand) {
+      detailsEl.classList.add('visible');
+      toolEl.classList.add('expanded');
+      toolEl.dataset.expanded = 'true';
+      const chevronEl = toolRow.querySelector('.tool-item-chevron');
+      if (chevronEl) {
+        chevronEl.innerHTML = chevronUpSvg; // Safe: constant
+      }
+    }
+
+    // Toggle details on click
+    toolRow.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isExpanded = detailsEl.classList.contains('visible');
+      detailsEl.classList.toggle('visible', !isExpanded);
+      toolEl.classList.toggle('expanded', !isExpanded);
+      toolEl.dataset.expanded = isExpanded ? 'false' : 'true';
+
+      const chevronEl = toolRow.querySelector('.tool-item-chevron');
+      if (chevronEl) {
+        chevronEl.innerHTML = isExpanded ? chevronRightSvg : chevronUpSvg; // Safe: constants
+      }
+    });
+  }
+
+  // Result row
+  if (resultText) {
+    const resultRow = document.createElement('div');
+    resultRow.className = 'tool-result-row';
+
+    const bulletSpan = document.createElement('span');
+    bulletSpan.className = 'tool-result-bullet';
+    resultRow.appendChild(bulletSpan);
+
+    if (toolLower === 'edit' && typeof resultText === 'object' && resultText.added !== undefined) {
+      const countsSpan = document.createElement('span');
+      countsSpan.className = 'edit-line-counts';
+
+      const addedSpan = document.createElement('span');
+      addedSpan.className = 'edit-added';
+      addedSpan.textContent = `+${resultText.added}`;
+
+      const removedSpan = document.createElement('span');
+      removedSpan.className = 'edit-removed';
+      removedSpan.textContent = `-${resultText.removed}`;
+
+      countsSpan.appendChild(addedSpan);
+      countsSpan.appendChild(removedSpan);
+      resultRow.appendChild(countsSpan);
+    } else {
+      const textSpan = document.createElement('span');
+      textSpan.className = 'tool-result-text';
+      textSpan.textContent = String(resultText);
+      resultRow.appendChild(textSpan);
+    }
+
+    toolEl.appendChild(resultRow);
+  }
+
+  return toolEl;
+}
+
+/**
+ * Update the response block summary text
+ * @param {HTMLElement} block - The response block element
+ */
+function updateResponseBlockSummary(block) {
+  const summaryEl = block.querySelector('.response-block-summary');
+  const countEl = summaryEl?.querySelector('.response-block-count');
+  if (!countEl) return;
+
+  const { total, completed, running, failed } = responseBlockToolStats;
+  const isExpanded = block.dataset.expanded === 'true';
+
+  if (isExpanded) {
+    countEl.textContent = 'Hide tool calls';
+  } else {
+    let statusText = `${completed} of ${total}`;
+    if (failed > 0) {
+      statusText += ` (${failed} failed)`;
+    }
+    countEl.textContent = `Show tool calls (${statusText})`;
+  }
+}
+
+/**
+ * Update tool status within response block
+ * @param {string} callId - Tool call ID
+ * @param {string} newStatus - New status
+ */
+function updateToolStatusInResponseBlock(callId, newStatus) {
+  const toolEl = document.querySelector(`[data-call-id="${callId}"]`);
+  if (!toolEl) return;
+
+  const oldStatus = toolEl.dataset.status;
+  toolEl.dataset.status = newStatus;
+  toolEl.className = `tool-item ${newStatus}`;
+
+  // Update stats
+  if (oldStatus === 'running') responseBlockToolStats.running--;
+  if (oldStatus === 'completed') responseBlockToolStats.completed--;
+  if (oldStatus === 'error' || oldStatus === 'failed') responseBlockToolStats.failed--;
+
+  if (newStatus === 'running') responseBlockToolStats.running++;
+  if (newStatus === 'completed') responseBlockToolStats.completed++;
+  if (newStatus === 'error' || newStatus === 'failed') responseBlockToolStats.failed++;
+
+  // Update summary
+  if (currentResponseBlock) {
+    updateResponseBlockSummary(currentResponseBlock);
+  }
+}
+
+/**
+ * Finalize the current response block
+ */
+function finalizeResponseBlock() {
+  if (!currentResponseBlock) return;
+
+  currentResponseBlock.dataset.active = 'false';
+
+  // Finalize any streaming text
+  const streamingTextEl = currentResponseBlock.querySelector('.response-text.streaming');
+  if (streamingTextEl) {
+    streamingTextEl.classList.remove('streaming');
+  }
+
+  // Update summary to final state
+  updateResponseBlockSummary(currentResponseBlock);
+
+  // Auto-collapse if there are tools (after a delay)
+  if (responseBlockToolStats.total > 0) {
+    const blockToCollapse = currentResponseBlock;
+    setTimeout(() => {
+      collapseResponseBlock(blockToCollapse);
+    }, 500);
+  }
+
+  currentResponseBlock = null;
+}
+
+/**
+ * Expand response block
+ * @param {HTMLElement} block - Response block to expand
+ */
+function expandResponseBlock(block) {
+  if (!block || block.dataset.expanded === 'true') return;
+
+  block._animating = true;
+  block.dataset.expanded = 'true';
+  block.classList.add('expanded');
+
+  const contentEl = block.querySelector('.response-block-content');
+  const chevronEl = block.querySelector('.response-block-chevron');
+
+  if (chevronEl) {
+    chevronEl.innerHTML = chevronDownSvg; // Safe: constant
+  }
+
+  updateResponseBlockSummary(block);
+
+  // Animate content height
+  if (contentEl) {
+    contentEl.style.display = 'block';
+    contentEl.style.height = 'auto';
+    const targetHeight = contentEl.scrollHeight;
+    contentEl.style.height = '0px';
+    contentEl.offsetHeight; // Force reflow
+    contentEl.style.transition = 'height 0.3s ease-out, opacity 0.2s ease-out';
+    contentEl.style.height = targetHeight + 'px';
+    contentEl.style.opacity = '1';
+
+    setTimeout(() => {
+      block._animating = false;
+      contentEl.style.height = '';
+      contentEl.style.transition = '';
+    }, 300);
+  } else {
+    block._animating = false;
+  }
+}
+
+/**
+ * Collapse response block
+ * @param {HTMLElement} block - Response block to collapse
+ */
+function collapseResponseBlock(block) {
+  if (!block || block.dataset.expanded !== 'true') return;
+
+  block._animating = true;
+  block.dataset.expanded = 'false';
+
+  const contentEl = block.querySelector('.response-block-content');
+  const chevronEl = block.querySelector('.response-block-chevron');
+
+  if (chevronEl) {
+    chevronEl.innerHTML = chevronRightSvg; // Safe: constant
+  }
+
+  updateResponseBlockSummary(block);
+
+  // Animate content collapse
+  if (contentEl) {
+    const currentHeight = contentEl.scrollHeight;
+    contentEl.style.height = currentHeight + 'px';
+    contentEl.offsetHeight; // Force reflow
+    contentEl.style.transition = 'height 0.3s ease-out, opacity 0.2s ease-out';
+    contentEl.style.height = '0px';
+    contentEl.style.opacity = '0';
+
+    setTimeout(() => {
+      block._animating = false;
+      block.classList.remove('expanded');
+      contentEl.style.height = '';
+      contentEl.style.opacity = '';
+      contentEl.style.transition = '';
+      contentEl.style.display = 'none';
+    }, 300);
+  } else {
+    block._animating = false;
+    block.classList.remove('expanded');
+  }
+}
+
+// ============================================================================
+// Permission Accordion Functions
+// ============================================================================
+
+/**
+ * Attach a permission accordion to a tool element
+ * @param {HTMLElement} toolEl - The tool element to attach to
+ * @param {string} requestId - Permission request ID
+ * @param {object} permData - Permission data
+ */
+function attachPermissionToTool(toolEl, requestId, permData) {
+  // Don't attach if already has a permission accordion
+  if (toolEl.querySelector('.tool-permission-accordion')) return;
+
+  const accordion = document.createElement('div');
+  accordion.className = 'tool-permission-accordion pending';
+  accordion.dataset.permissionId = requestId;
+
+  // Build message based on type
+  const permType = permData.type || 'unknown';
+  const pattern = permData.pattern || '';
+  const message = permData.message || `${permType.replace(/_/g, ' ')} permission needed`;
+
+  // Build header
+  const headerEl = document.createElement('div');
+  headerEl.className = 'perm-accordion-header';
+
+  const iconSpan = document.createElement('span');
+  iconSpan.className = 'perm-icon';
+  iconSpan.textContent = '⚠';
+
+  const labelSpan = document.createElement('span');
+  labelSpan.className = 'perm-label';
+  labelSpan.textContent = message;
+
+  const buttonsDiv = document.createElement('div');
+  buttonsDiv.className = 'perm-buttons';
+
+  const denyBtn = document.createElement('button');
+  denyBtn.className = 'perm-btn perm-btn-deny';
+  denyBtn.textContent = 'Deny';
+
+  const onceBtn = document.createElement('button');
+  onceBtn.className = 'perm-btn perm-btn-once';
+  onceBtn.textContent = 'Once';
+
+  const alwaysBtn = document.createElement('button');
+  alwaysBtn.className = 'perm-btn perm-btn-always';
+  alwaysBtn.textContent = 'Always';
+
+  buttonsDiv.appendChild(denyBtn);
+  buttonsDiv.appendChild(onceBtn);
+  buttonsDiv.appendChild(alwaysBtn);
+
+  headerEl.appendChild(iconSpan);
+  headerEl.appendChild(labelSpan);
+  headerEl.appendChild(buttonsDiv);
+  accordion.appendChild(headerEl);
+
+  // Add details if pattern present
+  if (pattern) {
+    const detailsEl = document.createElement('div');
+    detailsEl.className = 'perm-accordion-details';
+    const codeEl = document.createElement('code');
+    codeEl.textContent = pattern;
+    detailsEl.appendChild(codeEl);
+    accordion.appendChild(detailsEl);
+  }
+
+  // Wire up button handlers
+  denyBtn.onclick = () => handlePermissionAccordionResponse(accordion, requestId, 'reject', permData);
+  onceBtn.onclick = () => handlePermissionAccordionResponse(accordion, requestId, 'once', permData);
+  alwaysBtn.onclick = () => handlePermissionAccordionResponse(accordion, requestId, 'always', permData);
+
+  // Insert after tool row but before details
+  const toolRow = toolEl.querySelector('.tool-item-row');
+  if (toolRow && toolRow.nextSibling) {
+    toolEl.insertBefore(accordion, toolRow.nextSibling);
+  } else {
+    toolEl.appendChild(accordion);
+  }
+
+  // Track as pending
+  pendingPermissions.set(requestId, accordion);
+
+  // Scroll to the first pending permission (not just bottom)
+  // This ensures user sees permissions in order
+  scrollToFirstPendingPermission();
+}
+
+/**
+ * Handle permission accordion response
+ * @param {HTMLElement} accordion - The accordion element
+ * @param {string} requestId - Permission request ID
+ * @param {string} reply - User's reply (reject, once, always)
+ * @param {object} permData - Original permission data
+ */
+async function handlePermissionAccordionResponse(accordion, requestId, reply, permData) {
+  console.log('[Sidecar] Permission accordion response:', requestId, reply);
+
+  // Mark as handled
+  handledPermissions.add(requestId);
+  pendingPermissions.delete(requestId);
+
+  // Call the permission reply API
+  if (window.electronAPI?.proxyApiCall) {
+    try {
+      const result = await window.electronAPI.proxyApiCall({
+        method: 'POST',
+        endpoint: `/permission/${requestId}/reply`,
+        body: { reply }
+      });
+
+      console.log('[Sidecar] Permission accordion reply result:', result);
+
+      // Transform to collapsed state
+      const isGranted = reply !== 'reject';
+      const icon = isGranted ? '✓' : '✗';
+      const statusText = isGranted ? 'granted' : 'denied';
+      const replyText = reply === 'always' ? ' (always)' : reply === 'once' ? ' (once)' : '';
+      const permType = permData.type || 'permission';
+
+      // Clear and rebuild accordion content
+      accordion.className = `tool-permission-accordion resolved ${reply}`;
+      accordion.textContent = ''; // Clear children
+
+      const resolvedIconSpan = document.createElement('span');
+      resolvedIconSpan.className = 'perm-resolved-icon';
+      resolvedIconSpan.textContent = icon;
+
+      const resolvedTextSpan = document.createElement('span');
+      resolvedTextSpan.className = 'perm-resolved-text';
+      resolvedTextSpan.textContent = `${permType.replace(/_/g, ' ')} ${statusText}${replyText}`;
+
+      accordion.appendChild(resolvedIconSpan);
+      accordion.appendChild(resolvedTextSpan);
+
+      // Update the badge after permission resolved
+      updatePendingPermissionsBadge();
+
+    } catch (error) {
+      console.error('[Sidecar] Error replying to permission:', error);
+      showError(`Error sending permission response: ${error.message}`);
+    }
+  } else {
+    console.error('[Sidecar] proxyApiCall not available');
+    showError('Unable to send permission response - API not available');
+  }
+}
 
 // Get or create the current tool group
 function getOrCreateToolGroup() {
@@ -671,14 +2240,26 @@ function getOrCreateToolGroup() {
   // Create header elements safely
   const chevronSpan = document.createElement('span');
   chevronSpan.className = 'tool-group-chevron';
-  chevronSpan.innerHTML = chevronDownSvg;
+  chevronSpan.innerHTML = chevronDownSvg; // Safe: chevronDownSvg is a constant defined in this file
 
   const countSpan = document.createElement('span');
   countSpan.className = 'tool-group-count';
   countSpan.textContent = 'Hide tool calls';
 
+  // Timer element for this tool group
+  const timerSpan = document.createElement('span');
+  timerSpan.className = 'tool-group-timer';
+  // Start with current elapsed time if timer is running, otherwise empty
+  if (requestStartTime) {
+    const elapsed = Math.floor((Date.now() - requestStartTime) / 1000);
+    timerSpan.textContent = formatElapsedTime(elapsed);
+  } else {
+    timerSpan.textContent = '';
+  }
+
   headerEl.appendChild(chevronSpan);
   headerEl.appendChild(countSpan);
+  headerEl.appendChild(timerSpan);
 
   // Toggle expand/collapse on header click with animation
   headerEl.addEventListener('click', (e) => {
@@ -724,6 +2305,14 @@ function getOrCreateToolGroup() {
 
 // Add a tool call to the current group (Claude Desktop style)
 function addToolStatus(tool, status, input, output, callID = null) {
+  // Skip if this tool call was already displayed (prevents duplicates across messages)
+  if (callID && displayedToolCallIds.has(callID)) {
+    return;
+  }
+  if (callID) {
+    displayedToolCallIds.add(callID);
+  }
+
   const groupEl = getOrCreateToolGroup();
   const itemsEl = groupEl.querySelector('.tool-group-items');
   const toolLower = tool.toLowerCase();
@@ -780,16 +2369,32 @@ function addToolStatus(tool, status, input, output, callID = null) {
 
     toolEl.appendChild(detailsEl);
 
+    // Auto-expand Edit and Write tools to show diff by default
+    const autoExpand = toolLower === 'edit' || toolLower === 'write';
+    if (autoExpand) {
+      detailsEl.classList.add('visible');
+      toolEl.classList.add('expanded');
+      toolEl.dataset.expanded = 'true';
+      // Update chevron to show expanded state
+      const chevronEl = toolRow.querySelector('.tool-item-chevron');
+      if (chevronEl) {
+        chevronEl.replaceChildren();
+        chevronEl.insertAdjacentHTML('beforeend', chevronUpSvg);
+      }
+    }
+
     // Toggle details on tool row click
     toolRow.addEventListener('click', (e) => {
       e.stopPropagation();
       const isExpanded = detailsEl.classList.contains('visible');
       detailsEl.classList.toggle('visible', !isExpanded);
       toolEl.classList.toggle('expanded', !isExpanded);
+      toolEl.dataset.expanded = isExpanded ? 'false' : 'true';
 
       // Update chevron: right when collapsed, up when expanded
       const chevronEl = toolRow.querySelector('.tool-item-chevron');
-      chevronEl.innerHTML = isExpanded ? chevronRightSvg : chevronUpSvg;
+      chevronEl.replaceChildren();
+      chevronEl.insertAdjacentHTML('beforeend', isExpanded ? chevronRightSvg : chevronUpSvg);
     });
   }
 
@@ -834,6 +2439,13 @@ function addToolStatus(tool, status, input, output, callID = null) {
 
   // Update header count display
   updateToolGroupHeader(groupEl);
+
+  // Check for pending permission for this tool
+  if (callID && pendingPermissionsForTools.has(callID)) {
+    const permData = pendingPermissionsForTools.get(callID);
+    pendingPermissionsForTools.delete(callID);
+    attachPermissionToTool(toolEl, permData.requestId, permData);
+  }
 
   scrollToBottom();
   return toolEl;
@@ -1162,11 +2774,13 @@ function getToolTitleInfo(tool, input) {
     return { title: getToolDisplayName(tool), badge: null };
   }
 
-  // For Edit - show "Failed to edit" or "Edit" + filename badge
+  // For Edit - show filename as title with path as subtitle
   if (toolLower === 'edit') {
     const filePath = input.file_path || input.filePath || '';
     const fileName = filePath.split('/').pop() || 'file';
-    return { title: 'Edit', badge: fileName };
+    const ext = fileName.includes('.') ? fileName.split('.').pop() : null;
+    const title = filePath ? `Edit ${fileName}` : 'Edit file';
+    return { title, subtitle: filePath, badge: ext };
   }
 
   // For Read - show "Read" (bold) + filepath (light)
@@ -1175,19 +2789,23 @@ function getToolTitleInfo(tool, input) {
     return { title: 'Read', subtitle: filePath || 'file', badge: null };
   }
 
-  // For Write - show "Write" + filename badge
+  // For Write - show filename as title with path as subtitle (like Bash)
   if (toolLower === 'write') {
     const filePath = input.file_path || input.filePath || '';
     const fileName = filePath.split('/').pop() || 'file';
-    return { title: 'Write', badge: fileName };
+    // Get file extension for badge
+    const ext = fileName.includes('.') ? fileName.split('.').pop() : null;
+    // Create descriptive title like "Create package.json"
+    const title = filePath ? `Write ${fileName}` : 'Write file';
+    return { title, subtitle: filePath, badge: ext };
   }
 
   // For Bash - show command description or shortened command
   if (toolLower === 'bash') {
     const cmd = input.command || '';
     const desc = input.description || '';
-    const title = desc || cmd.slice(0, 50) + (cmd.length > 50 ? '...' : '');
-    return { title: title, badge: null };
+    const title = desc || (cmd ? cmd.slice(0, 50) + (cmd.length > 50 ? '...' : '') : 'Bash');
+    return { title: title || 'Bash', badge: null };
   }
 
   // For Glob/Grep - show search description
@@ -1271,24 +2889,13 @@ function formatToolOutput(tool, input, output) {
   return formatGenericOutput(outputStr);
 }
 
-// Format Edit tool diff (old_string vs new_string) - Claude Desktop style
-function formatEditDiff(input) {
-  if (!input || typeof input !== 'object') {
-    return '<div class="tool-output">Edit applied successfully.</div>';
-  }
-
+// Build diff lines array for Edit tool (used by formatEditDiff)
+function buildEditDiffLines(input) {
   const oldStr = input.old_string || input.oldString || '';
   const newStr = input.new_string || input.newString || '';
-
-  if (!oldStr && !newStr) {
-    return '<div class="tool-output">Edit applied successfully.</div>';
-  }
-
   const oldLines = oldStr.split('\n');
   const newLines = newStr.split('\n');
-
-  // Try to create a unified diff view
-  let html = '<div class="tool-diff">';
+  const diffLines = [];
 
   // Find common prefix lines (context before)
   let commonPrefixCount = 0;
@@ -1306,100 +2913,180 @@ function formatEditDiff(input) {
     commonSuffixCount++;
   }
 
-  // Show context before (max 2 lines)
+  // Context before (max 2 lines)
   const contextBefore = Math.min(commonPrefixCount, 2);
   for (let i = commonPrefixCount - contextBefore; i < commonPrefixCount; i++) {
-    const lineNum = i + 1;
-    html += `
-      <div class="tool-diff-line context">
-        <span class="tool-diff-line-number">${lineNum}</span>
-        <span class="tool-diff-line-number">${lineNum}</span>
-        <span class="tool-diff-gutter"></span>
-        <span class="tool-diff-content">${escapeHtml(oldLines[i])}</span>
-      </div>
-    `;
+    diffLines.push({ type: 'context', oldNum: i + 1, newNum: i + 1, content: oldLines[i] });
   }
 
-  // Show deletions (changed old lines)
+  // Deletions (changed old lines)
   const oldChangedStart = commonPrefixCount;
   const oldChangedEnd = oldLines.length - commonSuffixCount;
   for (let i = oldChangedStart; i < oldChangedEnd; i++) {
-    const lineNum = i + 1;
-    html += `
-      <div class="tool-diff-line deletion">
-        <span class="tool-diff-line-number deletion">${lineNum}</span>
-        <span class="tool-diff-line-number"></span>
-        <span class="tool-diff-gutter deletion">-</span>
-        <span class="tool-diff-content">${escapeHtml(oldLines[i])}</span>
-      </div>
-    `;
+    diffLines.push({ type: 'deletion', oldNum: i + 1, newNum: null, content: oldLines[i] });
   }
 
-  // Show additions (changed new lines)
+  // Additions (changed new lines)
   const newChangedStart = commonPrefixCount;
   const newChangedEnd = newLines.length - commonSuffixCount;
   for (let i = newChangedStart; i < newChangedEnd; i++) {
-    const lineNum = i + 1;
-    html += `
-      <div class="tool-diff-line addition">
-        <span class="tool-diff-line-number"></span>
-        <span class="tool-diff-line-number addition">${lineNum}</span>
-        <span class="tool-diff-gutter addition">+</span>
-        <span class="tool-diff-content">${escapeHtml(newLines[i])}</span>
-      </div>
-    `;
+    diffLines.push({ type: 'addition', oldNum: null, newNum: i + 1, content: newLines[i] });
   }
 
-  // Show context after (max 2 lines)
+  // Context after (max 2 lines)
   const contextAfter = Math.min(commonSuffixCount, 2);
   const suffixStart = oldLines.length - commonSuffixCount;
   for (let i = 0; i < contextAfter; i++) {
     const oldLineNum = suffixStart + i + 1;
     const newLineNum = newLines.length - commonSuffixCount + i + 1;
-    html += `
+    diffLines.push({ type: 'context', oldNum: oldLineNum, newNum: newLineNum, content: oldLines[suffixStart + i] });
+  }
+
+  return diffLines;
+}
+
+// Render a single diff line to HTML
+function renderDiffLine(line) {
+  if (line.type === 'context') {
+    return `
       <div class="tool-diff-line context">
-        <span class="tool-diff-line-number">${oldLineNum}</span>
-        <span class="tool-diff-line-number">${newLineNum}</span>
+        <span class="tool-diff-line-number">${line.oldNum}</span>
+        <span class="tool-diff-line-number">${line.newNum}</span>
         <span class="tool-diff-gutter"></span>
-        <span class="tool-diff-content">${escapeHtml(oldLines[suffixStart + i])}</span>
+        <span class="tool-diff-content">${escapeHtml(line.content)}</span>
       </div>
     `;
+  } else if (line.type === 'deletion') {
+    return `
+      <div class="tool-diff-line deletion">
+        <span class="tool-diff-line-number deletion">${line.oldNum}</span>
+        <span class="tool-diff-line-number"></span>
+        <span class="tool-diff-gutter deletion">-</span>
+        <span class="tool-diff-content">${escapeHtml(line.content)}</span>
+      </div>
+    `;
+  } else if (line.type === 'addition') {
+    return `
+      <div class="tool-diff-line addition">
+        <span class="tool-diff-line-number"></span>
+        <span class="tool-diff-line-number addition">${line.newNum}</span>
+        <span class="tool-diff-gutter addition">+</span>
+        <span class="tool-diff-content">${escapeHtml(line.content)}</span>
+      </div>
+    `;
+  }
+  return '';
+}
+
+// Format Edit tool diff (old_string vs new_string) - Claude Desktop style with truncation
+function formatEditDiff(input) {
+  if (!input || typeof input !== 'object') {
+    return '<div class="tool-output">Edit applied successfully.</div>';
+  }
+
+  const oldStr = input.old_string || input.oldString || '';
+  const newStr = input.new_string || input.newString || '';
+
+  if (!oldStr && !newStr) {
+    return '<div class="tool-output">Edit applied successfully.</div>';
+  }
+
+  const diffLines = buildEditDiffLines(input);
+  const maxLines = 12; // Show limited lines by default
+  const truncated = diffLines.length > maxLines;
+  const displayLines = truncated ? diffLines.slice(0, maxLines) : diffLines;
+
+  let html = '<div class="tool-diff-card" data-truncated="' + truncated + '" data-expanded="false">';
+
+  // Truncated view (shown by default)
+  html += '<div class="diff-truncated">';
+  html += '<div class="tool-diff">';
+  displayLines.forEach(line => {
+    html += renderDiffLine(line);
+  });
+  html += '</div>';
+  html += '</div>';
+
+  // Full view (hidden initially)
+  if (truncated) {
+    html += '<div class="diff-full" style="display: none;">';
+    html += '<div class="tool-diff">';
+    diffLines.forEach(line => {
+      html += renderDiffLine(line);
+    });
+    html += '</div>';
+    html += '</div>';
+
+    // Toggle button
+    const moreLines = diffLines.length - maxLines;
+    html += '<div class="tool-diff-toggle" onclick="toggleDiffOutput(this)">';
+    html += '<span class="diff-toggle-text">Show ' + moreLines + ' more lines</span>';
+    html += '<span class="diff-toggle-chevron">' + chevronDownSvg + '</span>';
+    html += '</div>';
   }
 
   html += '</div>';
   return html;
 }
 
-// Format Write tool output (show new content being written)
+// Render a single write line to HTML (all additions)
+function renderWriteLine(line, lineNum) {
+  return `
+    <div class="tool-diff-line addition">
+      <span class="tool-diff-line-number new">${lineNum}</span>
+      <span class="tool-diff-gutter addition">+</span>
+      <span class="tool-diff-content">${escapeHtml(line)}</span>
+    </div>
+  `;
+}
+
+// Format Write tool output (show new content being written) - with truncation
 function formatWriteOutput(input) {
   if (!input || typeof input !== 'object') {
-    return '<div class="tool-output">File written successfully.</div>';
+    return '<div class="tool-pending-message">Awaiting execution...</div>';
   }
 
   const content = input.content || '';
+
+  // If no content yet, show pending state
+  if (!content) {
+    return '<div class="tool-pending-message">Awaiting execution...</div>';
+  }
   const lines = content.split('\n');
-  const maxLines = 25;
-  const displayLines = lines.slice(0, maxLines);
-  const moreLines = lines.length - maxLines;
+  const maxLines = 12; // Match Edit tool truncation
+  const truncated = lines.length > maxLines;
+  const displayLines = truncated ? lines.slice(0, maxLines) : lines;
 
-  let html = '<div class="tool-diff">';
+  let html = '<div class="tool-diff-card" data-truncated="' + truncated + '" data-expanded="false">';
 
+  // Truncated view (shown by default)
+  html += '<div class="diff-truncated">';
+  html += '<div class="tool-diff">';
   displayLines.forEach((line, idx) => {
-    html += `
-      <div class="tool-diff-line addition">
-        <span class="tool-diff-line-number new">${idx + 1}</span>
-        <span class="tool-diff-gutter addition">+</span>
-        <span class="tool-diff-content">${escapeHtml(line)}</span>
-      </div>
-    `;
+    html += renderWriteLine(line, idx + 1);
   });
-
+  html += '</div>';
   html += '</div>';
 
-  if (moreLines > 0) {
-    html += `<div class="tool-diff-more">Show full diff (${moreLines} more lines)</div>`;
+  // Full view (hidden initially)
+  if (truncated) {
+    html += '<div class="diff-full" style="display: none;">';
+    html += '<div class="tool-diff">';
+    lines.forEach((line, idx) => {
+      html += renderWriteLine(line, idx + 1);
+    });
+    html += '</div>';
+    html += '</div>';
+
+    // Toggle button
+    const moreLines = lines.length - maxLines;
+    html += '<div class="tool-diff-toggle" onclick="toggleDiffOutput(this)">';
+    html += '<span class="diff-toggle-text">Show ' + moreLines + ' more lines</span>';
+    html += '<span class="diff-toggle-chevron">' + chevronDownSvg + '</span>';
+    html += '</div>';
   }
 
+  html += '</div>';
   return html;
 }
 
@@ -1430,12 +3117,17 @@ function copyToClipboard(btn, text) {
 // Format bash command output (Claude Desktop style) - SEPARATE stacked containers
 function formatBashOutput(input, output) {
   const command = input?.command || '';
-  const lines = output.split('\n');
+  const lines = output ? output.split('\n') : [];
   const maxLines = 8; // Show fewer lines by default, with ability to expand
   const truncated = lines.length > maxLines;
   const displayLines = truncated ? lines.slice(0, maxLines) : lines;
 
   let html = '';
+
+  // If no command and no output, show a pending state message
+  if (!command && !output?.trim()) {
+    return `<div class="tool-pending-message">Awaiting execution...</div>`;
+  }
 
   // Command section - separate rounded container with copy button
   if (command) {
@@ -1520,14 +3212,48 @@ function toggleBashOutput(toggleEl) {
     outputEl.dataset.expanded = 'false';
     const hiddenCount = fullView.querySelectorAll('.tool-bash-line').length - truncatedView.querySelectorAll('.tool-bash-line').length;
     toggleText.textContent = `Show ${hiddenCount} more lines`;
-    toggleChevron.innerHTML = chevronDownSvg;
+    toggleChevron.replaceChildren();
+    toggleChevron.insertAdjacentHTML('beforeend', chevronDownSvg);
   } else {
     // Expand
     truncatedView.style.display = 'none';
     fullView.style.display = 'block';
     outputEl.dataset.expanded = 'true';
     toggleText.textContent = 'Show less';
-    toggleChevron.innerHTML = chevronUpSvg;
+    toggleChevron.replaceChildren();
+    toggleChevron.insertAdjacentHTML('beforeend', chevronUpSvg);
+  }
+}
+
+// Toggle diff output between truncated and full view (for Edit/Write tools)
+function toggleDiffOutput(toggleEl) {
+  const cardEl = toggleEl.parentElement;
+  const truncatedView = cardEl.querySelector('.diff-truncated');
+  const fullView = cardEl.querySelector('.diff-full');
+  const toggleText = toggleEl.querySelector('.diff-toggle-text');
+  const toggleChevron = toggleEl.querySelector('.diff-toggle-chevron');
+
+  if (!truncatedView || !fullView) return;
+
+  const isExpanded = cardEl.dataset.expanded === 'true';
+
+  if (isExpanded) {
+    // Collapse
+    truncatedView.style.display = 'block';
+    fullView.style.display = 'none';
+    cardEl.dataset.expanded = 'false';
+    const hiddenCount = fullView.querySelectorAll('.tool-diff-line').length - truncatedView.querySelectorAll('.tool-diff-line').length;
+    toggleText.textContent = `Show ${hiddenCount} more lines`;
+    toggleChevron.replaceChildren();
+    toggleChevron.insertAdjacentHTML('beforeend', chevronDownSvg);
+  } else {
+    // Expand
+    truncatedView.style.display = 'none';
+    fullView.style.display = 'block';
+    cardEl.dataset.expanded = 'true';
+    toggleText.textContent = 'Show less';
+    toggleChevron.replaceChildren();
+    toggleChevron.insertAdjacentHTML('beforeend', chevronUpSvg);
   }
 }
 
@@ -2991,42 +4717,29 @@ function startRequestTimer() {
     // We don't need to call setRequestState here since main.js tracks via IPC
   }
 
-  // Create or update timer display in title bar
-  let timerEl = document.getElementById('request-timer');
-  if (!timerEl) {
-    const titleInfo = document.querySelector('.title-info');
-    if (titleInfo) {
-      const separator = document.createElement('span');
-      separator.className = 'separator';
-      separator.textContent = '|';
-      separator.id = 'timer-separator';
-
-      timerEl = document.createElement('span');
-      timerEl.id = 'request-timer';
-      timerEl.className = 'request-timer';
-      timerEl.textContent = '0:00';
-
-      titleInfo.appendChild(separator);
-      titleInfo.appendChild(timerEl);
-    }
-  } else {
-    timerEl.textContent = '0:00';
-    timerEl.style.display = '';
-    const separator = document.getElementById('timer-separator');
-    if (separator) separator.style.display = '';
-  }
-
-  // Update timer every second
+  // Update timer every 100ms for more responsive display
   requestTimerInterval = setInterval(() => {
-    if (requestStartTime && timerEl) {
-      const elapsed = Math.floor((Date.now() - requestStartTime) / 1000);
-      timerEl.textContent = formatElapsedTime(elapsed);
+    if (requestStartTime && currentToolGroup) {
+      const timerEl = currentToolGroup.querySelector('.tool-group-timer');
+      if (timerEl) {
+        const elapsed = Math.floor((Date.now() - requestStartTime) / 1000);
+        timerEl.textContent = formatElapsedTime(elapsed);
+      }
     }
-  }, 1000);
+  }, 100);
 }
 
 // Stop the request timer
 function stopRequestTimer() {
+  // Final timer update before stopping
+  if (requestStartTime && currentToolGroup) {
+    const timerEl = currentToolGroup.querySelector('.tool-group-timer');
+    if (timerEl) {
+      const elapsed = Math.floor((Date.now() - requestStartTime) / 1000);
+      timerEl.textContent = formatElapsedTime(elapsed);
+    }
+  }
+
   if (requestTimerInterval) {
     clearInterval(requestTimerInterval);
     requestTimerInterval = null;
@@ -3064,15 +4777,7 @@ function stopRequestTimer() {
     sendBtn.appendChild(arrowSvg);
   }
 
-  // Hide the timer display (but keep it for showing final time briefly)
-  const timerEl = document.getElementById('request-timer');
-  const separator = document.getElementById('timer-separator');
-
-  // Fade out the timer after a brief moment
-  setTimeout(() => {
-    if (timerEl) timerEl.style.display = 'none';
-    if (separator) separator.style.display = 'none';
-  }, 2000);
+  // Timer is now on the tool group, no need to hide title bar timer
 }
 
 // Show error message
@@ -3187,16 +4892,17 @@ async function checkAndUpdateStatus() {
         updateStatusIndicator('disconnected', 'Disconnected');
       }
     } else {
-      // Fallback: try to reach the API directly
+      // Fallback: try to reach the API via IPC proxy (bypasses Chromium network issues)
       if (config && config.apiBase) {
-        const response = await fetch(`${config.apiBase}/config`, {
-          method: 'GET',
-          signal: AbortSignal.timeout(5000)
-        });
-        if (response.ok) {
-          updateStatusIndicator('connected', 'Connected');
-          lastStatusCheck = new Date().toISOString();
-        } else {
+        try {
+          const response = await proxyFetch('/config', { method: 'GET' });
+          if (response.ok) {
+            updateStatusIndicator('connected', 'Connected');
+            lastStatusCheck = new Date().toISOString();
+          } else {
+            updateStatusIndicator('disconnected', 'Disconnected');
+          }
+        } catch (err) {
           updateStatusIndicator('disconnected', 'Disconnected');
         }
       }
@@ -3496,6 +5202,9 @@ const pendingQuestions = new Map();
 
 // Track answered questions - these should not be re-rendered
 const answeredQuestions = new Set();
+
+// Track question request IDs for API replies: callID -> requestID (e.g., "que_xxx")
+const questionRequestIds = new Map();
 
 // Track multipart question state: { callID: { questions, currentIndex, answers } }
 const questionState = new Map();
@@ -3881,8 +5590,52 @@ async function handleQuestionResponse(callID, answer, container) {
   container.classList.remove('question-loading');
   container.classList.add('question-completed');
 
-  // Format the answer as text for sending
-  // Include context so the model knows this is answering its question
+  // Get the question request ID for the API reply endpoint
+  const requestId = questionRequestIds.get(callID);
+
+  if (requestId && window.electronAPI?.proxyApiCall) {
+    // Use the dedicated question reply endpoint: POST /question/{requestID}/reply
+    // Format: { answers: [["selected_label"]] } - array of arrays for each question
+    try {
+      console.log('[Sidecar] Sending answer via /question/' + requestId + '/reply endpoint...');
+
+      // Format answer for API - each answer is an array of selected labels
+      let apiAnswers;
+      if (typeof answer === 'object' && answer !== null) {
+        // Multipart answers: convert object values to arrays
+        apiAnswers = Object.values(answer).map(v => [String(v)]);
+      } else {
+        // Single answer: wrap in array
+        apiAnswers = [[String(answer)]];
+      }
+
+      const result = await window.electronAPI.proxyApiCall({
+        method: 'POST',
+        endpoint: `/question/${requestId}/reply`,
+        body: { answers: apiAnswers }
+      });
+
+      console.log('[Sidecar] Question reply result:', result);
+
+      // Clean up the request ID mapping
+      questionRequestIds.delete(callID);
+
+      // The model will automatically continue after the question is answered
+      // SSE events will deliver the response
+    } catch (error) {
+      console.error('[Sidecar] Error replying to question via API:', error);
+      // Fall back to sending as user message
+      await fallbackSendAnswer(answer);
+    }
+  } else {
+    // Fallback: No request ID or API not available - send as user message
+    console.log('[Sidecar] No request ID found for callID:', callID, '- falling back to user message');
+    await fallbackSendAnswer(answer);
+  }
+}
+
+// Fallback function to send answer as user message
+async function fallbackSendAnswer(answer) {
   let answerTextToSend;
   if (typeof answer === 'object' && answer !== null) {
     const formattedAnswers = Object.entries(answer)
@@ -3893,15 +5646,291 @@ async function handleQuestionResponse(callID, answer, container) {
     answerTextToSend = `[User answered your question]\n\nMy answer: ${String(answer)}\n\nPlease continue based on this answer.`;
   }
 
-  // Use sendToAPI to continue the conversation - this handles polling and response display
   try {
-    console.log('[Sidecar] Sending answer as contextual message...');
-    await sendToAPI(answerTextToSend);
+    console.log('[Sidecar] Sending answer via streaming API (fallback)...');
+    await sendToAPIStreaming(answerTextToSend);
   } catch (error) {
     console.error('[Sidecar] Error continuing after question:', error);
-    // Don't revert the question UI - the answer was recorded
-    // Just show an error message
     showError(`Error continuing conversation: ${error.message}`);
+  }
+}
+
+// ============================================
+// Permission Handling
+// ============================================
+
+// Track pending permissions: requestId -> container
+const pendingPermissions = new Map();
+
+// Track handled permissions to avoid duplicates
+const handledPermissions = new Set();
+
+// Track permission request IDs for API replies
+const permissionRequestIds = new Map();
+
+/**
+ * Handle permission.asked SSE event
+ * This event is sent by OpenCode when a tool needs permission to execute
+ * @param {object} data - Permission event data
+ *
+ * Event format:
+ * {
+ *   id: "per_xxx",                    // Permission request ID
+ *   sessionID: "ses_xxx",             // Session ID
+ *   permission: "external_directory", // Permission type
+ *   patterns: ["/path/to/dir"],       // Affected paths/patterns
+ *   always: ["/path*"],               // Suggested "always" patterns
+ *   metadata: {},                     // Additional metadata
+ *   tool: { messageID, callID }       // Tool that triggered this
+ * }
+ */
+function handlePermissionAsked(data) {
+  console.log('[Sidecar] permission.asked event received:', JSON.stringify(data).slice(0, 500));
+
+  // Extract the request ID from the event
+  const requestId = data.id;
+
+  // Skip if already handled
+  if (!requestId || handledPermissions.has(requestId) || pendingPermissions.has(requestId)) {
+    console.log('[Sidecar] permission.asked skipping - already handled:', requestId);
+    return;
+  }
+
+  // Extract permission details from actual event format
+  const permissionType = data.permission || data.type || 'unknown';
+  const patterns = data.patterns || [];
+  const pattern = patterns.length > 0 ? patterns.join(', ') : '';
+  const alwaysPatterns = data.always || [];
+  const toolInfo = data.tool || {};
+  const metadata = data.metadata || {};
+
+  // Build user-friendly message
+  const message = buildPermissionMessage(permissionType, pattern, metadata);
+
+  // Prepare permission data
+  const permData = {
+    requestId,
+    type: permissionType,
+    pattern,
+    patterns,
+    alwaysPatterns,
+    message,
+    metadata,
+    toolInfo
+  };
+
+  // Try to attach permission to its triggering tool
+  const toolCallId = toolInfo.callID || data.callID;
+  if (toolCallId) {
+    const toolEl = document.querySelector(`[data-call-id="${toolCallId}"]`);
+    if (toolEl) {
+      // Tool exists - attach permission accordion directly
+      console.log('[Sidecar] Attaching permission to tool:', toolCallId);
+      attachPermissionToTool(toolEl, requestId, permData);
+      return;
+    } else {
+      // Tool not created yet - queue permission for when tool is created
+      console.log('[Sidecar] Queueing permission for tool:', toolCallId);
+      pendingPermissionsForTools.set(toolCallId, permData);
+      return;
+    }
+  }
+
+  // Fallback: show standalone permission UI if no tool association
+  console.log('[Sidecar] permission.asked showing standalone UI for:', requestId, permissionType, pattern);
+  showPermissionUI(requestId, permData);
+}
+
+/**
+ * Build a human-readable permission message
+ * @param {string} type - Permission type (external_directory, bash, read, edit, write, etc.)
+ * @param {string} pattern - The affected path/pattern
+ * @param {object} metadata - Additional metadata
+ */
+function buildPermissionMessage(type, pattern, metadata) {
+  switch (type) {
+    case 'external_directory':
+      return `Allow access to external directory: ${pattern || 'unknown path'}`;
+    case 'bash':
+      return `Allow running bash command: ${metadata?.command || pattern || 'unknown command'}`;
+    case 'read':
+      return `Allow reading file: ${pattern || metadata?.path || 'unknown path'}`;
+    case 'edit':
+      return `Allow editing file: ${pattern || metadata?.path || 'unknown path'}`;
+    case 'write':
+      return `Allow writing file: ${pattern || metadata?.path || 'unknown path'}`;
+    case 'mcp':
+      return `Allow MCP tool: ${pattern || 'unknown tool'}`;
+    default:
+      return `Allow ${type.replace(/_/g, ' ')} operation${pattern ? ': ' + pattern : ''}`;
+  }
+}
+
+/**
+ * Show permission approval UI
+ */
+function showPermissionUI(requestId, data) {
+  // Remove any existing permission UI for this request
+  const existingPermission = document.querySelector(`[data-permission-id="${requestId}"]`);
+  if (existingPermission) {
+    existingPermission.remove();
+  }
+
+  const container = document.createElement('div');
+  container.className = 'permission-container';
+  container.dataset.permissionId = requestId;
+
+  // Header with type badge
+  const header = document.createElement('div');
+  header.className = 'permission-header';
+
+  const headerLeft = document.createElement('div');
+  headerLeft.className = 'permission-header-left';
+
+  const iconSpan = document.createElement('span');
+  iconSpan.className = 'permission-icon';
+  iconSpan.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>';
+
+  const labelSpan = document.createElement('span');
+  labelSpan.className = 'permission-label';
+  labelSpan.textContent = 'Permission Required';
+
+  headerLeft.appendChild(iconSpan);
+  headerLeft.appendChild(labelSpan);
+  header.appendChild(headerLeft);
+
+  // Add type badge
+  if (data.type) {
+    const typeBadge = document.createElement('span');
+    typeBadge.className = 'permission-type-badge';
+    typeBadge.textContent = data.type.replace(/_/g, ' ');
+    header.appendChild(typeBadge);
+  }
+
+  container.appendChild(header);
+
+  // Message
+  const messageDiv = document.createElement('div');
+  messageDiv.className = 'permission-message';
+  messageDiv.textContent = data.message;
+  container.appendChild(messageDiv);
+
+  // Details - show patterns if available
+  if (data.patterns && data.patterns.length > 0) {
+    const detailsDiv = document.createElement('div');
+    detailsDiv.className = 'permission-details';
+    const codeEl = document.createElement('code');
+    codeEl.textContent = data.patterns.join('\n');
+    detailsDiv.appendChild(codeEl);
+    container.appendChild(detailsDiv);
+  } else if (data.metadata && (data.metadata.command || data.metadata.path)) {
+    const detailsDiv = document.createElement('div');
+    detailsDiv.className = 'permission-details';
+    const codeEl = document.createElement('code');
+    codeEl.textContent = data.metadata.command || data.metadata.path || '';
+    detailsDiv.appendChild(codeEl);
+    container.appendChild(detailsDiv);
+  }
+
+  // Buttons
+  const buttonContainer = document.createElement('div');
+  buttonContainer.className = 'permission-buttons';
+
+  // Reject button
+  const rejectBtn = document.createElement('button');
+  rejectBtn.className = 'permission-btn permission-btn-reject';
+  rejectBtn.textContent = 'Reject';
+  rejectBtn.onclick = () => handlePermissionResponse(requestId, 'reject', container);
+
+  // Allow Once button
+  const allowOnceBtn = document.createElement('button');
+  allowOnceBtn.className = 'permission-btn permission-btn-once';
+  allowOnceBtn.textContent = 'Allow Once';
+  allowOnceBtn.onclick = () => handlePermissionResponse(requestId, 'once', container);
+
+  // Allow Always button
+  const allowAlwaysBtn = document.createElement('button');
+  allowAlwaysBtn.className = 'permission-btn permission-btn-always';
+  allowAlwaysBtn.textContent = 'Allow Always';
+  allowAlwaysBtn.onclick = () => handlePermissionResponse(requestId, 'always', container);
+
+  buttonContainer.appendChild(rejectBtn);
+  buttonContainer.appendChild(allowOnceBtn);
+  buttonContainer.appendChild(allowAlwaysBtn);
+  container.appendChild(buttonContainer);
+
+  // Add to messages container
+  messagesContainer.appendChild(container);
+
+  // Track pending permission
+  pendingPermissions.set(requestId, container);
+
+  // Scroll to the first pending permission (not just bottom)
+  // This ensures user sees permissions in order
+  scrollToFirstPendingPermission();
+}
+
+/**
+ * Handle permission response - call the API to approve/reject
+ */
+async function handlePermissionResponse(requestId, reply, container) {
+  console.log('[Sidecar] Permission response:', requestId, reply);
+
+  // Mark as handled
+  handledPermissions.add(requestId);
+  pendingPermissions.delete(requestId);
+
+  // Get the pattern/path from the container before replacing it
+  const detailsEl = container.querySelector('.permission-details code');
+  const pattern = detailsEl?.textContent || '';
+  const typeBadge = container.querySelector('.permission-type-badge');
+  const permType = typeBadge?.textContent || 'permission';
+
+  // Call the permission reply API
+  if (window.electronAPI?.proxyApiCall) {
+    try {
+      console.log('[Sidecar] Sending permission reply via /permission/' + requestId + '/reply endpoint...');
+
+      const result = await window.electronAPI.proxyApiCall({
+        method: 'POST',
+        endpoint: `/permission/${requestId}/reply`,
+        body: { reply: reply }
+      });
+
+      console.log('[Sidecar] Permission reply result:', result);
+
+      // Replace the full permission UI with a compact resolved version
+      const isGranted = reply !== 'reject';
+      const icon = isGranted ? '✓' : '✗';
+      const statusText = isGranted ? 'granted' : 'denied';
+      const replyText = reply === 'always' ? ' (always)' : reply === 'once' ? ' (once)' : '';
+
+      // Create compact collapsed permission
+      container.innerHTML = '';
+      container.className = `permission-container permission-collapsed permission-${reply}`;
+
+      const collapsedContent = document.createElement('div');
+      collapsedContent.className = 'permission-collapsed-content';
+      collapsedContent.innerHTML = `
+        <span class="permission-collapsed-icon">${icon}</span>
+        <span class="permission-collapsed-text">
+          <span class="permission-collapsed-type">${escapeHtml(permType)}</span>
+          ${statusText}${replyText}
+          ${pattern ? `<span class="permission-collapsed-path">${escapeHtml(pattern.split('\n')[0])}</span>` : ''}
+        </span>
+      `;
+      container.appendChild(collapsedContent);
+
+      // Update the badge after permission resolved
+      updatePendingPermissionsBadge();
+
+    } catch (error) {
+      console.error('[Sidecar] Error replying to permission via API:', error);
+      showError(`Error sending permission response: ${error.message}`);
+    }
+  } else {
+    console.error('[Sidecar] proxyApiCall not available - cannot reply to permission');
+    showError('Unable to send permission response - API not available');
   }
 }
 
@@ -4128,19 +6157,24 @@ async function sendMessage() {
   messageInput.value = '';
   messageInput.style.height = 'auto';
 
-  // Send to API
-  await sendToAPI(content);
+  // Send to API - use streaming if available
+  if (sseSubscribed && window.electronAPI?.sendMessageAsync) {
+    await sendToAPIStreaming(content);
+  } else {
+    await sendToAPI(content);
+  }
 }
 
 // Poll session for tool call updates
+// Uses IPC proxy to bypass Chromium network service issues
 async function pollSessionForUpdates() {
   if (!sessionId) return;
 
   try {
-    const response = await fetch(`${config.apiBase}/session/${sessionId}`);
+    const response = await proxyFetch(`/session/${sessionId}`, { method: 'GET' });
     if (!response.ok) return;
 
-    const data = await response.json();
+    const data = response.data;
 
     // Check for new activity
     if (data.summary) {
@@ -4193,6 +6227,13 @@ async function sendToAPI(content, systemPrompt = null, rethrowOnError = false) {
   sendBtn.disabled = true;
   showTypingIndicator();
   startRequestTimer();
+
+  // Track this message content so we can filter it from SSE
+  userSentMessageContents.add(content.trim());
+
+  // Reset SSE message tracking for this request
+  sseMessageAddedForCurrentRequest = false;
+  currentStreamingMessageId = null;
 
   const toolsCalled = [];
   const processedReasoningIds = new Set();
@@ -4260,14 +6301,24 @@ async function sendToAPI(content, systemPrompt = null, rethrowOnError = false) {
         }
 
         // Process intermediate reasoning parts
+        if (reasoningParts.length > 0) {
+          console.log('[Sidecar] Polling found reasoning parts:', reasoningParts.length, reasoningParts);
+        }
         reasoningParts.forEach(part => {
           const reasoningId = part.id || `${part._messageID}-${(part.text || '').slice(0, 30)}`;
+          console.log('[Sidecar] Processing reasoning part:', { id: reasoningId, text: part.text?.slice(0, 100), type: part.type });
           if (!processedReasoningIds.has(reasoningId)) {
             processedReasoningIds.add(reasoningId);
             const reasoningText = part.text || part.content || '';
-            if (reasoningText) {
+            // Skip encrypted/redacted reasoning from OpenRouter (provides no useful content)
+            if (reasoningText && reasoningText !== '[REDACTED]') {
+              console.log('[Sidecar] Adding reasoning to UI:', reasoningText.slice(0, 100));
               addReasoningToGroup(reasoningText);
+            } else {
+              console.log('[Sidecar] Skipping reasoning (empty or REDACTED):', reasoningText);
             }
+          } else {
+            console.log('[Sidecar] Reasoning already processed:', reasoningId);
           }
         });
       } catch (err) {
@@ -4289,10 +6340,13 @@ async function sendToAPI(content, systemPrompt = null, rethrowOnError = false) {
       parts: [{ type: 'text', text: content }]
     };
 
-    // Add agent (mode) if not default code mode
-    const modeToUse = currentMode || 'code';
-    if (modeToUse !== 'code') {
-      requestBody.agent = modeToUse;
+    // Add agent (mode) if not using the default Build mode
+    // Valid agents are: build (default), plan, explore, general
+    // OpenCode API expects lowercase agent names
+    // We only send agent parameter for non-default modes
+    const modeToUse = currentMode || 'build';
+    if (modeToUse.toLowerCase() !== 'build') {
+      requestBody.agent = modeToUse.toLowerCase();
     }
 
     // Add system prompt if provided (typically only for the first message)
@@ -4301,34 +6355,49 @@ async function sendToAPI(content, systemPrompt = null, rethrowOnError = false) {
       console.log('[Sidecar] Sending with system prompt:', systemPrompt.slice(0, 100) + '...');
     }
 
-    // Add reasoning/thinking configuration if not default
+    // Add reasoning/thinking configuration
+    // Always send reasoning parameter to enable thinking blocks (unless 'none')
     const thinkingToUse = currentThinking || 'medium';
-    if (thinkingToUse !== 'medium' && typeof window.ThinkingPicker !== 'undefined') {
+    if (typeof window.ThinkingPicker !== 'undefined') {
       const reasoning = window.ThinkingPicker.formatThinkingForAPI(thinkingToUse);
       if (reasoning) {
         requestBody.reasoning = reasoning;
+        console.log('[Sidecar] Sending with reasoning:', reasoning);
       }
     }
 
     // Log which model, mode, and thinking are being used for this message
     console.log(`[Sidecar] ▶ Sending message with model: ${modelToUse}, mode: ${modeToUse}, thinking: ${thinkingToUse}`);
+    console.log('[Sidecar] Full request body:', JSON.stringify(requestBody, null, 2));
 
-    const response = await fetch(`${config.apiBase}/session/${sessionId}/message`, {
+    // Use IPC proxy to bypass Chromium network service issues
+    const response = await proxyFetch(`/session/${sessionId}/message`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody)
     });
 
     clearInterval(pollForParts);
 
     if (!response.ok) {
+      await reportError('api', `API returned error status: ${response.status}`, {
+        endpoint: '/session/message',
+        model: modelToUse
+      });
       throw new Error(`API error: ${response.status}`);
     }
 
     removeTypingIndicator();
 
-    // Parse JSON response from OpenCode API
-    const data = await response.json();
+    // Response data is already parsed by proxy
+    const data = response.data;
+
+    if (!data) {
+      await reportError('api', 'API returned no data', {
+        endpoint: '/session/message',
+        model: modelToUse
+      });
+      throw new Error('Server returned empty response');
+    }
 
     // Log model info from response (OpenCode uses modelID, not model)
     const responseModel = data.info?.modelID || data.modelID || 'unknown';
@@ -4412,7 +6481,8 @@ async function sendToAPI(content, systemPrompt = null, rethrowOnError = false) {
           if (!processedReasoningIds.has(reasoningId)) {
             processedReasoningIds.add(reasoningId);
             const reasoningText = part.text || part.content || '';
-            if (reasoningText) {
+            // Skip encrypted/redacted reasoning from OpenRouter (provides no useful content)
+            if (reasoningText && reasoningText !== '[REDACTED]') {
               console.log('[Sidecar] Adding reasoning with text length:', reasoningText.length);
               addReasoningToGroup(reasoningText);
             }
@@ -4466,7 +6536,8 @@ async function sendToAPI(content, systemPrompt = null, rethrowOnError = false) {
         if (!processedReasoningIds.has(reasoningId)) {
           processedReasoningIds.add(reasoningId);
           const reasoningText = part.text || part.content || '';
-          if (reasoningText) {
+          // Skip encrypted/redacted reasoning from OpenRouter (provides no useful content)
+          if (reasoningText && reasoningText !== '[REDACTED]') {
             addReasoningToGroup(reasoningText);
           }
         }
@@ -4490,11 +6561,22 @@ async function sendToAPI(content, systemPrompt = null, rethrowOnError = false) {
     }
 
     // Display the assistant's response
-    if (assistantMessage) {
+    // Skip if SSE already added the message
+    if (assistantMessage && !sseMessageAddedForCurrentRequest) {
       addMessage('assistant', assistantMessage);
+    } else if (sseMessageAddedForCurrentRequest) {
+      console.log('[Sidecar] SSE already displayed this message, skipping duplicate');
+      // Finalize the SSE streaming message if it's still marked as streaming
+      if (streamingMessageEl) {
+        streamingMessageEl.classList.remove('streaming');
+        streamingMessageEl = null;
+      }
     } else if (!toolsCalled.length) {
       console.log('[Sidecar] No text content in response:', data);
     }
+
+    // Reset SSE message flag for next request
+    sseMessageAddedForCurrentRequest = false;
 
   } catch (error) {
     console.error('[Sidecar] API error:', error);
@@ -4503,6 +6585,7 @@ async function sendToAPI(content, systemPrompt = null, rethrowOnError = false) {
     showError(`Error: ${error.message}`);
     if (rethrowOnError) throw error; // Allow retry logic to catch
   } finally {
+    console.log('[Sidecar] sendToAPI completed (finally block)');
     isWaitingForResponse = false;
     sendBtn.disabled = false;
     messageInput.focus();
@@ -4510,23 +6593,30 @@ async function sendToAPI(content, systemPrompt = null, rethrowOnError = false) {
 }
 
 // Fetch tool calls and reasoning parts from session messages
+// Uses IPC proxy to bypass Chromium network service issues
 async function fetchSessionParts(afterMessageId = null) {
   try {
-    const response = await fetch(`${config.apiBase}/session/${sessionId}/message`);
+    const response = await proxyFetch(`/session/${sessionId}/message`, { method: 'GET' });
     if (!response.ok) return { tools: [], reasoning: [] };
 
-    const messages = await response.json();
+    const messages = response.data || [];
     const tools = [];
     const reasoning = [];
 
     // Extract tool and reasoning parts from assistant messages
     for (const msg of messages) {
       if (msg.info?.role === 'assistant' && msg.parts) {
+        // Log all part types for debugging
+        const partTypes = msg.parts.map(p => p.type);
+        if (partTypes.length > 0) {
+          console.log('[Sidecar] fetchSessionParts - message parts types:', partTypes);
+        }
         for (const part of msg.parts) {
           if (part.type === 'tool') {
             tools.push(part);
           } else if (part.type === 'reasoning' || part.type === 'thinking') {
             // Include part ID and message ID to avoid duplicates
+            console.log('[Sidecar] Found reasoning/thinking part:', { type: part.type, hasText: !!part.text, textLength: part.text?.length });
             reasoning.push({ ...part, _messageID: msg.info?.id });
           }
         }
@@ -4541,12 +6631,13 @@ async function fetchSessionParts(afterMessageId = null) {
 }
 
 // Fetch the latest assistant message from session
+// Uses IPC proxy to bypass Chromium network service issues
 async function fetchLatestAssistantMessage() {
   try {
-    const response = await fetch(`${config.apiBase}/session/${sessionId}/message`);
+    const response = await proxyFetch(`/session/${sessionId}/message`, { method: 'GET' });
     if (!response.ok) return null;
 
-    const messages = await response.json();
+    const messages = response.data || [];
 
     // Find the latest assistant message with text
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -5170,12 +7261,13 @@ function initModeSelector() {
     });
   }
 
-  // Set initial mode from config (default to 'Build')
+  // Set initial mode from config (default to 'build')
+  // OpenCode API expects lowercase agent names
   if (config && config.agent) {
-    // Normalize 'code' to 'Build' for backward compatibility
-    currentMode = config.agent === 'code' ? 'Build' : config.agent;
+    // Normalize 'code' to 'build' for backward compatibility
+    currentMode = config.agent === 'code' ? 'build' : config.agent.toLowerCase();
   } else {
-    currentMode = 'Build';
+    currentMode = 'build';
   }
 
   if (modePickerState) {
@@ -5346,24 +7438,25 @@ Acknowledge this mode change briefly.`;
       parts: [{ type: 'text', text: modeChangeMessage }]
     };
 
-    // Include agent parameter (Build is the default full-access mode)
-    const normalizedNewMode = newMode === 'code' ? 'Build' : newMode;
-    if (normalizedNewMode !== 'Build') {
+    // Include agent parameter (build is the default full-access mode)
+    // OpenCode API expects lowercase agent names
+    const normalizedNewMode = newMode === 'code' ? 'build' : newMode.toLowerCase();
+    if (normalizedNewMode !== 'build') {
       requestBody.agent = normalizedNewMode;
     }
 
-    const response = await fetch(`${config.apiBase}/session/${sessionId}/message`, {
+    // Use IPC proxy to bypass Chromium network service issues
+    const response = await proxyFetch(`/session/${sessionId}/message`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody)
     });
 
     removeTypingIndicator();
 
     if (response.ok) {
-      const data = await response.json();
+      const data = response.data;
       // Display the model's acknowledgment
-      if (data.parts) {
+      if (data && data.parts) {
         for (const part of data.parts) {
           if (part.type === 'text' && part.text) {
             addAssistantMessage(part.text);
@@ -6134,6 +8227,246 @@ function addMcpNotice(text) {
   messageEl.appendChild(textSpan);
   messagesContainer.appendChild(messageEl);
   scrollToBottom();
+}
+
+// ============================================================================
+// Context Panel Functions
+// ============================================================================
+
+/**
+ * Initialize the context panel UI
+ */
+function initContextPanel() {
+  // Initialize state manager from context-panel.js
+  if (typeof window.ContextPanel !== 'undefined') {
+    contextPanelState = new window.ContextPanel.ContextPanelState();
+
+    // Listen for context changes to update UI
+    contextPanelState.onChange(updateContextDisplay);
+
+    // Initial setup after config is loaded
+    if (config?.model) {
+      contextPanelState.setModel(config.model);
+    }
+    if (config?.systemPrompt) {
+      contextPanelState.setSystemPrompt(config.systemPrompt);
+    }
+  } else {
+    console.warn('[Sidecar] ContextPanel module not loaded');
+  }
+
+  // Set up click handlers
+  const contextBtn = document.getElementById('context-btn');
+  if (contextBtn) {
+    contextBtn.addEventListener('click', openContextModal);
+  }
+
+  const closeBtn = document.getElementById('context-modal-close');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', closeContextModal);
+  }
+
+  // Close modal when clicking backdrop
+  const modal = document.getElementById('context-modal');
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        closeContextModal();
+      }
+    });
+  }
+
+  // Close modal on Escape key
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && contextModalVisible) {
+      closeContextModal();
+    }
+  });
+
+  // Listen for model changes
+  if (modelPickerState) {
+    modelPickerState.onChange((change) => {
+      if (contextPanelState && change.currentModel) {
+        contextPanelState.setModel(change.currentModel);
+      }
+    });
+  }
+}
+
+/**
+ * Recalculate context usage from current messages
+ */
+async function recalculateContext() {
+  if (!contextPanelState || !sessionId) {
+    return;
+  }
+
+  try {
+    // Fetch current messages from session
+    const response = await proxyFetch(`/session/${sessionId}/message`);
+    if (response.ok && response.data) {
+      const messages = response.data.messages || response.data || [];
+      contextPanelState.calculateFromMessages(messages);
+    }
+  } catch (err) {
+    console.warn('[Sidecar] Failed to recalculate context:', err.message);
+  }
+}
+
+/**
+ * Update context display UI (called on state change)
+ * @param {object} contextInfo - Context information from state
+ */
+function updateContextDisplay(contextInfo) {
+  // Update ring progress indicator
+  const ringFill = document.querySelector('.context-ring-fill');
+  if (ringFill) {
+    const circumference = 2 * Math.PI * 15; // r=15
+    const dashLength = (contextInfo.usedPercentage / 100) * circumference;
+    ringFill.style.strokeDasharray = `${dashLength} ${circumference}`;
+
+    // Update color based on usage
+    ringFill.classList.remove('warning', 'critical');
+    if (contextInfo.usedPercentage >= 90) {
+      ringFill.classList.add('critical');
+    } else if (contextInfo.usedPercentage >= 75) {
+      ringFill.classList.add('warning');
+    }
+  }
+
+  // Update percentage text on button
+  const percentEl = document.querySelector('.context-percentage');
+  if (percentEl) {
+    percentEl.textContent = `${Math.round(contextInfo.usedPercentage)}%`;
+  }
+
+  // Update progress bar in modal
+  const progressFill = document.querySelector('.context-progress-fill');
+  if (progressFill) {
+    progressFill.style.width = `${contextInfo.usedPercentage}%`;
+    progressFill.classList.remove('warning', 'critical');
+    if (contextInfo.usedPercentage >= 90) {
+      progressFill.classList.add('critical');
+    } else if (contextInfo.usedPercentage >= 75) {
+      progressFill.classList.add('warning');
+    }
+  }
+
+  // Update text values
+  const usedEl = document.getElementById('context-used');
+  if (usedEl) {
+    usedEl.textContent = formatTokens(contextInfo.totalTokens) + ' tokens';
+  }
+
+  const limitEl = document.getElementById('context-limit');
+  if (limitEl) {
+    limitEl.textContent = `/ ${formatTokens(contextInfo.contextLimit)} limit`;
+  }
+
+  const turnsEl = document.getElementById('context-turns');
+  if (turnsEl) {
+    turnsEl.textContent = contextInfo.turnCount;
+  }
+
+  const messagesEl = document.getElementById('context-messages');
+  if (messagesEl) {
+    messagesEl.textContent = contextInfo.messageCount;
+  }
+
+  const remainingEl = document.getElementById('context-remaining');
+  if (remainingEl) {
+    remainingEl.textContent = formatTokens(contextInfo.remainingTokens);
+  }
+
+  // Update breakdown bars
+  const categories = ['systemPrompt', 'userMessages', 'assistantMessages', 'toolCalls', 'reasoning'];
+  const maxBreakdown = Math.max(...categories.map(c => contextInfo.breakdown[c] || 0), 1);
+
+  for (const cat of categories) {
+    const item = document.querySelector(`[data-category="${cat}"]`);
+    if (item) {
+      const value = contextInfo.breakdown[cat] || 0;
+      const bar = item.querySelector('.breakdown-bar');
+      const valueEl = item.querySelector('.breakdown-value');
+
+      if (bar) {
+        const percent = (value / maxBreakdown) * 100;
+        bar.style.width = `${percent}%`;
+      }
+      if (valueEl) {
+        valueEl.textContent = formatTokens(value);
+      }
+    }
+  }
+
+  // Update cache stats
+  const cacheReadEl = document.getElementById('cache-read');
+  if (cacheReadEl) {
+    cacheReadEl.textContent = formatTokens(contextInfo.usage.cacheReadTokens);
+  }
+
+  const cacheWriteEl = document.getElementById('cache-write');
+  if (cacheWriteEl) {
+    cacheWriteEl.textContent = formatTokens(contextInfo.usage.cacheWriteTokens);
+  }
+
+  const cacheSavingsEl = document.getElementById('cache-savings');
+  if (cacheSavingsEl) {
+    const totalInput = contextInfo.usage.inputTokens || 0;
+    const cacheRead = contextInfo.usage.cacheReadTokens || 0;
+    const savingsPercent = totalInput > 0 ? Math.round((cacheRead / totalInput) * 100) : 0;
+    cacheSavingsEl.textContent = `${savingsPercent}%`;
+  }
+}
+
+/**
+ * Format token count for display
+ * @param {number} tokens - Token count
+ * @returns {string} Formatted string (e.g., "1.2M", "128K", "500")
+ */
+function formatTokens(tokens) {
+  if (tokens >= 1000000) {
+    return `${(tokens / 1000000).toFixed(1)}M`;
+  }
+  if (tokens >= 1000) {
+    return `${Math.round(tokens / 1000)}K`;
+  }
+  return tokens.toString();
+}
+
+/**
+ * Open the context modal
+ */
+function openContextModal() {
+  const modal = document.getElementById('context-modal');
+  if (modal) {
+    contextModalVisible = true;
+    modal.classList.add('visible');
+
+    // Recalculate on open for fresh data
+    recalculateContext();
+  }
+}
+
+/**
+ * Close the context modal
+ */
+function closeContextModal() {
+  const modal = document.getElementById('context-modal');
+  if (modal) {
+    contextModalVisible = false;
+    modal.classList.remove('visible');
+  }
+}
+
+/**
+ * Update context with usage data from SSE event
+ * @param {object} usageData - Usage data from API response
+ */
+function updateContextUsage(usageData) {
+  if (contextPanelState && usageData) {
+    contextPanelState.updateUsage(usageData);
+  }
 }
 
 // Initialize when called by main process after config injection

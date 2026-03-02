@@ -37,7 +37,14 @@ function log(level, msg, ctx = {}) {
     ts: new Date().toISOString()
   };
 
-  console.error(JSON.stringify(entry));
+  try {
+    console.error(JSON.stringify(entry));
+  } catch (err) {
+    // Ignore EPIPE errors when pipe is closed (e.g., during shutdown)
+    if (err.code !== 'EPIPE') {
+      // Can't log here - would be recursive
+    }
+  }
 }
 
 /**

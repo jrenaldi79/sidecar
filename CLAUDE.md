@@ -508,6 +508,143 @@ When testing the sidecar UI, verify these elements:
 3. **Screenshot**: Use `Page.captureScreenshot` method
 4. **Timeout**: Always add a timeout to prevent hanging scripts
 
+### Quick WebSocket Testing Patterns
+
+The WebSocket approach via Chrome DevTools Protocol is the most efficient way to test the Sidecar UI programmatically. Here are streamlined patterns for common testing scenarios:
+
+**1. Get Page ID and Check UI State (one-liner):**
+```bash
+PAGE_ID=$(curl -s http://127.0.0.1:9222/json | node -e "const d=require('fs').readFileSync(0,'utf8');const p=JSON.parse(d);console.log(p[0]?.id || 'NO_ID')")
+echo "Page ID: $PAGE_ID"
+```
+
+**2. Inspect UI State:**
+```bash
+node -e "
+const WebSocket = require('ws');
+const ws = new WebSocket('ws://127.0.0.1:9222/devtools/page/$PAGE_ID');
+
+ws.on('open', () => {
+  ws.send(JSON.stringify({
+    id: 1,
+    method: 'Runtime.evaluate',
+    params: {
+      expression: \`
+        (function() {
+          const messages = document.querySelectorAll('.message');
+          return {
+            sseSubscribed: typeof sseSubscribed !== 'undefined' ? sseSubscribed : false,
+            messagesCount: messages.length,
+            messages: Array.from(messages).map(m => ({
+              class: m.className,
+              text: (m.textContent || '').slice(0, 200)
+            }))
+          };
+        })()
+      \`,
+      returnByValue: true
+    }
+  }));
+});
+
+ws.on('message', (data) => {
+  const msg = JSON.parse(data.toString());
+  if (msg.id === 1) {
+    console.log(JSON.stringify(msg.result?.result?.value, null, 2));
+    ws.close();
+    process.exit(0);
+  }
+});
+
+setTimeout(() => { ws.close(); process.exit(0); }, 3000);
+"
+```
+
+**3. Send a Message via UI:**
+```bash
+node -e "
+const WebSocket = require('ws');
+const ws = new WebSocket('ws://127.0.0.1:9222/devtools/page/$PAGE_ID');
+
+ws.on('open', () => {
+  ws.send(JSON.stringify({
+    id: 1,
+    method: 'Runtime.evaluate',
+    params: {
+      expression: \`
+        (function() {
+          const input = document.getElementById('message-input');
+          input.value = 'What is 2+2? Just give me the number.';
+          input.dispatchEvent(new Event('input'));
+          document.getElementById('send-btn').click();
+          return 'Message sent';
+        })()
+      \`,
+      returnByValue: true
+    }
+  }));
+});
+
+ws.on('message', (data) => {
+  const msg = JSON.parse(data.toString());
+  if (msg.id === 1) {
+    console.log(msg.result?.result?.value);
+    ws.close();
+    process.exit(0);
+  }
+});
+
+setTimeout(() => { ws.close(); process.exit(0); }, 3000);
+"
+```
+
+**4. Check for Errors:**
+```bash
+node -e "
+const WebSocket = require('ws');
+const ws = new WebSocket('ws://127.0.0.1:9222/devtools/page/$PAGE_ID');
+
+ws.on('open', () => {
+  ws.send(JSON.stringify({
+    id: 1,
+    method: 'Runtime.evaluate',
+    params: {
+      expression: \`({
+        lastError: document.querySelector('.error-message')?.textContent,
+        sessionId: typeof sessionId !== 'undefined' ? sessionId : 'undefined',
+        isWaiting: typeof isWaitingForResponse !== 'undefined' ? isWaitingForResponse : 'undefined'
+      })\`,
+      returnByValue: true
+    }
+  }));
+});
+
+ws.on('message', (data) => {
+  const msg = JSON.parse(data.toString());
+  if (msg.id === 1) {
+    console.log(JSON.stringify(msg.result?.result?.value, null, 2));
+    ws.close();
+    process.exit(0);
+  }
+});
+
+setTimeout(() => { ws.close(); process.exit(0); }, 3000);
+"
+```
+
+**Why WebSocket Testing is Efficient:**
+- **No file creation**: Tests run inline without creating temporary files
+- **Direct DOM access**: Query and manipulate any UI element
+- **Real-time state**: Access JavaScript variables like `sessionId`, `sseSubscribed`, `isWaitingForResponse`
+- **Click simulation**: Trigger button clicks and input events programmatically
+- **Fast iteration**: Quickly test changes without restarting the app
+
+**Important Notes:**
+- Run commands from the sidecar directory to access the `ws` module
+- Page ID changes on each Electron launch - always fetch dynamically
+- Add timeouts to prevent hanging on WebSocket errors
+- Use `data.toString()` when parsing WebSocket messages in newer Node.js versions
+
 ### Integration with CI
 
 For automated testing, launch the sidecar with a known task and verify UI state:
@@ -929,6 +1066,62 @@ For async, monitor progress via SSE at `/global/event`.
 6. Capture Summary   → Extract text after completion marker
 ```
 
+### Interactive UI: Async-Only Architecture
+
+**CRITICAL**: The Electron UI (`renderer.js`) uses **async API only** for all message sending.
+
+#### Why Async-Only?
+
+The sync API (`POST /session/:id/message`) **blocks** until the model finishes responding. This causes failures with interactive tools like `question`:
+
+1. Sync request blocks waiting for model response
+2. Model triggers `question` tool, waiting for user input
+3. User answers → new message needed
+4. **CONFLICT**: Can't send new message while sync request is blocked
+
+#### Implementation Pattern
+
+All messages use `sendToAPIStreaming()` which:
+1. Sends via `prompt_async` (returns immediately)
+2. Monitors response via SSE events (`/global/event`)
+3. SSE handlers update UI in real-time
+
+```javascript
+// ✅ CORRECT - Non-blocking, handles interactive tools
+await sendToAPIStreaming(content, systemPrompt);
+
+// ❌ WRONG - Blocks, breaks question tools
+await sendToAPI(content, systemPrompt);  // Only for fallback
+```
+
+#### Question Tool Handling
+
+Question tools are detected in SSE event handlers:
+
+```javascript
+// In handleToolPart() and handleToolStart()
+const isQuestion = toolName?.toLowerCase() === 'question';
+if (isQuestion && part.state?.input && !part.state?.output) {
+  showQuestionUI(callId, part.state.input);
+  return; // Don't track as normal tool
+}
+```
+
+When user answers:
+```javascript
+// handleQuestionResponse() uses streaming, not sync
+await sendToAPIStreaming(answerTextToSend);
+```
+
+#### Key Files
+
+| File | Function | Notes |
+|------|----------|-------|
+| `renderer.js:sendToAPIStreaming()` | Async message sending | Primary send function |
+| `renderer.js:handleToolPart()` | SSE tool detection | Detects question tools |
+| `renderer.js:handleQuestionResponse()` | Answer submission | Uses streaming API |
+| `renderer.js:handleSessionIdle()` | Completion handling | Resets UI state |
+
 ---
 
 ## Development Workflow Checklists
@@ -969,6 +1162,7 @@ For async, monitor progress via SSE at `/global/event`.
 | Context too large | Too many turns | Use `--turns` or `--tokens` filter |
 | API key errors | Missing env var | Set `OPENROUTER_API_KEY` in .env |
 | Summary not captured | Fold not clicked | Click FOLD button or wait for [SIDECAR_COMPLETE] |
+| Question tool fails after answer | Using sync API | Ensure `sendToAPIStreaming()` is used, not `sendToAPI()`. See "Async-Only Architecture" section. |
 
 ---
 

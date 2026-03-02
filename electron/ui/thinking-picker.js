@@ -117,14 +117,19 @@ function getLevelDisplayName(levelId) {
 /**
  * Format thinking level for API request
  * @param {string|null|undefined} levelId - Thinking level ID
- * @returns {{effort: string}|undefined} Reasoning object for API or undefined if default
+ * @returns {{effort: string}|null} Reasoning object for API, or null if 'none'
  */
 function formatThinkingForAPI(levelId) {
-  // Return undefined for default level (API will use its default)
-  if (!levelId || levelId === DEFAULT_THINKING_LEVEL) {
-    return undefined;
+  // If no level specified, use default
+  const level = levelId || DEFAULT_THINKING_LEVEL;
+
+  // 'none' means no reasoning/thinking
+  if (level === 'none') {
+    return null;
   }
-  return { effort: levelId };
+
+  // Always send the effort level to enable thinking blocks
+  return { effort: level };
 }
 
 /**

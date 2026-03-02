@@ -182,7 +182,7 @@ function buildEnvironmentSection(project, _mode) {
 
 Project: ${project}
 
-Note: Tool permissions are managed by the OpenCode agent framework based on the agent type you selected.`;
+Tool permissions are managed by the OpenCode agent framework based on your agent type.`;
 }
 
 // Note: Mode-specific environment functions (buildCodeModeEnvironment, buildAskModeEnvironment,

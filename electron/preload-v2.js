@@ -77,5 +77,99 @@ contextBridge.exposeInMainWorld('electronAPI', {
    * @param {Object} config - Configuration object
    * @returns {Promise<boolean>} True if saved successfully
    */
-  setAgentModelConfig: (config) => ipcRenderer.invoke('set-agent-model-config', config)
+  setAgentModelConfig: (config) => ipcRenderer.invoke('set-agent-model-config', config),
+
+  // ============================================================================
+  // API Proxy (bypasses Chromium network service issues)
+  // ============================================================================
+
+  /**
+   * Make an API call through the main process network stack.
+   * This bypasses Chromium's potentially unstable network service.
+   *
+   * @param {Object} options - Request options
+   * @param {string} options.method - HTTP method (GET, POST, etc.)
+   * @param {string} options.endpoint - API endpoint path (e.g., '/session/abc/message')
+   * @param {Object} [options.body] - Request body (will be JSON stringified)
+   * @returns {Promise<{ok: boolean, status: number, data: any}>}
+   */
+  proxyApiCall: (options) => ipcRenderer.invoke('proxy-api-call', options),
+
+  // ============================================================================
+  // Error Reporting & Health Check APIs
+  // ============================================================================
+
+  /**
+   * Report an error from renderer to main process for logging.
+   *
+   * @param {Object} errorData - Error information
+   * @param {string} errorData.source - Error source (e.g., 'fetch', 'api', 'render')
+   * @param {string} errorData.message - Error message
+   * @param {Object} [errorData.context] - Additional context
+   * @param {string} [errorData.stack] - Stack trace
+   * @returns {Promise<{logged: boolean, errorCount: number}>}
+   */
+  reportError: (errorData) => ipcRenderer.invoke('report-error', errorData),
+
+  /**
+   * Get the error log for diagnostics.
+   *
+   * @returns {Promise<Array>} Array of logged errors
+   */
+  getErrorLog: () => ipcRenderer.invoke('get-error-log'),
+
+  /**
+   * Perform a health check on the backend services.
+   *
+   * @returns {Promise<{timestamp: number, server: boolean, session: boolean, apiReachable: boolean}>}
+   */
+  healthCheck: () => ipcRenderer.invoke('health-check'),
+
+  /**
+   * Listen for error notifications from main process.
+   *
+   * @param {Function} callback - Called with error data when an error occurs
+   */
+  onError: (callback) => ipcRenderer.on('error-notification', (_event, data) => callback(data)),
+
+  /**
+   * Listen for request cancellation notifications.
+   *
+   * @param {Function} callback - Called when request is cancelled
+   */
+  onRequestCancelled: (callback) => ipcRenderer.on('request-cancelled', () => callback()),
+
+  // ============================================================================
+  // SSE Streaming Support
+  // ============================================================================
+
+  /**
+   * Subscribe to SSE events from the server.
+   * Events will be delivered via the onSSEEvent callback.
+   *
+   * @returns {Promise<{success: boolean}>}
+   */
+  subscribeSSE: () => ipcRenderer.invoke('subscribe-sse'),
+
+  /**
+   * Unsubscribe from SSE events.
+   *
+   * @returns {Promise<{success: boolean}>}
+   */
+  unsubscribeSSE: () => ipcRenderer.invoke('unsubscribe-sse'),
+
+  /**
+   * Listen for SSE events from the server.
+   *
+   * @param {Function} callback - Called with event data
+   */
+  onSSEEvent: (callback) => ipcRenderer.on('sse-event', (_event, data) => callback(data)),
+
+  /**
+   * Send a message asynchronously (returns immediately, events via SSE).
+   *
+   * @param {Object} options - Request options
+   * @returns {Promise<{ok: boolean, status: string}>}
+   */
+  sendMessageAsync: (options) => ipcRenderer.invoke('send-message-async', options)
 });

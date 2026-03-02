@@ -110,8 +110,8 @@ describe('subagent-manager', () => {
 
       expect(result).toBeDefined();
       expect(result.id).toBeDefined();
-      // Agent type is normalized to OpenCode format (General, Explore)
-      expect(result.agentType).toBe('General');
+      // Agent type is normalized to OpenCode format (lowercase: general, explore)
+      expect(result.agentType).toBe('general');
       expect(result.briefing).toBe('Test task');
     });
 
@@ -273,10 +273,10 @@ describe('subagent-manager', () => {
       await manager.spawnSubagent({ agentType: 'general', briefing: 'Task 1' });
       await manager.spawnSubagent({ agentType: 'explore', briefing: 'Task 2' });
 
-      // Filter uses normalized agent type
+      // Filter uses normalized agent type (lowercase)
       const explores = manager.getSubagents({ agentType: 'explore' });
       expect(explores.length).toBe(1);
-      expect(explores[0].agentType).toBe('Explore'); // Normalized to OpenCode format
+      expect(explores[0].agentType).toBe('explore'); // Normalized to OpenCode format (lowercase)
     });
   });
 
@@ -414,8 +414,8 @@ describe('subagent-manager', () => {
 
       expect(foldHandler).toHaveBeenCalled();
       const foldData = foldHandler.mock.calls[0][0];
-      // Uses normalized OpenCode agent name
-      expect(foldData.summary).toContain('Explore');
+      // Uses normalized OpenCode agent name (lowercase)
+      expect(foldData.summary).toContain('explore');
       expect(foldData.summary).toContain('Find all API endpoints');
     });
   });

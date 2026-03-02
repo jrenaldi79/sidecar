@@ -70,8 +70,8 @@ echo -e "${GREEN}Created test file: ${TEST_DIR}/src/example.js${NC}"
 # Run the sidecar with a briefing that will trigger subagent spawning
 # The briefing asks to explore the codebase, which should spawn an Explore subagent
 echo -e "\n${BLUE}Starting headless sidecar with subagent-triggering briefing...${NC}"
-echo -e "${YELLOW}Model: openrouter/google/gemini-3-pro-preview (parent)${NC}"
-echo -e "${YELLOW}Expected subagent model: openrouter/google/gemini-3-flash-preview${NC}"
+echo -e "${YELLOW}Model: openrouter/google/gemini-3-flash-preview (parent - Plan agent, read-only)${NC}"
+echo -e "${YELLOW}Expected subagent model: openrouter/google/gemini-3-flash-preview (Explore)${NC}"
 
 # Set the explore model explicitly for this test
 export SIDECAR_EXPLORE_MODEL="openrouter/google/gemini-3-flash-preview"
@@ -80,20 +80,19 @@ export SIDECAR_EXPLORE_MODEL="openrouter/google/gemini-3-flash-preview"
 # Using a short timeout since this is a simple task
 cd "$PROJECT_DIR"
 
-BRIEFING="You need to explore the codebase at ${TEST_DIR} to understand its structure.
-Use the Task tool to spawn an Explore subagent to find and read all JavaScript files.
-After the Explore subagent completes, summarize what functions are defined in the codebase.
-Important: You MUST use the Task tool with subagent_type='Explore' to do the exploration."
+BRIEFING="Spawn an Explore subagent to list files in ${TEST_DIR}/src and read example.js. Output the function names found."
 
 echo -e "${YELLOW}Briefing: ${BRIEFING}${NC}\n"
 
-# Run the sidecar
+# Run the sidecar with Plan agent (read-only, no destructive tools)
+# Short timeout since this is a simple read-only task
 node bin/sidecar.js start \
-    --model "openrouter/google/gemini-3-pro-preview" \
+    --model "openrouter/google/gemini-3-flash-preview" \
     --briefing "$BRIEFING" \
     --project "$TEST_DIR" \
     --headless \
-    --timeout 3 \
+    --timeout 2 \
+    --agent plan \
     2>&1 | tee /tmp/sidecar-output.log
 
 # Find the session directory

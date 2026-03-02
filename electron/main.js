@@ -8,6 +8,21 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const fs = require('fs');
 const path = require('path');
+
+// Handle EPIPE errors gracefully (happens when stdout/stderr pipe closes)
+process.stdout.on('error', (err) => {
+  if (err.code === 'EPIPE') return; // Ignore EPIPE
+  console.error('stdout error:', err);
+});
+process.stderr.on('error', (err) => {
+  if (err.code === 'EPIPE') return; // Ignore EPIPE
+});
+
+// Catch uncaught exceptions to prevent app crash
+process.on('uncaughtException', (err) => {
+  if (err.code === 'EPIPE') return; // Ignore EPIPE errors
+  console.error('Uncaught exception:', err);
+});
 const {
   createSession: sdkCreateSession,
   createChildSession,
@@ -87,6 +102,42 @@ let lastHealthCheck = null;
 // eslint-disable-next-line no-unused-vars
 let lastHealthStatus = false;
 
+// Error tracking for diagnostics
+const errorLog = [];
+const MAX_ERROR_LOG_SIZE = 100;
+
+/**
+ * Log an error for diagnostics and potential server reporting
+ * @param {string} source - Where the error occurred (renderer, main, network)
+ * @param {string} message - Error message
+ * @param {object} [context] - Additional context
+ */
+function logError(source, message, context = {}) {
+  const entry = {
+    timestamp: new Date().toISOString(),
+    source,
+    message,
+    context,
+    taskId,
+    sessionId
+  };
+
+  errorLog.push(entry);
+  if (errorLog.length > MAX_ERROR_LOG_SIZE) {
+    errorLog.shift();
+  }
+
+  logger.error(`[${source}] ${message}`, context);
+
+  // Write to error log file for post-mortem analysis
+  const errorLogPath = path.join(sessionDir, 'errors.jsonl');
+  try {
+    fs.appendFileSync(errorLogPath, JSON.stringify(entry) + '\n');
+  } catch (e) {
+    // Ignore write errors
+  }
+}
+
 const sessionDir = path.join(project, '.claude', 'sidecar_sessions', taskId);
 
 // ============================================================================
@@ -158,6 +209,100 @@ async function startOpenCodeServer() {
 }
 
 // ============================================================================
+// Pre-Launch Validation
+// ============================================================================
+
+/**
+ * Validate connectivity to the API before showing the UI
+ * This helps detect issues like network service problems early
+ *
+ * NOTE: We intentionally DON'T send test messages to avoid polluting the session
+ * with test data. We only check that the server endpoints are reachable.
+ *
+ * @param {string} apiBase - API base URL
+ * @param {string} testSessionId - Session ID to test
+ * @returns {Promise<{valid: boolean, errors: string[]}>}
+ */
+async function validateConnectivity(apiBase, testSessionId) {
+  const errors = [];
+  const http = require('http');
+
+  // Test 1: Can we reach the config endpoint?
+  try {
+    await new Promise((resolve, reject) => {
+      const req = http.get(`${apiBase}/config`, (res) => {
+        if (res.statusCode !== 200) {
+          reject(new Error(`Config endpoint returned ${res.statusCode}`));
+        } else {
+          // Consume the response
+          res.on('data', () => {});
+          res.on('end', resolve);
+        }
+      });
+      req.on('error', reject);
+      req.setTimeout(5000, () => {
+        req.destroy();
+        reject(new Error('Config request timeout'));
+      });
+    });
+    logger.debug('Pre-launch: Config endpoint reachable');
+  } catch (err) {
+    errors.push(`Config endpoint: ${err.message}`);
+  }
+
+  // Test 2: Can we reach the session endpoint?
+  try {
+    await new Promise((resolve, reject) => {
+      const req = http.get(`${apiBase}/session/${testSessionId}`, (res) => {
+        if (res.statusCode !== 200) {
+          reject(new Error(`Session endpoint returned ${res.statusCode}`));
+        } else {
+          // Consume the response
+          res.on('data', () => {});
+          res.on('end', resolve);
+        }
+      });
+      req.on('error', reject);
+      req.setTimeout(5000, () => {
+        req.destroy();
+        reject(new Error('Session request timeout'));
+      });
+    });
+    logger.debug('Pre-launch: Session endpoint reachable');
+  } catch (err) {
+    errors.push(`Session endpoint: ${err.message}`);
+  }
+
+  // Test 3: Check providers endpoint (validates API is functional without sending messages)
+  try {
+    await new Promise((resolve, reject) => {
+      const req = http.get(`${apiBase}/config/providers`, (res) => {
+        if (res.statusCode !== 200) {
+          reject(new Error(`Providers endpoint returned ${res.statusCode}`));
+        } else {
+          // Consume the response
+          res.on('data', () => {});
+          res.on('end', resolve);
+        }
+      });
+      req.on('error', reject);
+      req.setTimeout(5000, () => {
+        req.destroy();
+        reject(new Error('Providers request timeout'));
+      });
+    });
+    logger.debug('Pre-launch: Providers endpoint reachable');
+  } catch (err) {
+    errors.push(`Providers endpoint: ${err.message}`);
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+}
+
+// ============================================================================
 // Window Creation
 // ============================================================================
 
@@ -181,6 +326,29 @@ async function createWindow() {
     cleanup();
     process.exit(1);
   }
+
+  // Pre-launch validation: Test API connectivity before showing UI
+  // This catches issues like network service crashes early
+  logger.debug('Running pre-launch validation');
+  const validation = await validateConnectivity(apiBase, sessionId);
+  if (!validation.valid) {
+    logger.error('Pre-launch validation failed', { errors: validation.errors });
+    logError('validation', 'Pre-launch validation failed', { errors: validation.errors });
+
+    // Write validation errors to session directory for debugging
+    const validationPath = path.join(sessionDir, 'validation_errors.json');
+    fs.writeFileSync(validationPath, JSON.stringify({
+      timestamp: new Date().toISOString(),
+      errors: validation.errors,
+      apiBase,
+      sessionId
+    }, null, 2));
+
+    // Exit with error - don't show a broken UI
+    cleanup();
+    process.exit(1);
+  }
+  logger.info('Pre-launch validation passed');
 
   // Create browser window
   mainWindow = new BrowserWindow({
@@ -239,8 +407,78 @@ async function createWindow() {
 
   // Handle window close
   mainWindow.on('closed', () => {
+    logger.info('Window closed event triggered');
     mainWindow = null;
     cleanup();
+  });
+
+  // Log when window is about to close (can be prevented)
+  mainWindow.on('close', (event) => {
+    logger.info('Window close requested', { reason: 'close event' });
+  });
+
+  // ============================================================================
+  // Crash and Error Detection
+  // ============================================================================
+
+  // Detect renderer process crash
+  mainWindow.webContents.on('render-process-gone', (event, details) => {
+    logError('renderer', 'Renderer process crashed', {
+      reason: details.reason,
+      exitCode: details.exitCode
+    });
+
+    // Attempt recovery for certain crash types
+    if (details.reason === 'crashed' || details.reason === 'oom') {
+      logger.warn('Attempting to recover from renderer crash');
+      try {
+        mainWindow.reload();
+      } catch (e) {
+        logError('renderer', 'Failed to recover from crash', { error: e.message });
+      }
+    }
+  });
+
+  // Detect unresponsive renderer
+  mainWindow.webContents.on('unresponsive', () => {
+    logError('renderer', 'Renderer became unresponsive');
+  });
+
+  mainWindow.webContents.on('responsive', () => {
+    logger.info('Renderer became responsive again');
+  });
+
+  // Detect GPU/network service crashes via console messages
+  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    // Capture network service crash errors
+    if (message.includes('Network service crashed') ||
+        message.includes('network_service_instance_impl')) {
+      logError('network', 'Network service crash detected', { message });
+    }
+
+    // Capture fetch failures that might indicate connectivity issues
+    if (message.includes('Failed to fetch') || message.includes('NetworkError')) {
+      logError('network', 'Fetch failure detected', { message, line, sourceId });
+    }
+
+    // Forward errors and warnings to main process log
+    if (level >= 2) { // Warning or Error
+      logger.debug('Renderer console', { level, message: message.slice(0, 500) });
+    }
+  });
+
+  // Detect certificate errors (could indicate network issues)
+  mainWindow.webContents.on('certificate-error', (event, url, error) => {
+    logError('network', 'Certificate error', { url, error });
+  });
+
+  // Detect navigation failures
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+    logError('renderer', 'Page failed to load', {
+      errorCode,
+      errorDescription,
+      url: validatedURL
+    });
   });
 }
 
@@ -248,12 +486,170 @@ async function createWindow() {
 // IPC Handlers
 // ============================================================================
 
+/**
+ * Proxy API call from renderer through main process network stack
+ * This bypasses Chromium's network service which can be unstable
+ *
+ * Note: OpenCode API returns chunked responses that may take 1-2 seconds
+ * to complete. We use a response buffer and wait for the 'end' event.
+ */
+ipcMain.handle('proxy-api-call', async (_event, { method, endpoint, body }) => {
+  const http = require('http');
+
+  return new Promise((resolve, reject) => {
+    const url = new URL(`${sdkServer.url}${endpoint}`);
+    const options = {
+      hostname: url.hostname,
+      port: url.port,
+      path: url.pathname,
+      method: method || 'GET',
+      headers: {
+        'Accept': 'application/json'
+      }
+    };
+
+    let postData = null;
+    if (body) {
+      postData = JSON.stringify(body);
+      options.headers['Content-Type'] = 'application/json';
+      options.headers['Content-Length'] = Buffer.byteLength(postData);
+    }
+
+    logger.debug('IPC proxy request', {
+      method,
+      endpoint,
+      hasBody: !!body,
+      bodyPreview: body ? JSON.stringify(body).slice(0, 300) : null
+    });
+
+    const req = http.request(options, (res) => {
+      // Use array to collect chunks (more efficient for large responses)
+      const chunks = [];
+      let totalSize = 0;
+
+      logger.debug('IPC proxy response started', {
+        status: res.statusCode,
+        headers: {
+          contentType: res.headers['content-type'],
+          transferEncoding: res.headers['transfer-encoding']
+        }
+      });
+
+      res.on('data', chunk => {
+        chunks.push(chunk);
+        totalSize += chunk.length;
+        logger.debug('IPC proxy received chunk', { size: chunk.length, totalSize });
+      });
+
+      res.on('end', () => {
+        const responseBody = Buffer.concat(chunks).toString('utf8');
+        logger.debug('IPC proxy response complete', {
+          status: res.statusCode,
+          bodyLength: responseBody.length,
+          bodyPreview: responseBody.slice(0, 100)
+        });
+
+        try {
+          const data = responseBody ? JSON.parse(responseBody) : null;
+          resolve({
+            ok: res.statusCode >= 200 && res.statusCode < 300,
+            status: res.statusCode,
+            data
+          });
+        } catch (err) {
+          resolve({
+            ok: false,
+            status: res.statusCode,
+            error: `JSON parse error: ${err.message}`,
+            rawBody: responseBody.slice(0, 500)
+          });
+        }
+      });
+
+      // Handle response errors
+      res.on('error', (err) => {
+        logError('proxy', 'Response stream error', { endpoint, error: err.message });
+        reject(err);
+      });
+    });
+
+    req.on('error', (err) => {
+      logError('proxy', 'API proxy request failed', { endpoint, error: err.message });
+      reject(err);
+    });
+
+    // 5 minute timeout for long-running API calls (LLM responses can take a while)
+    req.setTimeout(300000, () => {
+      req.destroy();
+      reject(new Error('Request timeout'));
+    });
+
+    if (postData) {
+      req.write(postData);
+    }
+    req.end();
+  });
+});
+
 ipcMain.handle('log-message', (_event, msg) => {
   conversationLog.push(msg);
 
   // Write to file in real-time
   const conversationPath = path.join(sessionDir, 'conversation.jsonl');
   fs.appendFileSync(conversationPath, JSON.stringify(msg) + '\n');
+});
+
+// Error reporting from renderer
+ipcMain.handle('report-error', (_event, errorData) => {
+  logError(errorData.source || 'renderer', errorData.message, {
+    ...errorData.context,
+    stack: errorData.stack
+  });
+
+  // Return error log for diagnostics
+  return { logged: true, errorCount: errorLog.length };
+});
+
+// Get error log for diagnostics
+ipcMain.handle('get-error-log', () => {
+  return errorLog;
+});
+
+// Health check endpoint for renderer to verify connectivity
+ipcMain.handle('health-check', async () => {
+  const checks = {
+    timestamp: Date.now(),
+    server: false,
+    session: false,
+    apiReachable: false
+  };
+
+  try {
+    if (sdkClient) {
+      checks.server = await checkHealth(sdkClient);
+    }
+    checks.session = !!sessionId;
+
+    // Quick API connectivity test
+    if (sdkServer) {
+      const http = require('http');
+      await new Promise((resolve, reject) => {
+        const req = http.get(`${sdkServer.url}/config`, (res) => {
+          checks.apiReachable = res.statusCode === 200;
+          resolve();
+        });
+        req.on('error', reject);
+        req.setTimeout(2000, () => {
+          req.destroy();
+          reject(new Error('Timeout'));
+        });
+      });
+    }
+  } catch (err) {
+    logError('main', 'Health check failed', { error: err.message });
+  }
+
+  return checks;
 });
 
 ipcMain.handle('fold', async () => {
@@ -546,10 +942,239 @@ ipcMain.handle('check-server-health', async () => {
 });
 
 // ============================================================================
+// SSE Streaming IPC Handlers
+// ============================================================================
+
+// SSE connection state
+let sseRequest = null;
+
+/**
+ * Subscribe to SSE events from the OpenCode server.
+ * Events are forwarded to the renderer process.
+ */
+ipcMain.handle('subscribe-sse', async () => {
+  if (sseRequest) {
+    logger.debug('SSE already subscribed');
+    return { success: true, message: 'Already subscribed' };
+  }
+
+  if (!sdkServer) {
+    logger.error('Cannot subscribe to SSE: server not started');
+    return { success: false, message: 'Server not started' };
+  }
+
+  const http = require('http');
+
+  try {
+    const url = new URL(`${sdkServer.url}/global/event`);
+    logger.info('Subscribing to SSE', { url: url.href });
+
+    sseRequest = http.get({
+      hostname: url.hostname,
+      port: url.port,
+      path: url.pathname,
+      headers: {
+        'Accept': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive'
+      }
+    }, (res) => {
+      if (res.statusCode !== 200) {
+        logger.error('SSE connection failed', { status: res.statusCode });
+        sseRequest = null;
+        return;
+      }
+
+      logger.info('SSE connection established');
+
+      // Buffer for incomplete SSE messages
+      let buffer = '';
+
+      res.on('data', (chunk) => {
+        buffer += chunk.toString();
+
+        // Process complete SSE messages (separated by double newlines)
+        const messages = buffer.split('\n\n');
+        buffer = messages.pop() || ''; // Keep incomplete message in buffer
+
+        for (const message of messages) {
+          if (!message.trim()) continue;
+
+          // Parse SSE format: "event: eventType\ndata: jsonData"
+          const lines = message.split('\n');
+          let eventType = 'message';
+          let eventData = null;
+
+          for (const line of lines) {
+            if (line.startsWith('event:')) {
+              eventType = line.slice(6).trim();
+            } else if (line.startsWith('data:')) {
+              const dataStr = line.slice(5).trim();
+              try {
+                eventData = JSON.parse(dataStr);
+              } catch {
+                eventData = dataStr;
+              }
+            }
+          }
+
+          if (eventData !== null) {
+            logger.debug('SSE event received', { eventType, dataPreview: JSON.stringify(eventData).slice(0, 100) });
+
+            // Forward to renderer
+            if (mainWindow && mainWindow.webContents) {
+              mainWindow.webContents.send('sse-event', {
+                type: eventType,
+                data: eventData
+              });
+            }
+          }
+        }
+      });
+
+      res.on('end', () => {
+        logger.info('SSE connection closed by server');
+        sseRequest = null;
+      });
+
+      res.on('error', (err) => {
+        logger.error('SSE stream error', { error: err.message });
+        sseRequest = null;
+      });
+    });
+
+    sseRequest.on('error', (err) => {
+      logger.error('SSE request error', { error: err.message });
+      sseRequest = null;
+    });
+
+    return { success: true };
+
+  } catch (error) {
+    logger.error('Failed to subscribe to SSE', { error: error.message });
+    return { success: false, message: error.message };
+  }
+});
+
+/**
+ * Unsubscribe from SSE events.
+ */
+ipcMain.handle('unsubscribe-sse', () => {
+  if (sseRequest) {
+    logger.info('Unsubscribing from SSE');
+    sseRequest.destroy();
+    sseRequest = null;
+  }
+  return { success: true };
+});
+
+/**
+ * Send a message asynchronously (returns immediately, progress via SSE).
+ * This uses the prompt_async endpoint.
+ */
+ipcMain.handle('send-message-async', async (_event, { sessionId: targetSessionId, content, model: msgModel, system, reasoning }) => {
+  const http = require('http');
+
+  const sid = targetSessionId || sessionId;
+  if (!sid) {
+    return { ok: false, error: 'No session ID' };
+  }
+
+  return new Promise((resolve, reject) => {
+    // Use the standard /message endpoint
+    // SSE events will provide real-time streaming updates
+    const url = new URL(`${sdkServer.url}/session/${sid}/message`);
+
+    // Build request body matching the sync API format
+    const body = {
+      parts: [{ type: 'text', text: content }]
+    };
+
+    // Add optional parameters
+    if (msgModel) {
+      body.model = msgModel;
+    }
+    if (system) {
+      body.system = system;
+    }
+    if (reasoning) {
+      body.reasoning = reasoning;
+    }
+
+    const postData = JSON.stringify(body);
+
+    logger.info('Sending async message', {
+      sessionId: sid,
+      contentPreview: content.slice(0, 50),
+      hasModel: !!msgModel,
+      hasReasoning: !!reasoning
+    });
+
+    const req = http.request({
+      hostname: url.hostname,
+      port: url.port,
+      path: url.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData)
+      }
+    }, (res) => {
+      let responseBody = '';
+
+      res.on('data', (chunk) => {
+        responseBody += chunk.toString();
+      });
+
+      res.on('end', () => {
+        logger.debug('Async message sent', { status: res.statusCode });
+
+        try {
+          const data = responseBody ? JSON.parse(responseBody) : null;
+          resolve({
+            ok: res.statusCode >= 200 && res.statusCode < 300,
+            status: res.statusCode,
+            data
+          });
+        } catch (err) {
+          resolve({
+            ok: false,
+            status: res.statusCode,
+            error: `JSON parse error: ${err.message}`
+          });
+        }
+      });
+    });
+
+    req.on('error', (err) => {
+      logger.error('Async message error', { error: err.message });
+      reject(err);
+    });
+
+    // Use longer timeout for LLM responses (5 minutes)
+    // The /message endpoint blocks until the model completes
+    req.setTimeout(300000, () => {
+      req.destroy();
+      reject(new Error('Request timeout'));
+    });
+
+    req.write(postData);
+    req.end();
+  });
+});
+
+// ============================================================================
 // Cleanup
 // ============================================================================
 
 function cleanup() {
+  // Close SSE connection
+  if (sseRequest) {
+    logger.debug('Closing SSE connection');
+    sseRequest.destroy();
+    sseRequest = null;
+  }
+
   if (sdkServer) {
     logger.info('Stopping OpenCode server');
     sdkServer.close();

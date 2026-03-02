@@ -130,7 +130,8 @@ async function sendPrompt(client, sessionId, options) {
   }
 
   if (agent) {
-    body.agent = agent;
+    // OpenCode API expects lowercase agent names
+    body.agent = agent.toLowerCase();
   }
 
   if (tools) {

@@ -19,16 +19,18 @@
 
 /**
  * OpenCode's primary agent names (for main sessions)
+ * Note: OpenCode API expects lowercase agent names
  */
-const PRIMARY_AGENTS = ['Build', 'Plan'];
+const PRIMARY_AGENTS = ['build', 'plan'];
 
 /**
  * OpenCode's subagent names (spawned within sessions)
+ * Note: OpenCode API expects lowercase agent names
  */
-const SUBAGENT_TYPES = ['General', 'Explore'];
+const SUBAGENT_TYPES = ['general', 'explore'];
 
 /**
- * All OpenCode native agent names
+ * All OpenCode native agent names (lowercase)
  */
 const OPENCODE_AGENTS = [...PRIMARY_AGENTS, ...SUBAGENT_TYPES];
 
@@ -39,14 +41,14 @@ const OPENCODE_AGENTS = [...PRIMARY_AGENTS, ...SUBAGENT_TYPES];
  * @returns {{agent: string}} OpenCode agent configuration
  *
  * @example
- * mapAgentToOpenCode('Build')   // { agent: 'Build' }
- * mapAgentToOpenCode('Plan')    // { agent: 'Plan' }
+ * mapAgentToOpenCode('Build')   // { agent: 'build' }
+ * mapAgentToOpenCode('Plan')    // { agent: 'plan' }
  * mapAgentToOpenCode('custom')  // { agent: 'custom' }
  */
 function mapAgentToOpenCode(agent) {
-  // Handle undefined/null/empty - default to Build
+  // Handle undefined/null/empty - default to build
   if (!agent || (typeof agent === 'string' && agent.trim() === '')) {
-    return { agent: 'Build' };
+    return { agent: 'build' };
   }
 
   // Normalize for case-insensitive matching of native agents
@@ -54,14 +56,14 @@ function mapAgentToOpenCode(agent) {
 
   // Check if it's an OpenCode native agent (case-insensitive match)
   const nativeMatch = OPENCODE_AGENTS.find(
-    native => native.toLowerCase() === normalized
+    native => native === normalized
   );
   if (nativeMatch) {
     return { agent: nativeMatch };
   }
 
-  // Pass through custom agent names unchanged
-  return { agent };
+  // Pass through custom agent names as lowercase (OpenCode API expects lowercase)
+  return { agent: normalized };
 }
 
 /**

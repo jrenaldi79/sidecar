@@ -189,8 +189,9 @@ async function runHeadless(model, systemPrompt, userMessage, taskId, project, ti
     let output = '';
     let completed = false;
     let timedOut = false;
+    const toolCalls = []; // Track tool calls for debugging
 
-    // Process response
+    // Process response parts (text, tool_use, tool_result)
     if (messageResult.data?.parts) {
       for (const part of messageResult.data.parts) {
         if (part.type === 'text' && part.text) {
@@ -198,6 +199,41 @@ async function runHeadless(model, systemPrompt, userMessage, taskId, project, ti
           logMessage(conversationPath, {
             role: 'assistant',
             content: part.text,
+            timestamp: new Date().toISOString()
+          });
+        } else if (part.type === 'tool_use') {
+          // Log tool calls (including Task tool for subagent spawning)
+          const toolCall = {
+            id: part.id,
+            name: part.name,
+            input: part.input
+          };
+          toolCalls.push(toolCall);
+          logger.debug('Tool call detected', {
+            toolName: part.name,
+            toolId: part.id,
+            subagentType: part.input?.subagent_type,
+            model: part.input?.model
+          });
+          logMessage(conversationPath, {
+            role: 'assistant',
+            type: 'tool_use',
+            toolCall,
+            timestamp: new Date().toISOString()
+          });
+        } else if (part.type === 'tool_result') {
+          // Log tool results
+          logger.debug('Tool result received', {
+            toolUseId: part.tool_use_id,
+            isError: part.is_error || false,
+            contentLength: part.content?.length || 0
+          });
+          logMessage(conversationPath, {
+            role: 'tool',
+            type: 'tool_result',
+            toolUseId: part.tool_use_id,
+            isError: part.is_error || false,
+            content: part.content,
             timestamp: new Date().toISOString()
           });
         }
@@ -209,65 +245,45 @@ async function runHeadless(model, systemPrompt, userMessage, taskId, project, ti
       completed = true;
     }
 
-    // If not completed, poll using OpenCode's native session.status() API
-    // This is more efficient than just checking messages
+    // Poll for completion by checking messages directly
+    // Note: session.status() API returns {} so we check messages instead
     const startTime = Date.now();
     let pollCount = 0;
+    let lastAssistantMsgId = null;
+    let stablePolls = 0; // Count polls where assistant message hasn't changed
+
     while (!completed && (Date.now() - startTime) < timeoutMs) {
-      // Poll using OpenCode's native session status API
       await new Promise(resolve => setTimeout(resolve, 2000));
       pollCount++;
 
-      // Use OpenCode's session.status() API for efficient status checking
-      // Status can be: 'idle', 'running', 'completed', 'error'
       try {
-        const status = await getSessionStatus(client, sessionId);
-        logger.debug('Session status', { pollCount, status: status.status, elapsed: Date.now() - startTime });
-
-        // If session is idle or completed, the agent has finished processing
-        const isFinished = status.status === 'idle' || status.status === 'completed';
-
-        if (isFinished || status.status === 'error') {
-          // Fetch final messages
-          const messages = await getMessages(client, sessionId);
-
-          if (messages && Array.isArray(messages)) {
-            for (const msg of messages) {
-              if (msg.parts) {
-                for (const part of msg.parts) {
-                  if (part.type === 'text' && part.text && !output.includes(part.text)) {
-                    output += part.text;
-                    logMessage(conversationPath, {
-                      role: 'assistant',
-                      content: part.text,
-                      timestamp: new Date().toISOString()
-                    });
-                  }
-                }
-              }
-            }
-          }
-
-          // Check for completion marker in output
-          if (output.includes(COMPLETE_MARKER)) {
-            completed = true;
-            break;
-          }
-
-          // If session is idle but no completion marker, keep waiting
-          // (agent might still be working on multi-step tasks)
-          if (status.status === 'error') {
-            logger.warn('Session error', { sessionId, error: status.error });
-            break;
-          }
-        }
-      } catch (statusError) {
-        // Fallback to message-based polling if status API fails
-        logger.debug('Status API failed, falling back to message polling', { error: statusError.message });
-
         const messages = await getMessages(client, sessionId);
+        const messageCount = messages?.length || 0;
+
+        // Find the last assistant message to check if it's complete
+        let currentAssistantMsgId = null;
+        let assistantFinished = false;
+
         if (messages && Array.isArray(messages)) {
           for (const msg of messages) {
+            // Check if this is an assistant message with completion info
+            if (msg.info?.role === 'assistant') {
+              currentAssistantMsgId = msg.info.id;
+              // Check if the message has a completed time (indicates it's done)
+              if (msg.info.time?.completed) {
+                assistantFinished = true;
+              }
+              // Check for errors
+              if (msg.info.error) {
+                logger.warn('Session error detected', {
+                  sessionId,
+                  error: msg.info.error.name,
+                  message: msg.info.error.data?.message
+                });
+              }
+            }
+
+            // Process message parts
             if (msg.parts) {
               for (const part of msg.parts) {
                 if (part.type === 'text' && part.text && !output.includes(part.text)) {
@@ -277,16 +293,73 @@ async function runHeadless(model, systemPrompt, userMessage, taskId, project, ti
                     content: part.text,
                     timestamp: new Date().toISOString()
                   });
+                } else if (part.type === 'tool_use' && !toolCalls.find(t => t.id === part.id)) {
+                  const toolCall = {
+                    id: part.id,
+                    name: part.name,
+                    input: part.input
+                  };
+                  toolCalls.push(toolCall);
+                  logger.debug('Tool call detected (polling)', {
+                    toolName: part.name,
+                    toolId: part.id,
+                    subagentType: part.input?.subagent_type,
+                    model: part.input?.model
+                  });
+                  logMessage(conversationPath, {
+                    role: 'assistant',
+                    type: 'tool_use',
+                    toolCall,
+                    timestamp: new Date().toISOString()
+                  });
+                } else if (part.type === 'tool_result') {
+                  logger.debug('Tool result received (polling)', {
+                    toolUseId: part.tool_use_id,
+                    isError: part.is_error || false
+                  });
+                  logMessage(conversationPath, {
+                    role: 'tool',
+                    type: 'tool_result',
+                    toolUseId: part.tool_use_id,
+                    isError: part.is_error || false,
+                    content: part.content,
+                    timestamp: new Date().toISOString()
+                  });
                 }
               }
             }
           }
         }
 
+        logger.debug('Poll status', {
+          pollCount,
+          messageCount,
+          assistantFinished,
+          outputLength: output.length,
+          elapsed: Date.now() - startTime
+        });
+
+        // Check for completion marker in output
         if (output.includes(COMPLETE_MARKER)) {
           completed = true;
           break;
         }
+
+        // If assistant message is finished and stable for 2 polls, consider it done
+        if (assistantFinished && currentAssistantMsgId === lastAssistantMsgId) {
+          stablePolls++;
+          if (stablePolls >= 2) {
+            logger.debug('Session appears complete (assistant finished, stable)', { stablePolls });
+            break;
+          }
+        } else {
+          stablePolls = 0;
+        }
+        lastAssistantMsgId = currentAssistantMsgId;
+
+      } catch (pollError) {
+        logger.debug('Polling error', { error: pollError.message });
+        // Continue polling despite errors
       }
     }
 
@@ -330,11 +403,23 @@ async function runHeadless(model, systemPrompt, userMessage, taskId, project, ti
 
     server.close();
 
+    // Log summary of tool calls for debugging
+    if (toolCalls.length > 0) {
+      logger.info('Tool calls summary', {
+        totalToolCalls: toolCalls.length,
+        taskToolCalls: toolCalls.filter(t => t.name === 'Task').length,
+        subagentTypes: toolCalls
+          .filter(t => t.name === 'Task' && t.input?.subagent_type)
+          .map(t => ({ type: t.input.subagent_type, model: t.input.model || 'inherited' }))
+      });
+    }
+
     return {
       summary: extractSummary(output),
       completed,
       timedOut,
       taskId,
+      toolCalls, // Include tool calls in result for verification
       exitCode: 0
     };
 

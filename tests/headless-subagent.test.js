@@ -168,12 +168,13 @@ ${COMPLETE_MARKER}`
       expect(result.summary).toContain('token-manager.js');
 
       // 3. Verify SDK was called correctly (no file reads needed)
+      // OpenCode API expects lowercase agent names
       expect(mockSendPrompt).toHaveBeenCalledWith(
         mockClient,
         'main-session-123',
         expect.objectContaining({
           model: 'openrouter/google/gemini-2.5-flash',
-          agent: 'Build'
+          agent: 'build'
         })
       );
 
