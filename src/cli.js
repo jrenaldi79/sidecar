@@ -6,8 +6,8 @@
  */
 
 const {
-  validateBriefingContent,
-  validateProjectPath,
+  validatePromptContent,
+  validateCwdPath,
   validateExplicitSession,
   validateAgentMode,
   validateMcpSpec,
@@ -21,12 +21,12 @@ const { logger } = require('./utils/logger');
  * Default values per spec §4.1
  */
 const DEFAULTS = {
-  session: 'current',
-  project: process.cwd(),
+  'session-id': 'current',
+  cwd: process.cwd(),
   'context-turns': 50,
    'context-max-tokens': 80000,
    timeout: 15,
-   headless: false,
+   'no-ui': false,
    'summary-length': 'normal' // Default summary length
 };
 
@@ -74,7 +74,8 @@ function parseArgs(argv) {
  */
 function isBooleanFlag(key) {
    const booleanFlags = [
-     'headless',
+     'no-ui',
+     'setup',
      'all',
      // 'summary', // summary is now an option with a value
      'conversation',
@@ -90,7 +91,7 @@ function isBooleanFlag(key) {
  */
 function parseValue(key, value) {
   // Numeric options
-  const numericOptions = ['context-turns', 'context-max-tokens', 'timeout'];
+  const numericOptions = ['context-turns', 'context-max-tokens', 'timeout', 'opencode-port'];
    if (numericOptions.includes(key)) {
      return parseInt(value, 10);
    }
@@ -119,15 +120,15 @@ function validateStartArgs(args) {
     return { valid: false, error: 'Error: --model is required' };
   }
 
-  // Required: --briefing (presence check)
-  if (!args.briefing) {
-    return { valid: false, error: 'Error: --briefing is required' };
+  // Required: --prompt (presence check)
+  if (!args.prompt) {
+    return { valid: false, error: 'Error: --prompt is required' };
   }
 
-  // Validate briefing content (not empty/whitespace-only)
-  const briefingCheck = validateBriefingContent(args.briefing);
-  if (!briefingCheck.valid) {
-    return briefingCheck;
+  // Validate prompt content (not empty/whitespace-only)
+  const promptCheck = validatePromptContent(args.prompt);
+  if (!promptCheck.valid) {
+    return promptCheck;
   }
 
   // Validate model format: provider/model
@@ -135,14 +136,14 @@ function validateStartArgs(args) {
     return { valid: false, error: 'Error: --model must be in format provider/model (e.g., google/gemini-2.5-flash) or openrouter/provider/model' };
   }
 
-  // Validate project path exists (if provided)
-  const projectCheck = validateProjectPath(args.project);
-  if (!projectCheck.valid) {
-    return projectCheck;
+  // Validate cwd path exists (if provided)
+  const cwdCheck = validateCwdPath(args.cwd);
+  if (!cwdCheck.valid) {
+    return cwdCheck;
   }
 
   // Validate explicit session ID exists (if not 'current')
-  const sessionCheck = validateExplicitSession(args.session, args.project);
+  const sessionCheck = validateExplicitSession(args['session-id'], args.cwd);
   if (!sessionCheck.valid) {
     return sessionCheck;
   }
@@ -151,6 +152,18 @@ function validateStartArgs(args) {
   const agentCheck = validateAgentMode(args.agent);
   if (!agentCheck.valid) {
     return agentCheck;
+  }
+
+  // Validate --client (if provided)
+  if (args.client) {
+    const validClients = ['code-local', 'code-web', 'cowork'];
+    if (!validClients.includes(args.client)) {
+      return { valid: false, error: `Error: --client must be one of: ${validClients.join(', ')}` };
+    }
+    // Require --session-dir when client is code-web
+    if (args.client === 'code-web' && !args['session-dir']) {
+      return { valid: false, error: 'Error: --session-dir is required when --client is code-web' };
+    }
   }
 
   // Validate MCP spec format (if provided)
@@ -263,8 +276,8 @@ function validateSubagentArgs(args) {
       return { valid: false, error: `Error: Invalid subagent type: ${args.agent}. Use: ${SUBAGENT_TYPES.join(' or ')}` };
     }
 
-    // Required: --briefing
-    if (!args.briefing) {
+    // Required: --briefing (or --prompt)
+    if (!args.briefing && !args.prompt) {
       return { valid: false, error: 'Error: --briefing is required for subagent spawn' };
     }
   }
@@ -306,12 +319,17 @@ Options for 'start':
   --model <model>              Required. Model to use:
                                - Direct API: google/gemini-2.5-flash
                                - OpenRouter: openrouter/google/gemini-2.5-flash
-  --briefing <text>            Required. Task description
+  --prompt <text>              Required. Task description
   --agent <agent>              OpenCode agent to use (see Agent Types below)
-  --session <id|"current">     Session ID to pull context from (default: current)
-  --project <path>             Project directory (default: cwd)
-  --headless                   Run without GUI (autonomous mode)
+  --session-id <id|"current">  Session ID to pull context from (default: current)
+  --cwd <path>                 Project directory (default: cwd)
+  --no-ui                      Run without GUI (autonomous mode)
   --timeout <minutes>          Headless timeout (default: 15)
+  --client <type>              Client type: code-local, code-web, cowork
+  --session-dir <path>         Explicit session data directory
+  --setup                      Force open configuration
+  --fold-shortcut <key>        Customize fold shortcut
+  --opencode-port <port>       Port override for OpenCode server
   --context-turns <N>          Max conversation turns (default: 50)
   --context-since <duration>   Time filter (e.g., 2h). Overrides turns.
    --context-max-tokens <N>     Max context tokens (default: 80000)
@@ -357,9 +375,9 @@ Custom agents defined in ~/.config/opencode/agents/ or
 .opencode/agents/ are also supported for primary sessions.
 
 Examples:
-  sidecar start --model google/gemini-2.5 --briefing "Debug auth issue"
-  sidecar start --model openai/o3 --briefing "Generate tests" --headless
-  sidecar start --model gemini --briefing "Review code" --agent Plan
+  sidecar start --model google/gemini-2.5 --prompt "Debug auth issue"
+  sidecar start --model openai/o3 --prompt "Generate tests" --no-ui
+  sidecar start --model gemini --prompt "Review code" --agent Plan
   sidecar list
   sidecar resume abc123
   sidecar read abc123 --conversation

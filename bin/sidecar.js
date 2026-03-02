@@ -80,19 +80,23 @@ async function handleStart(args) {
 
   await startSidecar({
     model: args.model,
-    briefing: args.briefing,
-    session: args.session,
-    project: args.project,
+    prompt: args.prompt,
+    sessionId: args['session-id'],
+    cwd: args.cwd,
     contextTurns: args['context-turns'],
     contextSince: args['context-since'],
     contextMaxTokens: args['context-max-tokens'],
-    headless: args.headless,
+    noUi: args['no-ui'],
     timeout: args.timeout,
     agent,
     mcp: args.mcp,
     mcpConfig: args['mcp-config'],
     thinking: args.thinking,
-    summaryLength: args['summary-length']
+    summaryLength: args['summary-length'],
+    client: args.client,
+    sessionDir: args['session-dir'],
+    foldShortcut: args['fold-shortcut'],
+    opencodePort: args['opencode-port']
   });
 }
 
@@ -107,7 +111,7 @@ async function handleList(args) {
     status: args.status,
     all: args.all,
     json: args.json,
-    project: args.project
+    project: args.cwd
   });
 }
 
@@ -128,8 +132,8 @@ async function handleResume(args) {
 
   await resumeSidecar({
     taskId,
-    project: args.project,
-    headless: args.headless,
+    project: args.cwd,
+    headless: args['no-ui'],
     timeout: args.timeout
   });
 }
@@ -147,8 +151,8 @@ async function handleContinue(args) {
     process.exit(1);
   }
 
-  if (!args.briefing) {
-    console.error('Error: --briefing is required for continue');
+  if (!args.prompt && !args.briefing) {
+    console.error('Error: --prompt is required for continue');
     process.exit(1);
   }
 
@@ -156,12 +160,12 @@ async function handleContinue(args) {
 
   await continueSidecar({
     taskId,
-    briefing: args.briefing,
+    briefing: args.prompt || args.briefing,
     model: args.model,
-    project: args.project,
+    project: args.cwd,
     contextTurns: args['context-turns'],
     contextMaxTokens: args['context-max-tokens'],
-    headless: args.headless,
+    headless: args['no-ui'],
     timeout: args.timeout
   });
 }
@@ -186,7 +190,7 @@ async function handleRead(args) {
     summary: args.summary,
     conversation: args.conversation,
     metadata: args.metadata,
-    project: args.project
+    project: args.cwd
   });
 }
 

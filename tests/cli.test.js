@@ -40,29 +40,29 @@ describe('CLI Argument Parser', () => {
       expect(result.model).toBe('google/gemini-2.5');
     });
 
-    it('should parse --briefing option', () => {
-      const result = parseArgs(['start', '--briefing', 'Debug the auth issue']);
-      expect(result.briefing).toBe('Debug the auth issue');
+    it('should parse --prompt option', () => {
+      const result = parseArgs(['start', '--prompt', 'Debug the auth issue']);
+      expect(result.prompt).toBe('Debug the auth issue');
     });
 
-    it('should parse --session option', () => {
-      const result = parseArgs(['start', '--session', 'abc123-def456']);
-      expect(result.session).toBe('abc123-def456');
+    it('should parse --session-id option', () => {
+      const result = parseArgs(['start', '--session-id', 'abc123-def456']);
+      expect(result['session-id']).toBe('abc123-def456');
     });
 
-    it('should default session to "current" if not specified', () => {
-      const result = parseArgs(['start', '--model', 'x', '--briefing', 'y']);
-      expect(result.session).toBe('current');
+    it('should default session-id to "current" if not specified', () => {
+      const result = parseArgs(['start', '--model', 'x', '--prompt', 'y']);
+      expect(result['session-id']).toBe('current');
     });
 
-    it('should parse --project option', () => {
-      const result = parseArgs(['start', '--project', '/path/to/project']);
-      expect(result.project).toBe('/path/to/project');
+    it('should parse --cwd option', () => {
+      const result = parseArgs(['start', '--cwd', '/path/to/project']);
+      expect(result.cwd).toBe('/path/to/project');
     });
 
-    it('should default project to cwd if not specified', () => {
+    it('should default cwd to process.cwd() if not specified', () => {
       const result = parseArgs(['start']);
-      expect(result.project).toBe(process.cwd());
+      expect(result.cwd).toBe(process.cwd());
     });
 
     it('should parse --context-turns option with default of 50', () => {
@@ -90,14 +90,14 @@ describe('CLI Argument Parser', () => {
       expect(result['context-max-tokens']).toBe(120000);
     });
 
-    it('should parse --headless flag as boolean', () => {
-      const result = parseArgs(['start', '--headless']);
-      expect(result.headless).toBe(true);
+    it('should parse --no-ui flag as boolean', () => {
+      const result = parseArgs(['start', '--no-ui']);
+      expect(result['no-ui']).toBe(true);
     });
 
-    it('should default --headless to false', () => {
+    it('should default --no-ui to false', () => {
       const result = parseArgs(['start']);
-      expect(result.headless).toBe(false);
+      expect(result['no-ui']).toBe(false);
     });
 
     it('should parse --timeout option with default of 15', () => {
@@ -150,6 +150,33 @@ describe('CLI Argument Parser', () => {
       expect(result.help).toBe(true);
     });
 
+    describe('New v3 CLI flags', () => {
+      it('should parse --client option', () => {
+        const result = parseArgs(['start', '--client', 'code-local']);
+        expect(result.client).toBe('code-local');
+      });
+
+      it('should parse --session-dir option', () => {
+        const result = parseArgs(['start', '--session-dir', '/tmp/sessions']);
+        expect(result['session-dir']).toBe('/tmp/sessions');
+      });
+
+      it('should parse --setup as boolean flag', () => {
+        const result = parseArgs(['start', '--setup']);
+        expect(result.setup).toBe(true);
+      });
+
+      it('should parse --fold-shortcut option', () => {
+        const result = parseArgs(['start', '--fold-shortcut', 'Ctrl+Shift+F']);
+        expect(result['fold-shortcut']).toBe('Ctrl+Shift+F');
+      });
+
+      it('should parse --opencode-port as numeric', () => {
+        const result = parseArgs(['start', '--opencode-port', '8080']);
+        expect(result['opencode-port']).toBe(8080);
+      });
+    });
+
     describe('MCP server options', () => {
       it('should parse --mcp option with name=url format', () => {
         const result = parseArgs(['start', '--mcp', 'my-server=https://mcp.example.com']);
@@ -167,7 +194,7 @@ describe('CLI Argument Parser', () => {
       });
 
       it('should default mcp to undefined if not specified', () => {
-        const result = parseArgs(['start', '--model', 'x', '--briefing', 'y']);
+        const result = parseArgs(['start', '--model', 'x', '--prompt', 'y']);
         expect(result.mcp).toBeUndefined();
       });
     });
@@ -222,14 +249,14 @@ describe('CLI Argument Parser', () => {
         const result = parseArgs([
           'start',
           '--model', 'openrouter/google/gemini-3-pro-preview',
-          '--briefing', 'Test task',
+          '--prompt', 'Test task',
           '--thinking', 'high',
-          '--headless'
+          '--no-ui'
         ]);
         expect(result.model).toBe('openrouter/google/gemini-3-pro-preview');
-        expect(result.briefing).toBe('Test task');
+        expect(result.prompt).toBe('Test task');
         expect(result.thinking).toBe('high');
-        expect(result.headless).toBe(true);
+        expect(result['no-ui']).toBe(true);
       });
     });
   });
@@ -242,21 +269,21 @@ describe('CLI Argument Parser', () => {
       expect(result.error).toContain('--model');
     });
 
-    it('should return error if --briefing is missing', () => {
+    it('should return error if --prompt is missing', () => {
       const args = { _: ['start'], model: 'google/gemini-2.5' };
       const result = validateStartArgs(args);
       expect(result.valid).toBe(false);
-      expect(result.error).toContain('--briefing');
+      expect(result.error).toContain('--prompt');
     });
 
-    it('should return valid if both --model and --briefing are present', () => {
-      const args = { _: ['start'], model: 'google/gemini-2.5', briefing: 'test' };
+    it('should return valid if both --model and --prompt are present', () => {
+      const args = { _: ['start'], model: 'google/gemini-2.5', prompt: 'test' };
       const result = validateStartArgs(args);
       expect(result.valid).toBe(true);
     });
 
     it('should validate model format (provider/model)', () => {
-      const args = { _: ['start'], model: 'invalid', briefing: 'test' };
+      const args = { _: ['start'], model: 'invalid', prompt: 'test' };
       const result = validateStartArgs(args);
       expect(result.valid).toBe(false);
       expect(result.error).toContain('provider/model');
@@ -277,7 +304,7 @@ describe('CLI Argument Parser', () => {
       ];
 
       validModels.forEach(model => {
-        const args = { _: ['start'], model, briefing: 'test' };
+        const args = { _: ['start'], model, prompt: 'test' };
         const result = validateStartArgs(args);
         expect(result.valid).toBe(true);
       });
@@ -286,34 +313,34 @@ describe('CLI Argument Parser', () => {
     it('should validate --thinking with valid effort levels', () => {
       const validLevels = ['minimal', 'low', 'medium', 'high', 'xhigh', 'none'];
       validLevels.forEach(level => {
-        const args = { _: ['start'], model: 'google/gemini-2.5', briefing: 'test', thinking: level };
+        const args = { _: ['start'], model: 'google/gemini-2.5', prompt: 'test', thinking: level };
         const result = validateStartArgs(args);
         expect(result.valid).toBe(true);
       });
     });
 
     it('should reject invalid --thinking effort level', () => {
-      const args = { _: ['start'], model: 'google/gemini-2.5', briefing: 'test', thinking: 'invalid' };
+      const args = { _: ['start'], model: 'google/gemini-2.5', prompt: 'test', thinking: 'invalid' };
       const result = validateStartArgs(args);
       expect(result.valid).toBe(false);
       expect(result.error).toContain('thinking');
     });
 
     it('should accept start command without --thinking (optional)', () => {
-      const args = { _: ['start'], model: 'google/gemini-2.5', briefing: 'test' };
+      const args = { _: ['start'], model: 'google/gemini-2.5', prompt: 'test' };
       const result = validateStartArgs(args);
       expect(result.valid).toBe(true);
     });
 
     it('should validate --timeout is a positive number', () => {
-      const args = { _: ['start'], model: 'google/gemini-2.5', briefing: 'test', timeout: -5 };
+      const args = { _: ['start'], model: 'google/gemini-2.5', prompt: 'test', timeout: -5 };
       const result = validateStartArgs(args);
       expect(result.valid).toBe(false);
       expect(result.error).toContain('timeout');
     });
 
     it('should validate --context-turns is a positive number', () => {
-      const args = { _: ['start'], model: 'google/gemini-2.5', briefing: 'test', 'context-turns': 0 };
+      const args = { _: ['start'], model: 'google/gemini-2.5', prompt: 'test', 'context-turns': 0 };
       const result = validateStartArgs(args);
       expect(result.valid).toBe(false);
       expect(result.error).toContain('context-turns');
@@ -322,14 +349,14 @@ describe('CLI Argument Parser', () => {
     it('should validate --context-since format (e.g., 2h, 30m, 1d)', () => {
       const validFormats = ['30m', '2h', '1d', '12h', '90m'];
       validFormats.forEach(since => {
-        const args = { _: ['start'], model: 'google/gemini-2.5', briefing: 'test', 'context-since': since };
+        const args = { _: ['start'], model: 'google/gemini-2.5', prompt: 'test', 'context-since': since };
         const result = validateStartArgs(args);
         expect(result.valid).toBe(true);
       });
     });
 
     it('should reject invalid --context-since format', () => {
-      const args = { _: ['start'], model: 'google/gemini-2.5', briefing: 'test', 'context-since': 'invalid' };
+      const args = { _: ['start'], model: 'google/gemini-2.5', prompt: 'test', 'context-since': 'invalid' };
       const result = validateStartArgs(args);
       expect(result.valid).toBe(false);
       expect(result.error).toContain('context-since');
@@ -359,79 +386,79 @@ describe('CLI Argument Parser', () => {
       Object.assign(process.env, originalEnv);
     });
 
-    describe('--briefing content validation', () => {
-      it('should reject empty briefing', () => {
-        const result = validateStartArgs({ model: 'openrouter/google/gemini-2.5-flash', briefing: '' });
+    describe('--prompt content validation', () => {
+      it('should reject empty prompt', () => {
+        const result = validateStartArgs({ model: 'openrouter/google/gemini-2.5-flash', prompt: '' });
         expect(result.valid).toBe(false);
-        expect(result.error).toContain('briefing');
+        expect(result.error).toContain('prompt');
       });
 
-      it('should reject whitespace-only briefing', () => {
-        const result = validateStartArgs({ model: 'openrouter/google/gemini-2.5-flash', briefing: '   ' });
+      it('should reject whitespace-only prompt', () => {
+        const result = validateStartArgs({ model: 'openrouter/google/gemini-2.5-flash', prompt: '   ' });
         expect(result.valid).toBe(false);
-        expect(result.error).toContain('briefing');
+        expect(result.error).toContain('prompt');
       });
 
-      it('should accept non-empty briefing', () => {
-        const result = validateStartArgs({ model: 'openrouter/google/gemini-2.5-flash', briefing: 'Debug the auth issue' });
+      it('should accept non-empty prompt', () => {
+        const result = validateStartArgs({ model: 'openrouter/google/gemini-2.5-flash', prompt: 'Debug the auth issue' });
         expect(result.valid).toBe(true);
       });
     });
 
-    describe('--project validation', () => {
-      it('should reject non-existent project path', () => {
+    describe('--cwd validation', () => {
+      it('should reject non-existent cwd path', () => {
         const result = validateStartArgs({
           model: 'openrouter/google/gemini-2.5-flash',
-          briefing: 'Test task',
-          project: '/nonexistent/path/12345'
+          prompt: 'Test task',
+          cwd: '/nonexistent/path/12345'
         });
         expect(result.valid).toBe(false);
-        expect(result.error).toContain('project');
+        expect(result.error).toContain('cwd');
       });
 
-      it('should accept valid project path', () => {
+      it('should accept valid cwd path', () => {
         const result = validateStartArgs({
           model: 'openrouter/google/gemini-2.5-flash',
-          briefing: 'Test task',
-          project: process.cwd()
+          prompt: 'Test task',
+          cwd: process.cwd()
         });
         expect(result.valid).toBe(true);
       });
 
-      it('should accept when project is not specified (uses default)', () => {
+      it('should accept when cwd is not specified (uses default)', () => {
         const result = validateStartArgs({
           model: 'openrouter/google/gemini-2.5-flash',
-          briefing: 'Test task'
+          prompt: 'Test task'
         });
         expect(result.valid).toBe(true);
       });
     });
 
-    describe('--session validation', () => {
-      it('should reject explicit session ID that does not exist', () => {
+    describe('--session-id validation', () => {
+      it('should reject explicit session-id that does not exist', () => {
         const result = validateStartArgs({
           model: 'openrouter/google/gemini-2.5-flash',
-          briefing: 'Test task',
-          session: 'nonexistent-session-id-12345',
-          project: process.cwd()
+          prompt: 'Test task',
+          'session-id': 'nonexistent-session-id-12345',
+          cwd: process.cwd()
         });
         expect(result.valid).toBe(false);
         expect(result.error).toContain('session');
       });
 
-      it('should accept "current" session (deferred resolution)', () => {
+      it('should accept "current" session-id (deferred resolution)', () => {
         const result = validateStartArgs({
           model: 'openrouter/google/gemini-2.5-flash',
-          briefing: 'Test task',
-          session: 'current'
+          prompt: 'Test task',
+          'session-id': 'current'
         });
         expect(result.valid).toBe(true);
       });
 
-      it('should accept undefined session (uses default)', () => {
+      it('should accept undefined session-id (uses default)', () => {
         const result = validateStartArgs({
           model: 'openrouter/google/gemini-2.5-flash',
-          briefing: 'Test task'
+          prompt: 'Test task'
         });
         expect(result.valid).toBe(true);
       });
@@ -441,7 +468,7 @@ describe('CLI Argument Parser', () => {
       it('should reject empty agent name', () => {
         const result = validateStartArgs({
           model: 'openrouter/google/gemini-2.5-flash',
-          briefing: 'Test task',
+          prompt: 'Test task',
           agent: '   '
         });
         expect(result.valid).toBe(false);
@@ -451,7 +478,7 @@ describe('CLI Argument Parser', () => {
       it.each(['Build', 'Plan', 'General', 'Explore'])('should accept OpenCode native agent: %s', (agent) => {
         const result = validateStartArgs({
           model: 'openrouter/google/gemini-2.5-flash',
-          briefing: 'Test task',
+          prompt: 'Test task',
           agent
         });
         expect(result.valid).toBe(true);
@@ -462,7 +489,7 @@ describe('CLI Argument Parser', () => {
         // These should be passed through and validated by OpenCode at runtime
         const result = validateStartArgs({
           model: 'openrouter/google/gemini-2.5-flash',
-          briefing: 'Test task',
+          prompt: 'Test task',
           agent: 'my-custom-agent'
         });
         expect(result.valid).toBe(true);
@@ -471,7 +498,59 @@ describe('CLI Argument Parser', () => {
       it('should accept when agent is not specified', () => {
         const result = validateStartArgs({
           model: 'openrouter/google/gemini-2.5-flash',
-          briefing: 'Test task'
+          prompt: 'Test task'
+        });
+        expect(result.valid).toBe(true);
+      });
+    });
+
+    describe('--client validation', () => {
+      it('should accept valid client values (non-web)', () => {
+        const validClients = ['code-local', 'cowork'];
+        validClients.forEach(client => {
+          const result = validateStartArgs({
+            model: 'openrouter/google/gemini-2.5-flash',
+            prompt: 'Test task',
+            client
+          });
+          expect(result.valid).toBe(true);
+        });
+      });
+
+      it('should reject invalid client value', () => {
+        const result = validateStartArgs({
+          model: 'openrouter/google/gemini-2.5-flash',
+          prompt: 'Test task',
+          client: 'invalid-client'
+        });
+        expect(result.valid).toBe(false);
+        expect(result.error).toContain('--client');
+      });
+
+      it('should accept when client is not specified', () => {
+        const result = validateStartArgs({
+          model: 'openrouter/google/gemini-2.5-flash',
+          prompt: 'Test task'
+        });
+        expect(result.valid).toBe(true);
+      });
+
+      it('should require --session-dir when client is code-web', () => {
+        const result = validateStartArgs({
+          model: 'openrouter/google/gemini-2.5-flash',
+          prompt: 'Test task',
+          client: 'code-web'
+        });
+        expect(result.valid).toBe(false);
+        expect(result.error).toContain('--session-dir');
+      });
+
+      it('should accept code-web with --session-dir', () => {
+        const result = validateStartArgs({
+          model: 'openrouter/google/gemini-2.5-flash',
+          prompt: 'Test task',
+          client: 'code-web',
+          'session-dir': '/tmp/test-sessions'
         });
         expect(result.valid).toBe(true);
       });
@@ -482,7 +561,7 @@ describe('CLI Argument Parser', () => {
       it('should pass when --mcp is not provided', () => {
         const result = validateStartArgs({
           model: 'openrouter/google/gemini-2.5-flash',
-          briefing: 'Test task'
+          prompt: 'Test task'
         });
         expect(result.valid).toBe(true);
       });
@@ -490,7 +569,7 @@ describe('CLI Argument Parser', () => {
       it('should reject invalid MCP format when provided', () => {
         const result = validateStartArgs({
           model: 'openrouter/google/gemini-2.5-flash',
-          briefing: 'Test task',
+          prompt: 'Test task',
           mcp: 'invalid-format-no-equals'
         });
         expect(result.valid).toBe(false);
@@ -500,7 +579,7 @@ describe('CLI Argument Parser', () => {
       it('should accept valid MCP URL format when provided', () => {
         const result = validateStartArgs({
           model: 'openrouter/google/gemini-2.5-flash',
-          briefing: 'Test task',
+          prompt: 'Test task',
           mcp: 'myserver=http://localhost:3000'
         });
         expect(result.valid).toBe(true);
@@ -509,7 +588,7 @@ describe('CLI Argument Parser', () => {
       it('should accept valid MCP command format when provided', () => {
         const result = validateStartArgs({
           model: 'openrouter/google/gemini-2.5-flash',
-          briefing: 'Test task',
+          prompt: 'Test task',
           mcp: 'myserver=npx some-mcp-server'
         });
         expect(result.valid).toBe(true);
@@ -520,7 +599,7 @@ describe('CLI Argument Parser', () => {
       it('should pass when --mcp-config is not provided', () => {
         const result = validateStartArgs({
           model: 'openrouter/google/gemini-2.5-flash',
-          briefing: 'Test task'
+          prompt: 'Test task'
         });
         expect(result.valid).toBe(true);
       });
@@ -528,7 +607,7 @@ describe('CLI Argument Parser', () => {
       it('should reject non-existent config file when provided', () => {
         const result = validateStartArgs({
           model: 'openrouter/google/gemini-2.5-flash',
-          briefing: 'Test task',
+          prompt: 'Test task',
           'mcp-config': '/nonexistent/mcp-config.json'
         });
         expect(result.valid).toBe(false);
@@ -541,7 +620,7 @@ describe('CLI Argument Parser', () => {
         delete process.env.OPENROUTER_API_KEY;
         const result = validateStartArgs({
           model: 'openrouter/google/gemini-2.5-flash',
-          briefing: 'Test task'
+          prompt: 'Test task'
         });
         expect(result.valid).toBe(false);
         expect(result.error).toContain('OPENROUTER_API_KEY');
@@ -551,7 +630,7 @@ describe('CLI Argument Parser', () => {
         delete process.env.GEMINI_API_KEY;
         const result = validateStartArgs({
           model: 'google/gemini-2.5-flash',
-          briefing: 'Test task'
+          prompt: 'Test task'
         });
         expect(result.valid).toBe(false);
         expect(result.error).toContain('GEMINI_API_KEY');
@@ -561,7 +640,7 @@ describe('CLI Argument Parser', () => {
         delete process.env.OPENAI_API_KEY;
         const result = validateStartArgs({
           model: 'openai/gpt-4o',
-          briefing: 'Test task'
+          prompt: 'Test task'
         });
         expect(result.valid).toBe(false);
         expect(result.error).toContain('OPENAI_API_KEY');
@@ -571,7 +650,7 @@ describe('CLI Argument Parser', () => {
         delete process.env.ANTHROPIC_API_KEY;
         const result = validateStartArgs({
           model: 'anthropic/claude-sonnet-4',
-          briefing: 'Test task'
+          prompt: 'Test task'
         });
         expect(result.valid).toBe(false);
         expect(result.error).toContain('ANTHROPIC_API_KEY');
@@ -581,7 +660,7 @@ describe('CLI Argument Parser', () => {
         delete process.env.DEEPSEEK_API_KEY;
         const result = validateStartArgs({
           model: 'deepseek/deepseek-chat',
-          briefing: 'Test task'
+          prompt: 'Test task'
         });
         expect(result.valid).toBe(false);
         expect(result.error).toContain('DEEPSEEK_API_KEY');
@@ -591,7 +670,7 @@ describe('CLI Argument Parser', () => {
         process.env.OPENROUTER_API_KEY = 'sk-or-test-key';
         const result = validateStartArgs({
           model: 'openrouter/google/gemini-2.5-flash',
-          briefing: 'Test task'
+          prompt: 'Test task'
         });
         expect(result.valid).toBe(true);
       });
@@ -599,7 +678,7 @@ describe('CLI Argument Parser', () => {
       it('should pass for unknown provider (let runtime handle it)', () => {
         const result = validateStartArgs({
           model: 'custom-provider/some-model',
-          briefing: 'Test task'
+          prompt: 'Test task'
         });
         expect(result.valid).toBe(true);
       });

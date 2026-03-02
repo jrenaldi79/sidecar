@@ -28,43 +28,49 @@ const PROVIDER_KEY_MAP = {
 };
 
 /**
- * Validate briefing content is not empty or whitespace-only
- * @param {string} briefing
+ * Validate prompt content is not empty or whitespace-only
+ * @param {string} prompt
  * @returns {{valid: boolean, error?: string}}
  */
-function validateBriefingContent(briefing) {
-  if (!briefing || briefing.trim().length === 0) {
-    return { valid: false, error: 'Error: --briefing cannot be empty or whitespace-only' };
+function validatePromptContent(prompt) {
+  if (!prompt || prompt.trim().length === 0) {
+    return { valid: false, error: 'Error: --prompt cannot be empty or whitespace-only' };
   }
   return { valid: true };
 }
 
+/** @deprecated Use validatePromptContent instead */
+const validateBriefingContent = validatePromptContent;
+
 /**
- * Validate project directory exists
- * @param {string} projectPath
+ * Validate cwd directory exists
+ * @param {string} cwdPath
  * @returns {{valid: boolean, error?: string}}
  */
-function validateProjectPath(projectPath) {
+function validateCwdPath(cwdPath) {
   // Skip validation if not provided (will use default)
-  if (!projectPath) {
+  if (!cwdPath) {
     return { valid: true };
   }
 
-  if (!fs.existsSync(projectPath)) {
-    return { valid: false, error: `Error: --project path does not exist: ${projectPath}` };
+  if (!fs.existsSync(cwdPath)) {
+    return { valid: false, error: `Error: --cwd path does not exist: ${cwdPath}` };
   }
 
   try {
-    const stat = fs.statSync(projectPath);
+    const stat = fs.statSync(cwdPath);
     if (!stat.isDirectory()) {
-      return { valid: false, error: `Error: --project path is not a directory: ${projectPath}` };
+      return { valid: false, error: `Error: --cwd path is not a directory: ${cwdPath}` };
     }
   } catch (e) {
-    return { valid: false, error: `Error: --project path is not accessible: ${projectPath}` };
+    return { valid: false, error: `Error: --cwd path is not accessible: ${cwdPath}` };
   }
 
   return { valid: true };
 }
+
+/** @deprecated Use validateCwdPath instead */
+const validateProjectPath = validateCwdPath;
 
 /**
  * Find a session file in Claude's project directories
@@ -328,6 +334,9 @@ module.exports = {
   VALID_AGENT_MODES,
   PROVIDER_KEY_MAP,
   MODEL_THINKING_SUPPORT,
+  validatePromptContent,
+  validateCwdPath,
+  // Backward-compatible aliases
   validateBriefingContent,
   validateProjectPath,
   validateExplicitSession,

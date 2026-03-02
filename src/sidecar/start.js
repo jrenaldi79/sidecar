@@ -30,17 +30,20 @@ function generateTaskId() {
 
 /** Create session directory and save metadata */
 function createSessionMetadata(taskId, project, options) {
-  const { model, briefing, headless, agent, thinking } = options;
+  const { model, prompt, briefing, noUi, headless, agent, thinking } = options;
 
   const sessionDir = SessionPaths.sessionDir(project, taskId);
   fs.mkdirSync(sessionDir, { recursive: true });
+
+  const effectiveBriefing = prompt || briefing;
+  const isHeadless = noUi !== undefined ? noUi : headless;
 
   const metadata = {
     taskId,
     model,
     project,
-    briefing,
-    mode: headless ? 'headless' : 'interactive',
+    briefing: effectiveBriefing,
+    mode: isHeadless ? 'headless' : 'interactive',
     agent: agent || 'code',
     thinking: thinking || 'medium',
     status: 'running',
@@ -164,25 +167,38 @@ function handleElectronProcess(electronProcess, taskId, resolve) {
 /** Start a new sidecar session - Spec Reference: §4.1, §9 */
 async function startSidecar(options) {
   const {
-    model, briefing, session = 'current', project = process.cwd(),
+    model,
+    prompt, briefing,
+    sessionId, session = 'current',
+    cwd, project = process.cwd(),
     contextTurns = 50, contextSince, contextMaxTokens = 80000,
-    headless = false, timeout = 15, agent, mcp, mcpConfig,
+    noUi, headless = false,
+    timeout = 15, agent, mcp, mcpConfig,
     summaryLength = 'normal', thinking
+    // v3 flags accepted but not yet consumed: client, sessionDir, foldShortcut, opencodePort
   } = options;
+
+  // Resolve v3 names with backward compatibility
+  const effectivePrompt = prompt || briefing;
+  const effectiveSession = sessionId || session;
+  const effectiveProject = cwd || project;
+  const effectiveHeadless = noUi !== undefined ? noUi : headless;
 
   const mcpServers = buildMcpConfig({ mcp, mcpConfig });
   const taskId = generateTaskId();
-  logger.info('Starting task', { taskId, model, mode: headless ? 'headless' : 'interactive' });
+  logger.info('Starting task', { taskId, model, mode: effectiveHeadless ? 'headless' : 'interactive' });
 
   // Build context and prompts
-  const context = buildContext(project, session, { contextTurns, contextSince, contextMaxTokens });
+  const context = buildContext(effectiveProject, effectiveSession, { contextTurns, contextSince, contextMaxTokens });
   const { system: systemPrompt, userMessage } = buildPrompts(
-    briefing, context, project, headless, agent, summaryLength
+    effectivePrompt, context, effectiveProject, effectiveHeadless, agent, summaryLength
   );
 
   // Create session
-  const sessionDir = createSessionMetadata(taskId, project, { model, briefing, headless, agent, thinking });
-  saveInitialContext(sessionDir, systemPrompt, userMessage);
+  const sessDir = createSessionMetadata(taskId, effectiveProject, {
+    model, prompt: effectivePrompt, noUi: effectiveHeadless, agent, thinking
+  });
+  saveInitialContext(sessDir, systemPrompt, userMessage);
 
   // Start heartbeat
   const heartbeat = createHeartbeat();
@@ -191,9 +207,9 @@ async function startSidecar(options) {
   const reasoning = thinking ? { effort: thinking } : undefined;
 
   try {
-    if (headless) {
+    if (effectiveHeadless) {
       const result = await runHeadless(
-        model, systemPrompt, userMessage, taskId, project,
+        model, systemPrompt, userMessage, taskId, effectiveProject,
         timeout * 60 * 1000, agent,
         { mcp: mcpServers, summaryLength, reasoning }
       );
@@ -204,7 +220,7 @@ async function startSidecar(options) {
     } else {
       logger.info('Launching interactive sidecar', { taskId, model, agent: agent || 'code' });
       const result = await runInteractive(
-        model, systemPrompt, userMessage, taskId, project,
+        model, systemPrompt, userMessage, taskId, effectiveProject,
         { agent, mcp: mcpServers, reasoning }
       );
       summary = result.summary || '';
@@ -218,9 +234,9 @@ async function startSidecar(options) {
   outputSummary(summary);
 
   // Finalize session - load metadata for finalization
-  const metaPath = SessionPaths.metadataFile(sessionDir);
+  const metaPath = SessionPaths.metadataFile(sessDir);
   const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
-  finalizeSession(sessionDir, summary, project, meta);
+  finalizeSession(sessDir, summary, effectiveProject, meta);
 }
 
 module.exports = {
