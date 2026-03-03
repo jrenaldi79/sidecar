@@ -34,7 +34,6 @@ const {
 } = require('../src/opencode-client');
 const { validateAgentType, getAgentType, getAgentTools } = require('../src/agent-types');
 const { ensurePortAvailable } = require('../src/utils/server-setup');
-const { getModelForAgent, loadConfig, saveConfig } = require('../src/utils/agent-model-config');
 const { ensureNodeModulesBinInPath } = require('../src/utils/path-setup');
 const { logger } = require('../src/utils/logger');
 
@@ -701,24 +700,12 @@ ipcMain.handle('spawn-subagent', async (_event, config) => {
     throw new Error('Briefing is required');
   }
 
-  // Resolve model using agent-model configuration
-  // Priority: explicit model > configured model for agent type > parent model
-  let resolvedModel = model; // Parent model from environment
-  let modelWasRouted = false;
-
-  if (explicitModel) {
-    resolvedModel = explicitModel;
-    modelWasRouted = false;
-  } else {
-    const modelConfig = getModelForAgent(agentType, model);
-    resolvedModel = modelConfig.model;
-    modelWasRouted = modelConfig.wasRouted;
-  }
+  // Resolve model: explicit model takes priority, otherwise use parent model
+  const resolvedModel = explicitModel || model;
 
   logger.info('Spawning sub-agent', {
     agentType,
     model: resolvedModel,
-    modelWasRouted,
     briefingPreview: briefing.substring(0, 50)
   });
 
@@ -856,18 +843,6 @@ ipcMain.handle('get-subagent-result', async (_event, childSessionId) => {
     logger.error('Error getting sub-agent result', { error: error.message, childSessionId });
     throw error;
   }
-});
-
-// ============================================================================
-// Agent-Model Configuration IPC Handlers
-// ============================================================================
-
-ipcMain.handle('get-agent-model-config', () => {
-  return loadConfig();
-});
-
-ipcMain.handle('set-agent-model-config', (_event, config) => {
-  return saveConfig(config);
 });
 
 // ============================================================================
