@@ -40,7 +40,7 @@ jest.mock('../src/utils/logger', () => ({
   }
 }));
 
-const { runHeadless, extractSummary, COMPLETE_MARKER, DEFAULT_TIMEOUT } = require('../src/headless');
+const { runHeadless, extractSummary, COMPLETE_MARKER, FOLD_MARKER, formatFoldOutput, DEFAULT_TIMEOUT } = require('../src/headless');
 
 describe('Headless Mode Runner', () => {
   let mockClient;
@@ -159,7 +159,7 @@ describe('Headless Mode Runner', () => {
     });
 
     describe('Completion Detection', () => {
-      it('should detect [SIDECAR_COMPLETE] marker in response', async () => {
+      it('should detect [SIDECAR_FOLD] marker in response', async () => {
         mockCheckHealth.mockResolvedValue(true);
         mockCreateSession.mockResolvedValue('session-123');
         mockSendPrompt.mockResolvedValue({
@@ -172,7 +172,7 @@ describe('Headless Mode Runner', () => {
         expect(result.completed).toBe(true);
       });
 
-      it('should return summary content before [SIDECAR_COMPLETE] marker', async () => {
+      it('should return summary content before [SIDECAR_FOLD] marker', async () => {
         const summaryText = '## Task Summary\nCompleted the task.';
         mockCheckHealth.mockResolvedValue(true);
         mockCreateSession.mockResolvedValue('session-123');
@@ -348,8 +348,8 @@ describe('Headless Mode Runner', () => {
   });
 
   describe('extractSummary', () => {
-    it('should extract content before [SIDECAR_COMPLETE]', () => {
-      const output = 'Summary content\n[SIDECAR_COMPLETE]';
+    it('should extract content before [SIDECAR_FOLD]', () => {
+      const output = 'Summary content\n[SIDECAR_FOLD]';
       expect(extractSummary(output)).toBe('Summary content');
     });
 
@@ -365,7 +365,7 @@ describe('Headless Mode Runner', () => {
     });
 
     it('should trim whitespace', () => {
-      const output = '  Summary  \n  [SIDECAR_COMPLETE]';
+      const output = '  Summary  \n  [SIDECAR_FOLD]';
       expect(extractSummary(output)).toBe('Summary');
     });
   });
@@ -482,9 +482,37 @@ describe('Headless Mode Runner', () => {
     });
   });
 
-  describe('COMPLETE_MARKER', () => {
-    it('should be exported as [SIDECAR_COMPLETE]', () => {
-      expect(COMPLETE_MARKER).toBe('[SIDECAR_COMPLETE]');
+  describe('FOLD_MARKER', () => {
+    it('should be exported as [SIDECAR_FOLD]', () => {
+      expect(FOLD_MARKER).toBe('[SIDECAR_FOLD]');
+    });
+
+    it('should have COMPLETE_MARKER equal FOLD_MARKER for backward compat', () => {
+      expect(COMPLETE_MARKER).toBe(FOLD_MARKER);
+    });
+  });
+
+  describe('formatFoldOutput', () => {
+    it('should format with all fields', () => {
+      const output = formatFoldOutput({
+        model: 'google/gemini-2.5-pro', sessionId: 'abc123',
+        client: 'code-local', cwd: '/projects/myapp',
+        mode: 'interactive', summary: 'Test summary'
+      });
+      expect(output).toContain('[SIDECAR_FOLD]');
+      expect(output).toContain('Model: google/gemini-2.5-pro');
+      expect(output).toContain('Session: abc123');
+      expect(output).toContain('Client: code-local');
+      expect(output).toContain('CWD: /projects/myapp');
+      expect(output).toContain('Mode: interactive');
+      expect(output).toContain('---');
+      expect(output).toContain('Test summary');
+    });
+
+    it('should use defaults for missing optional fields', () => {
+      const output = formatFoldOutput({ model: 'test', sessionId: 'x', summary: 'hi' });
+      expect(output).toContain('Client: code-local');
+      expect(output).toContain('Mode: headless');
     });
   });
 

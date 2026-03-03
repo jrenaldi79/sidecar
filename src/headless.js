@@ -21,10 +21,11 @@ const { ensurePortAvailable } = require('./utils/server-setup');
 const { mapAgentToOpenCode } = require('./utils/agent-mapping');
 
 /**
- * Completion marker that the agent outputs when done
+ * Fold marker that the agent outputs when done
  * Spec Reference: §6.2
  */
-const COMPLETE_MARKER = '[SIDECAR_COMPLETE]';
+const FOLD_MARKER = '[SIDECAR_FOLD]';
+const COMPLETE_MARKER = FOLD_MARKER; // backward compat
 
 /**
  * Default timeout: 15 minutes per spec §6.2
@@ -241,7 +242,7 @@ async function runHeadless(model, systemPrompt, userMessage, taskId, project, ti
     }
 
     // Check for completion marker
-    if (output.includes(COMPLETE_MARKER)) {
+    if (output.includes(FOLD_MARKER)) {
       completed = true;
     }
 
@@ -340,7 +341,7 @@ async function runHeadless(model, systemPrompt, userMessage, taskId, project, ti
         });
 
         // Check for completion marker in output
-        if (output.includes(COMPLETE_MARKER)) {
+        if (output.includes(FOLD_MARKER)) {
           completed = true;
           break;
         }
@@ -368,9 +369,9 @@ async function runHeadless(model, systemPrompt, userMessage, taskId, project, ti
       timedOut = true;
 
       // Send summary prompt using SDK
-      let summaryPrompt = '\n\nYou are running out of time. Please output your summary now in the required format, followed by [SIDECAR_COMPLETE].\n';
+      let summaryPrompt = '\n\nYou are running out of time. Please output your summary now in the required format, followed by [SIDECAR_FOLD].\n';
       if (summaryLength === 'brief') {
-        summaryPrompt = '\n\nYou are running out of time. Please output a BRIEF summary now, followed by [SIDECAR_COMPLETE].\n';
+        summaryPrompt = '\n\nYou are running out of time. Please output a BRIEF summary now, followed by [SIDECAR_FOLD].\n';
       }
 
       await sendPrompt(client, sessionId, {
@@ -396,7 +397,7 @@ async function runHeadless(model, systemPrompt, userMessage, taskId, project, ti
         }
       }
 
-      if (output.includes(COMPLETE_MARKER)) {
+      if (output.includes(FOLD_MARKER)) {
         completed = true;
       }
     }
@@ -436,8 +437,8 @@ async function runHeadless(model, systemPrompt, userMessage, taskId, project, ti
 }
 
 /**
- * Extract summary from output (everything before [SIDECAR_COMPLETE])
- * Spec Reference: §6.2 - Return summary (everything before [SIDECAR_COMPLETE])
+ * Extract summary from output (everything before [SIDECAR_FOLD])
+ * Spec Reference: §6.2 - Return summary (everything before [SIDECAR_FOLD])
  *
  * @param {string} output - Raw output from OpenCode
  * @returns {string} Extracted summary
@@ -447,9 +448,34 @@ function extractSummary(output) {
     return '';
   }
 
-  // Split on the completion marker and take everything before it
-  const parts = output.split(COMPLETE_MARKER);
+  // Split on the fold marker and take everything before it
+  const parts = output.split(FOLD_MARKER);
   return parts[0].trim();
+}
+
+/**
+ * Format a structured fold output with metadata
+ *
+ * @param {Object} options - Fold output options
+ * @param {string} options.model - Model identifier
+ * @param {string} options.sessionId - Session identifier
+ * @param {string} [options.client='code-local'] - Client identifier
+ * @param {string} [options.cwd] - Working directory (defaults to process.cwd())
+ * @param {string} [options.mode='headless'] - Execution mode
+ * @param {string} options.summary - Summary text
+ * @returns {string} Formatted fold output
+ */
+function formatFoldOutput({ model, sessionId, client, cwd, mode, summary }) {
+  return [
+    '[SIDECAR_FOLD]',
+    `Model: ${model}`,
+    `Session: ${sessionId}`,
+    `Client: ${client || 'code-local'}`,
+    `CWD: ${cwd || process.cwd()}`,
+    `Mode: ${mode || 'headless'}`,
+    '---',
+    summary
+  ].join('\n');
 }
 
 /**
@@ -466,6 +492,8 @@ function logMessage(conversationPath, message) {
 module.exports = {
   runHeadless,
   extractSummary,
+  formatFoldOutput,
   DEFAULT_TIMEOUT,
+  FOLD_MARKER,
   COMPLETE_MARKER
 };

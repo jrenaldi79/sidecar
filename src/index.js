@@ -18,7 +18,7 @@ const { buildContext, parseDuration } = require('./sidecar/context-builder');
 const { buildSystemPrompt, buildPrompts, getSummaryTemplate, SUMMARY_TEMPLATE } = require('./prompt-builder');
 
 // Import from headless
-const { runHeadless, extractSummary, DEFAULT_TIMEOUT, COMPLETE_MARKER } = require('./headless');
+const { runHeadless, extractSummary, formatFoldOutput, DEFAULT_TIMEOUT, FOLD_MARKER, COMPLETE_MARKER } = require('./headless');
 
 // Track B modules - Context, Session Management, Conflict & Drift Detection
 const { filterContext, estimateTokens, takeLastNTurns } = require('./context');
@@ -49,7 +49,9 @@ module.exports = {
   // Re-export from headless
   runHeadless,
   extractSummary,
+  formatFoldOutput,
   DEFAULT_TIMEOUT,
+  FOLD_MARKER,
   COMPLETE_MARKER,
 
   // Re-export from context (Track B)
