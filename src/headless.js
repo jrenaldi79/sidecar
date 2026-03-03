@@ -12,7 +12,6 @@ const {
   createSession,
   sendPrompt,
   getMessages,
-  getSessionStatus,
   checkHealth,
   startServer
 } = require('./opencode-client');

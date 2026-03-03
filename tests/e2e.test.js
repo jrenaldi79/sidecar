@@ -16,7 +16,7 @@ const mockServerClose = jest.fn();
 jest.mock('../src/opencode-client', () => ({
   createClient: jest.fn().mockReturnValue({}),
   createSession: jest.fn().mockResolvedValue('mock-session-id'),
-  sendPrompt: jest.fn().mockResolvedValue({ data: { parts: [{ type: 'text', text: '[SIDECAR_COMPLETE]' }] } }),
+  sendPrompt: jest.fn().mockResolvedValue({ data: { parts: [{ type: 'text', text: '[SIDECAR_FOLD]' }] } }),
   getMessages: jest.fn().mockResolvedValue([]),
   checkHealth: jest.fn().mockResolvedValue(true),
   startServer: jest.fn().mockResolvedValue({
@@ -46,7 +46,7 @@ let mockHomeDir;
 jest.spyOn(os, 'homedir').mockImplementation(() => mockHomeDir || originalHomedir());
 
 // Import after mocks are set up
-const { startSidecar, listSidecars, readSidecar, COMPLETE_MARKER } = require('../src/index');
+const { startSidecar, listSidecars, readSidecar, FOLD_MARKER, COMPLETE_MARKER } = require('../src/index');
 
 describe('End-to-End Sidecar Flow', () => {
   let tmpDir;       // Project directory
@@ -139,7 +139,7 @@ describe('End-to-End Sidecar Flow', () => {
 
 **Files Modified:** None (analysis only)
 
-${COMPLETE_MARKER}`;
+${FOLD_MARKER}`;
 
       // Get SDK mocks and configure them for this test
       const { startServer, sendPrompt, createSession } = require('../src/opencode-client');
@@ -217,7 +217,7 @@ ${COMPLETE_MARKER}`;
 
     it('should read sidecar summary after completion', async () => {
       // Configure SDK mock for this test
-      const testSummary = `## Test Summary\nThis is the analysis result.\n${COMPLETE_MARKER}`;
+      const testSummary = `## Test Summary\nThis is the analysis result.\n${FOLD_MARKER}`;
       const { sendPrompt } = require('../src/opencode-client');
       sendPrompt.mockResolvedValue({ data: { parts: [{ type: 'text', text: testSummary }] } });
 

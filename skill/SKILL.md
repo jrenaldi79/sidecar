@@ -49,15 +49,15 @@ EOF
 
 **Step 3: Verify setup**
 ```bash
-sidecar start --model openrouter/google/gemini-2.5-flash --briefing "Say hello" --headless
+sidecar start --model openrouter/google/gemini-2.5-flash --prompt "Say hello" --no-ui
 ```
 
 **Model names with OpenRouter:**
 When using OpenRouter, prefix the model with `openrouter/`:
 ```bash
-sidecar start --model openrouter/google/gemini-2.5-flash --briefing "..."
-sidecar start --model openrouter/openai/gpt-4o --briefing "..."
-sidecar start --model openrouter/anthropic/claude-sonnet-4 --briefing "..."
+sidecar start --model openrouter/google/gemini-2.5-flash --prompt "..."
+sidecar start --model openrouter/openai/gpt-4o --prompt "..."
+sidecar start --model openrouter/anthropic/claude-sonnet-4 --prompt "..."
 ```
 
 ### Option B: Direct API Keys (Provider-Specific)
@@ -84,9 +84,9 @@ Add these to your shell profile (`~/.bashrc`, `~/.zshrc`) for persistence.
 **Model names with direct API keys:**
 When using direct API keys, use the provider/model format WITHOUT the `openrouter/` prefix:
 ```bash
-sidecar start --model google/gemini-2.5-flash --briefing "..."
-sidecar start --model openai/gpt-4o --briefing "..."
-sidecar start --model anthropic/claude-sonnet-4 --briefing "..."
+sidecar start --model google/gemini-2.5-flash --prompt "..."
+sidecar start --model openai/gpt-4o --prompt "..."
+sidecar start --model anthropic/claude-sonnet-4 --prompt "..."
 ```
 
 ### Model Naming Summary
@@ -124,7 +124,7 @@ sidecar start --model anthropic/claude-sonnet-4 --briefing "..."
 
 **Default to Plan mode** for most sidecar tasks:
 ```bash
-sidecar start --model ... --briefing "..." --agent Plan
+sidecar start --model ... --prompt "..." --agent Plan
 ```
 
 Plan mode prevents unintended changes and is ideal for:
@@ -141,7 +141,7 @@ Plan mode prevents unintended changes and is ideal for:
 
 ```bash
 # Only after confirming implementation is needed:
-sidecar start --model ... --briefing "Implement the login feature" --agent Build
+sidecar start --model ... --prompt "Implement the login feature" --agent Build
 ```
 
 ---
@@ -153,19 +153,19 @@ sidecar start --model ... --briefing "Implement the login feature" --agent Build
 ```bash
 sidecar start \
   --model <provider/model> \
-  --briefing "<task description>" \
-  --session <your-session-id>
+  --prompt "<task description>" \
+  --session-id <your-session-id>
 ```
 
 **Required:**
 - `--model`: The model to use (see Models below)
-- `--briefing`: Detailed task description you generate
+- `--prompt`: Detailed task description you generate
 
 **Recommended:**
 - `--session`: Your Claude Code session ID for accurate context passing
 
 **Optional:**
-- `--headless`: Run autonomously without GUI (for bulk tasks)
+- `--no-ui`: Run autonomously without GUI (for bulk tasks)
 - `--timeout <min>`: Headless timeout (default: 15)
 - `--context-turns <N>`: Max conversation turns to include (default: 50)
 - `--context-since <duration>`: Time filter for context (e.g., `2h`, `30m`, `1d`). Overrides `--context-turns`.
@@ -211,9 +211,9 @@ The CLI validates all inputs **before** launching the sidecar. Invalid inputs fa
 | Input | Validation | Error Message |
 |-------|------------|---------------|
 | `--model` | Must be present, format: `provider/model` | `Error: --model is required` or `Error: --model must be in format provider/model` |
-| `--briefing` | Must be present and non-empty | `Error: --briefing is required` or `Error: --briefing cannot be empty or whitespace-only` |
-| `--project` | If provided, directory must exist | `Error: --project path does not exist: <path>` |
-| `--session` | If explicit ID provided (not 'current'), must exist | `Error: --session '<id>' not found. Use 'sidecar list' to see available sessions or omit --session for most recent.` |
+| `--prompt` | Must be present and non-empty | `Error: --prompt is required` or `Error: --prompt cannot be empty or whitespace-only` |
+| `--cwd` | If provided, directory must exist | `Error: --cwd path does not exist: <path>` |
+| `--session-id` | If explicit ID provided (not 'current'), must exist | `Error: --session-id '<id>' not found. Use 'sidecar list' to see available sessions or omit --session-id for most recent.` |
 | `--agent` | If provided, must be non-empty | `Error: --agent cannot be empty` |
 | `--timeout` | Must be positive number | `Error: --timeout must be a positive number` |
 | `--context-turns` | Must be positive number | `Error: --context-turns must be a positive number` |
@@ -235,22 +235,22 @@ The CLI validates all inputs **before** launching the sidecar. Invalid inputs fa
 If you receive a validation error, fix the input and retry:
 
 ```bash
-# Error: --session 'abc123' not found
+# Error: --session-id 'abc123' not found
 # Fix: Use 'current' or omit --session
-sidecar start --model openrouter/google/gemini-2.5-flash --briefing "Task" --session current
+sidecar start --model openrouter/google/gemini-2.5-flash --prompt "Task" --session-id current
 
 # Error: --agent cannot be empty
 # Fix: Use a valid OpenCode agent
-sidecar start --model openrouter/google/gemini-2.5-flash --briefing "Task" --agent Build
+sidecar start --model openrouter/google/gemini-2.5-flash --prompt "Task" --agent Build
 
-# Error: --briefing cannot be empty
+# Error: --prompt cannot be empty
 # Fix: Provide a non-empty briefing
-sidecar start --model openrouter/google/gemini-2.5-flash --briefing "Detailed task description"
+sidecar start --model openrouter/google/gemini-2.5-flash --prompt "Detailed task description"
 
 # Error: OPENROUTER_API_KEY environment variable is required
 # Fix: Set the API key for your provider
 export OPENROUTER_API_KEY=sk-or-your-key
-sidecar start --model openrouter/google/gemini-2.5-flash --briefing "Task"
+sidecar start --model openrouter/google/gemini-2.5-flash --prompt "Task"
 ```
 
 ### List Past Sidecars
@@ -266,7 +266,7 @@ sidecar list --json # Output as JSON
 - `--status <filter>`: Filter by status (`running`, `complete`)
 - `--all`: Show sessions from all projects
 - `--json`: Output as JSON format (for programmatic use)
-- `--project <path>`: Project directory (default: current directory)
+- `--cwd <path>`: Project directory (default: current directory)
 
 ### Resume a Sidecar
 
@@ -277,28 +277,28 @@ sidecar resume <task_id>
 Reopens a previous session with full conversation history.
 
 **Optional:**
-- `--headless`: Continue session in autonomous mode
+- `--no-ui`: Continue session in autonomous mode
 - `--timeout <minutes>`: Timeout for headless mode (default: 15)
-- `--project <path>`: Project directory (default: current directory)
+- `--cwd <path>`: Project directory (default: current directory)
 
 ### Continue from a Sidecar
 
 ```bash
-sidecar continue <task_id> --briefing "<new task>"
+sidecar continue <task_id> --prompt "<new task>"
 ```
 
 Starts a NEW sidecar that inherits the old sidecar's conversation as context.
 
 **Required:**
-- `--briefing`: New task description for the continuation
+- `--prompt`: New task description for the continuation
 
 **Optional:**
 - `--model <model>`: Override model (defaults to original session's model)
 - `--context-turns <N>`: Max turns from previous session to include (default: 50)
 - `--context-max-tokens <N>`: Max tokens for context (default: 80000)
-- `--headless`: Run in autonomous mode
+- `--no-ui`: Run in autonomous mode
 - `--timeout <minutes>`: Timeout for headless mode (default: 15)
-- `--project <path>`: Project directory (default: current directory)
+- `--cwd <path>`: Project directory (default: current directory)
 
 ### Read Sidecar Output
 
@@ -312,7 +312,7 @@ sidecar read <task_id> --metadata      # Show session metadata
 - `--summary`: Show summary (default if no option specified)
 - `--conversation`: Show full conversation history
 - `--metadata`: Show session metadata (model, agent, timestamps, etc.)
-- `--project <path>`: Project directory (default: current directory)
+- `--cwd <path>`: Project directory (default: current directory)
 
 ### Subagent Commands
 
@@ -326,18 +326,18 @@ Spawn and manage subagents within a sidecar session. Subagents run in parallel w
 sidecar subagent spawn \
   --parent <sidecar-task-id> \
   --agent <General|Explore> \
-  --briefing "<task description>"
+  --prompt "<task description>"
 ```
 
 **Required:**
 - `--parent`: The task ID of the parent sidecar session
 - `--agent`: Subagent type - `General` (full access) or `Explore` (read-only)
-- `--briefing`: Task description for the subagent
+- `--prompt`: Task description for the subagent
 
 **Example:**
 ```bash
-sidecar subagent spawn --parent abc123 --agent Explore --briefing "Find all API endpoints in src/"
-sidecar subagent spawn --parent abc123 --agent General --briefing "Research authentication patterns"
+sidecar subagent spawn --parent abc123 --agent Explore --prompt "Find all API endpoints in src/"
+sidecar subagent spawn --parent abc123 --agent General --prompt "Research authentication patterns"
 ```
 
 #### List Subagents
@@ -410,7 +410,7 @@ Always verify model names before using them in production scripts.
 For reliable context passing, provide your session ID:
 
 ```bash
-sidecar start --session "a1b2c3d4-..." --model ... --briefing ...
+sidecar start --session-id "a1b2c3d4-..." --model ... --prompt ...
 ```
 
 **How to find your session ID:**
@@ -433,8 +433,8 @@ ls -lt ~/.claude/projects/-Users-john-myproject/*.jsonl | head -5
 The most recently modified file is likely your current session. Extract the UUID from the filename.
 
 **Session ID behavior:**
-- **Omit `--session`** or use `--session current`: Uses the most recently modified session file (less reliable if multiple sessions are active)
-- **Explicit session ID** (`--session abc123-def456`): Must exist or the command fails immediately with: `Error: --session 'abc123-def456' not found`
+- **Omit `--session`** or use `--session-id current`: Uses the most recently modified session file (less reliable if multiple sessions are active)
+- **Explicit session ID** (`--session-id abc123-def456`): Must exist or the command fails immediately with: `Error: --session-id 'abc123-def456' not found`
 
 **If you get a session not found error:**
 1. List available sessions: `sidecar list`
@@ -470,8 +470,8 @@ You create the briefing—it should be a comprehensive handoff document:
 ```bash
 sidecar start \
   --model openrouter/google/gemini-2.5-pro \
-  --session "abc123-def456" \
-  --briefing "## Task Briefing
+  --session-id "abc123-def456" \
+  --prompt "## Task Briefing
 
 **Objective:** Debug the intermittent 401 errors on mobile
 
@@ -510,7 +510,7 @@ Read-only mode for analysis and planning without modifying files:
 
 ```bash
 # RECOMMENDED: Start most sidecars in Plan mode
-sidecar start --model gemini-2.5-flash --briefing "Analyze the auth flow" --agent Plan
+sidecar start --model gemini-2.5-flash --prompt "Analyze the auth flow" --agent Plan
 
 # This is the safest approach - analyze first, implement later
 ```
@@ -536,7 +536,7 @@ Full tool access for implementation work. **Only use when implementation is expl
 
 ```bash
 # Only use when user explicitly requests changes:
-sidecar start --model gemini-2.5-flash --briefing "Implement the login feature" --agent Build
+sidecar start --model gemini-2.5-flash --prompt "Implement the login feature" --agent Build
 ```
 
 #### Plan Agent
@@ -546,7 +546,7 @@ Read-only mode for analysis and planning without modifying files:
 - **Disabled**: write, edit, patch, bash
 
 ```bash
-sidecar start --model gemini-2.5-flash --briefing "Review the auth implementation and suggest improvements" --agent Plan
+sidecar start --model gemini-2.5-flash --prompt "Review the auth implementation and suggest improvements" --agent Plan
 ```
 
 **Use Plan agent when:**
@@ -566,7 +566,7 @@ Full-access subagent for research and parallel tasks:
 - Used for spawning parallel work within a session
 
 ```bash
-sidecar subagent spawn --parent abc123 --agent General --briefing "Research auth patterns"
+sidecar subagent spawn --parent abc123 --agent General --prompt "Research auth patterns"
 ```
 
 #### Explore Subagent
@@ -577,7 +577,7 @@ Read-only subagent for codebase exploration:
 - Best for quick codebase questions
 
 ```bash
-sidecar subagent spawn --parent abc123 --agent Explore --briefing "Find all API endpoints"
+sidecar subagent spawn --parent abc123 --agent Explore --prompt "Find all API endpoints"
 ```
 
 **Important:** When using `sidecar start`, use **Build** or **Plan**. When using `sidecar subagent spawn`, use **General** or **Explore**. Tool permissions are enforced by OpenCode's native agent framework.
@@ -608,7 +608,7 @@ This is useful when you want to:
 - Try a different model's perspective on a problem
 - Use reasoning models (o3-mini) for specific parts of the task
 
-### Headless (--headless)
+### Headless (--no-ui)
 
 - Runs autonomously, no GUI
 - Agent works until done or timeout
@@ -619,8 +619,8 @@ This is useful when you want to:
 ```bash
 sidecar start \
   --model google/gemini-2.5-flash \
-  --briefing "Generate unit tests for src/utils/. Use Jest." \
-  --headless \
+  --prompt "Generate unit tests for src/utils/. Use Jest." \
+  --no-ui \
   --timeout 20
 ```
 
@@ -679,7 +679,7 @@ sidecar list
 If a relevant sidecar exists:
 - Read its findings: `sidecar read <id>`
 - Reopen it: `sidecar resume <id>`
-- Build on it: `sidecar continue <id> --briefing "..."`
+- Build on it: `sidecar continue <id> --prompt "..."`
 
 **Ask the user** if you're unsure whether to resume or start fresh.
 
@@ -694,8 +694,8 @@ If a relevant sidecar exists:
 sidecar start \
   --model openrouter/openai/o3-mini \
   --agent Plan \
-  --session "$(ls -t ~/.claude/projects/-Users-john-myproject/*.jsonl | head -1 | xargs basename .jsonl)" \
-  --briefing "## Debug Memory Leak
+  --session-id "$(ls -t ~/.claude/projects/-Users-john-myproject/*.jsonl | head -1 | xargs basename .jsonl)" \
+  --prompt "## Debug Memory Leak
 
 **Objective:** Find the source of memory growth in the worker process
 
@@ -717,9 +717,9 @@ closures but I can't identify the source.
 sidecar start \
   --model google/gemini-2.5-flash \
   --agent Build \
-  --briefing "Generate comprehensive Jest tests for all exported functions
+  --prompt "Generate comprehensive Jest tests for all exported functions
 in src/utils/. Include edge cases. Write to tests/utils/." \
-  --headless \
+  --no-ui \
   --timeout 15
 ```
 
@@ -730,7 +730,7 @@ in src/utils/. Include edge cases. Write to tests/utils/." \
 sidecar start \
   --model openrouter/google/gemini-2.5-pro \
   --agent Plan \
-  --briefing "Review the authentication flow for security issues.
+  --prompt "Review the authentication flow for security issues.
 Focus on: token handling, session management, CSRF protection.
 Analyze and report findings."
 ```
@@ -739,20 +739,20 @@ Analyze and report findings."
 
 ```bash
 # First, start a sidecar in Plan mode (recommended default)
-sidecar start --model openrouter/google/gemini-2.5-flash --agent Plan --briefing "Debug auth issues"
+sidecar start --model openrouter/google/gemini-2.5-flash --agent Plan --prompt "Debug auth issues"
 # Output: Started sidecar with task ID: abc123
 
 # Spawn an Explore subagent for codebase search
 sidecar subagent spawn \
   --parent abc123 \
   --agent Explore \
-  --briefing "Find all database queries and list which files they're in"
+  --prompt "Find all database queries and list which files they're in"
 
 # Spawn a General subagent for parallel research
 sidecar subagent spawn \
   --parent abc123 \
   --agent General \
-  --briefing "Research best practices for JWT token refresh"
+  --prompt "Research best practices for JWT token refresh"
 
 # Check subagent status
 sidecar subagent list --parent abc123
@@ -770,7 +770,7 @@ sidecar read abc123
 # Continue with a follow-up task
 sidecar continue abc123 \
   --model openrouter/openai/gpt-4o \
-  --briefing "Implement the fix recommended in the previous session.
+  --prompt "Implement the fix recommended in the previous session.
 The mutex approach looks correct. Add tests."
 ```
 
@@ -836,45 +836,45 @@ Debug output may be leaking to stdout. Check for console.log statements if you'v
 
 ### Validation Errors
 
-**"Error: --briefing cannot be empty or whitespace-only"**
+**"Error: --prompt cannot be empty or whitespace-only"**
 
 The briefing must contain actual content:
 ```bash
 # Wrong
-sidecar start --model openrouter/google/gemini-2.5-flash --briefing ""
-sidecar start --model openrouter/google/gemini-2.5-flash --briefing "   "
+sidecar start --model openrouter/google/gemini-2.5-flash --prompt ""
+sidecar start --model openrouter/google/gemini-2.5-flash --prompt "   "
 
 # Right
-sidecar start --model openrouter/google/gemini-2.5-flash --briefing "Debug the auth issue in TokenManager.ts"
+sidecar start --model openrouter/google/gemini-2.5-flash --prompt "Debug the auth issue in TokenManager.ts"
 ```
 
-**"Error: --session '<id>' not found"**
+**"Error: --session-id '<id>' not found"**
 
 The explicit session ID doesn't exist. Either:
 1. Use `sidecar list` to find valid session IDs
 2. Omit `--session` to use the most recent session
-3. Use `--session current` for automatic resolution
+3. Use `--session-id current` for automatic resolution
 
 ```bash
 # Find valid sessions
 sidecar list
 
 # Use most recent session
-sidecar start --model openrouter/google/gemini-2.5-flash --briefing "Task"
+sidecar start --model openrouter/google/gemini-2.5-flash --prompt "Task"
 ```
 
-**"Error: --project path does not exist"**
+**"Error: --cwd path does not exist"**
 
 The specified project directory doesn't exist:
 ```bash
 # Wrong
-sidecar start --model ... --briefing "..." --project /nonexistent/path
+sidecar start --model ... --prompt "..." --cwd /nonexistent/path
 
 # Right - use current directory
-sidecar start --model ... --briefing "..." --project .
+sidecar start --model ... --prompt "..." --cwd .
 
 # Right - use full path
-sidecar start --model ... --briefing "..." --project /Users/john/myproject
+sidecar start --model ... --prompt "..." --cwd /Users/john/myproject
 ```
 
 **"Error: --agent cannot be empty"**
@@ -882,13 +882,13 @@ sidecar start --model ... --briefing "..." --project /Users/john/myproject
 The agent name cannot be empty. Use an OpenCode native agent or a custom agent:
 ```bash
 # Wrong - empty agent
-sidecar start --model ... --briefing "..." --agent ""
+sidecar start --model ... --prompt "..." --agent ""
 
 # Right - use OpenCode native agent
-sidecar start --model ... --briefing "..." --agent Explore
+sidecar start --model ... --prompt "..." --agent Explore
 
 # Right - use custom agent (defined in ~/.config/opencode/agents/)
-sidecar start --model ... --briefing "..." --agent MyCustomAgent
+sidecar start --model ... --prompt "..." --agent MyCustomAgent
 ```
 
 **"Error: <KEY_NAME> environment variable is required for <Provider> models"**
@@ -911,7 +911,7 @@ export ANTHROPIC_API_KEY=sk-ant-your-key
 export DEEPSEEK_API_KEY=your-deepseek-key
 
 # Then retry
-sidecar start --model openrouter/google/gemini-2.5-flash --briefing "Task"
+sidecar start --model openrouter/google/gemini-2.5-flash --prompt "Task"
 ```
 
 ---
@@ -922,4 +922,4 @@ sidecar start --model openrouter/google/gemini-2.5-flash --briefing "Task"
 2. [ ] Configure API access (choose one):
    - [ ] OpenRouter: Create `~/.local/share/opencode/auth.json` with your key
    - [ ] Direct API: Set environment variable (`GEMINI_API_KEY`, etc.)
-3. [ ] Test sidecar: `sidecar start --model <your-model> --briefing "Hello" --headless`
+3. [ ] Test sidecar: `sidecar start --model <your-model> --prompt "Hello" --no-ui`

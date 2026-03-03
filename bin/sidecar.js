@@ -147,7 +147,7 @@ async function handleContinue(args) {
 
   if (!taskId) {
     console.error('Error: task_id is required for continue');
-    console.error('Usage: sidecar continue <task_id> --briefing "..."');
+    console.error('Usage: sidecar continue <task_id> --prompt "..."');
     process.exit(1);
   }
 

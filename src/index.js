@@ -26,6 +26,10 @@ const { createSession, updateSession, getSession, saveConversation, saveSummary,
 const { detectConflicts, formatConflictWarning } = require('./conflict');
 const { calculateDrift, formatDriftWarning, countTurnsSince, isDriftSignificant } = require('./drift');
 
+// v3 modules - Environment detection & Context compression
+const { detectEnvironment, inferClient, getSessionRoot } = require('./environment');
+const { compressContext, estimateTokenCount, buildPreamble } = require('./context-compression');
+
 module.exports = {
   // Primary sidecar APIs
   startSidecar,
@@ -77,6 +81,16 @@ module.exports = {
   formatDriftWarning,
   countTurnsSince,
   isDriftSignificant,
+
+  // Re-export from environment (v3)
+  detectEnvironment,
+  inferClient,
+  getSessionRoot,
+
+  // Re-export from context-compression (v3)
+  compressContext,
+  estimateTokenCount,
+  buildPreamble,
 
   // Internal exports (for use by sidecar modules)
   runInteractive,
