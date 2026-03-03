@@ -28,10 +28,10 @@ const DEFAULT_TIMEOUT = 15 * 60 * 1000;
 /**
  * Wait for the OpenCode server to be ready using SDK health check
  */
-async function waitForServer(client, maxAttempts = 30) {
+async function waitForServer(client, checkHealthFn, maxAttempts = 30) {
   for (let i = 0; i < maxAttempts; i++) {
     try {
-      const isHealthy = await checkHealth(client);
+      const isHealthy = await checkHealthFn(client);
       if (isHealthy) {
         return true;
       }
@@ -62,16 +62,16 @@ async function waitForServer(client, maxAttempts = 30) {
  * @returns {Promise<object>} Result object with summary, completed, timedOut flags
  */
 async function runHeadless(model, systemPrompt, userMessage, taskId, project, timeoutMs = DEFAULT_TIMEOUT, agent, options = {}) {
-  // Dynamically import opencode-client.js (ESM module)
   const {
     createSession,
     sendPromptAsync,
     getMessages,
     checkHealth,
     startServer
-  } = await import('./opencode-client.js');
+  } = require('./opencode-client');
 
-  const { summaryLength = 'normal', reasoning } = options;  const sessionDir = path.join(project, '.claude', 'sidecar_sessions', taskId);
+  const { summaryLength = 'normal', reasoning } = options;
+  const sessionDir = path.join(project, '.claude', 'sidecar_sessions', taskId);
   const conversationPath = path.join(sessionDir, 'conversation.jsonl');
 
   // Ensure session directory exists
@@ -120,7 +120,7 @@ async function runHeadless(model, systemPrompt, userMessage, taskId, project, ti
   try {
     // Wait for server to be ready
     logger.debug('Waiting for OpenCode server to be ready');
-    const serverReady = await waitForServer(client);
+    const serverReady = await waitForServer(client, checkHealth);
     logger.debug('Server ready', { serverReady });
 
     if (!serverReady) {
@@ -401,6 +401,7 @@ function logMessage(conversationPath, message) {
 
 module.exports = {
   runHeadless,
+  waitForServer,
   extractSummary,
   formatFoldOutput,
   DEFAULT_TIMEOUT,

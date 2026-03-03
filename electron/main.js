@@ -1,13 +1,14 @@
 /**
- * Sidecar Electron Shell - v3 Lightweight
+ * Sidecar Electron Shell - v3
  *
- * Thin wrapper that loads OpenCode's built-in Web UI.
- * Only adds: fold button injection + fold keyboard shortcut.
+ * Uses BrowserView to split the window into two physical areas:
+ *   - Top: OpenCode Web UI (gets its own viewport, no CSS conflicts)
+ *   - Bottom 40px: Sidecar toolbar (branding, task ID, timer, fold button)
  *
  * Spec Reference: §4.4 Electron Wrapper
  */
 
-const { app, BrowserWindow, globalShortcut, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, BrowserView, globalShortcut, ipcMain } = require('electron');
 const path = require('path');
 const { logger } = require('../src/utils/logger');
 
@@ -40,47 +41,157 @@ const OPENCODE_SESSION_ID = process.env.SIDECAR_SESSION_ID;
 const FOLD_SHORTCUT = process.env.SIDECAR_FOLD_SHORTCUT || 'CommandOrControl+Shift+F';
 
 const OPENCODE_URL = `http://localhost:${OPENCODE_PORT}`;
-
-const WINDOW_CONFIG = {
-  width: 720,
-  height: 850,
-  minWidth: 550,
-  minHeight: 600,
-  frame: true,
-  backgroundColor: '#1a1a2e',
-  title: `Sidecar: ${MODEL}`,
-  webPreferences: {
-    preload: path.join(__dirname, 'preload.js'),
-    contextIsolation: true,
-    nodeIntegration: false,
-  }
-};
+const TOOLBAR_H = 40;
 
 // ============================================================================
 // State
 // ============================================================================
 
 let mainWindow = null;
+let contentView = null;
 let hasFolded = false;
+
+// ============================================================================
+// Toolbar HTML
+// ============================================================================
+
+function buildToolbarHTML() {
+  const shortcutLabel = FOLD_SHORTCUT.replace('CommandOrControl', 'Cmd');
+  return `<!DOCTYPE html>
+<html><head><style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: ${TOOLBAR_H}px;
+    background: #2D2B2A;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 14px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    border-top: 1px solid #3D3A38;
+    -webkit-app-region: no-drag;
+    user-select: none;
+  }
+  .info {
+    color: #A09B96;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .brand {
+    color: #D97757;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+  }
+  .sep { color: #3D3A38; font-size: 14px; }
+  .detail, .timer {
+    color: #7A756F;
+    font-size: 11px;
+    font-family: 'SF Mono', Menlo, Monaco, monospace;
+  }
+  .fold-btn {
+    padding: 5px 14px;
+    background: #D97757;
+    color: #FFF;
+    border: none;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .fold-btn:hover { background: #C4623F; }
+</style></head><body>
+  <div class="info">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path d="M3 2v12" stroke="#D97757" stroke-width="2" stroke-linecap="round"/>
+      <path d="M10 2v5c0 2-3 3-7 5" stroke="#D97757" stroke-width="2" stroke-linecap="round" stroke-opacity="0.6"/>
+    </svg>
+    <span class="brand">OpenCode Sidecar</span>
+    <span class="sep">|</span>
+    <span class="detail" title="Task ID — use with: sidecar resume ${TASK_ID}">task: ${TASK_ID}</span>
+    <span class="sep">|</span>
+    <span class="timer" id="timer">0:00</span>
+  </div>
+  <button class="fold-btn" id="fold-btn">Fold (${shortcutLabel})</button>
+<script>
+  var start = Date.now();
+  setInterval(function() {
+    var s = Math.floor((Date.now() - start) / 1000);
+    var m = Math.floor(s / 60);
+    s = s % 60;
+    document.getElementById('timer').textContent = m + ':' + (s < 10 ? '0' : '') + s;
+  }, 1000);
+  document.getElementById('fold-btn').addEventListener('click', function() {
+    window.sidecar && window.sidecar.fold();
+  });
+</script>
+</body></html>`;
+}
 
 // ============================================================================
 // Window Creation
 // ============================================================================
 
 function createWindow() {
-  mainWindow = new BrowserWindow(WINDOW_CONFIG);
+  // Main window hosts the toolbar HTML at the bottom
+  mainWindow = new BrowserWindow({
+    width: 720,
+    height: 850,
+    minWidth: 550,
+    minHeight: 600,
+    frame: true,
+    backgroundColor: '#2D2B2A',
+    title: 'OpenCode Sidecar',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    }
+  });
 
-  // Load OpenCode Web UI (session-specific URL if available)
-  const sessionUrl = OPENCODE_SESSION_ID
-    ? `${OPENCODE_URL}/session/${OPENCODE_SESSION_ID}`
-    : OPENCODE_URL;
+  // Load toolbar HTML in the main window
+  const toolbarUrl = `data:text/html;charset=utf-8,${encodeURIComponent(buildToolbarHTML())}`;
+  mainWindow.loadURL(toolbarUrl);
 
-  logger.info('Loading OpenCode Web UI', { url: sessionUrl, taskId: TASK_ID });
-  mainWindow.loadURL(sessionUrl);
+  // Override page title
+  mainWindow.webContents.on('page-title-updated', (event) => {
+    event.preventDefault();
+  });
 
-  // Inject fold button after page loads
-  mainWindow.webContents.on('did-finish-load', () => {
-    injectFoldButton();
+  // Create BrowserView for OpenCode content — gets its own viewport
+  contentView = new BrowserView({
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    }
+  });
+  mainWindow.addBrowserView(contentView);
+
+  // Size the content view to fill everything above the toolbar
+  updateContentBounds();
+  mainWindow.on('resize', updateContentBounds);
+
+  // Load OpenCode UI in the content view
+  logger.info('Loading OpenCode Web UI', {
+    url: OPENCODE_URL, sessionId: OPENCODE_SESSION_ID, taskId: TASK_ID
+  });
+  contentView.webContents.loadURL(OPENCODE_URL);
+
+  // After OpenCode loads: rebrand and auto-navigate
+  contentView.webContents.on('did-finish-load', () => {
+    rebrandUI();
+    if (OPENCODE_SESSION_ID) {
+      navigateToSession(OPENCODE_SESSION_ID);
+    }
   });
 
   // Register fold shortcut
@@ -88,106 +199,120 @@ function createWindow() {
     triggerFold();
   });
 
-  // Prompt on close without fold
-  mainWindow.on('close', (event) => {
-    if (!hasFolded) {
-      event.preventDefault();
-      const choice = dialog.showMessageBoxSync(mainWindow, {
-        type: 'question',
-        buttons: ['Fold & Close', 'Close Without Folding', 'Cancel'],
-        defaultId: 0,
-        title: 'Fold Session?',
-        message: 'Fold this session back to Claude before closing?',
-      });
-
-      if (choice === 0) {
-        triggerFold().then(() => mainWindow.destroy());
-      } else if (choice === 1) {
-        mainWindow.destroy();
-      }
-      // choice === 2 (Cancel): do nothing
+  // Close handling
+  mainWindow.on('close', () => {
+    if (!hasFolded && mainWindow) {
+      mainWindow.destroy();
     }
   });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+    contentView = null;
     globalShortcut.unregisterAll();
     app.quit();
   });
 }
 
+/** Update BrowserView bounds to fill window minus toolbar */
+function updateContentBounds() {
+  if (!mainWindow || !contentView) { return; }
+  const [w, h] = mainWindow.getContentSize();
+  contentView.setBounds({ x: 0, y: 0, width: w, height: h - TOOLBAR_H });
+}
+
 // ============================================================================
-// Fold Button Injection
+// UI Rebranding
 // ============================================================================
 
 /**
- * Inject a floating fold button into the OpenCode Web UI.
- * Uses executeJavaScript to add DOM elements after page load.
+ * Hide the OpenCode header bar in the content view.
  */
-function injectFoldButton() {
-  const css = `
-    #sidecar-fold-btn {
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      z-index: 99999;
-      padding: 10px 20px;
-      background: #6366f1;
-      color: white;
-      border: none;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
-      transition: all 0.2s;
-    }
-    #sidecar-fold-btn:hover {
-      background: #4f46e5;
-      transform: translateY(-1px);
-      box-shadow: 0 6px 16px rgba(99, 102, 241, 0.5);
-    }
-  `;
-
-  const shortcutLabel = FOLD_SHORTCUT.replace('CommandOrControl', 'Cmd');
+function rebrandUI() {
+  if (!contentView) { return; }
 
   const js = `
     (function() {
-      if (document.getElementById('sidecar-fold-btn')) { return; }
-
-      const style = document.createElement('style');
-      style.textContent = ${JSON.stringify(css)};
-      document.head.appendChild(style);
-
-      const btn = document.createElement('button');
-      btn.id = 'sidecar-fold-btn';
-      btn.textContent = 'Fold (${shortcutLabel})';
-      btn.onclick = () => window.sidecar?.fold();
-      document.body.appendChild(btn);
+      document.title = 'OpenCode Sidecar';
+      var header = document.querySelector('#root > div > header');
+      if (header) { header.style.display = 'none'; }
     })();
   `;
 
-  mainWindow.webContents.executeJavaScript(js).catch(err => {
-    logger.warn('Failed to inject fold button', { error: err.message });
-  });
+  contentView.webContents.executeJavaScript(js).catch(() => {});
+}
+
+// ============================================================================
+// Session Navigation
+// ============================================================================
+
+/**
+ * Auto-navigate to the active session by clicking through the SPA.
+ */
+function navigateToSession(sessionId, retries = 8) {
+  if (!contentView || retries <= 0) { return; }
+
+  const js = `
+    (function() {
+      const clickables = [...document.querySelectorAll('a, button')];
+
+      for (const el of clickables) {
+        const text = el.textContent || '';
+        const href = el.href || '';
+        if (href.includes('${sessionId}') || text.includes('${sessionId}')) {
+          el.click();
+          return 'clicked session';
+        }
+      }
+
+      for (const el of clickables) {
+        const text = el.textContent || '';
+        if (text.includes('sidecar') && !text.includes('Fold')) {
+          el.click();
+          return 'clicked project';
+        }
+      }
+
+      for (const el of clickables) {
+        const text = el.textContent || '';
+        const href = el.href || '';
+        if (href.includes('ses_') || text.includes('ses_')) {
+          el.click();
+          return 'clicked first session';
+        }
+      }
+
+      return null;
+    })();
+  `;
+
+  setTimeout(() => {
+    if (!contentView) { return; }
+    contentView.webContents.executeJavaScript(js).then(result => {
+      if (result) {
+        logger.debug('Session navigation', { result, sessionId, retries });
+        if (result === 'clicked project') {
+          navigateToSession(sessionId, retries - 1);
+        }
+      } else {
+        navigateToSession(sessionId, retries - 1);
+      }
+    }).catch(() => {
+      if (!contentView) { return; }
+      navigateToSession(sessionId, retries - 1);
+    });
+  }, 1500);
 }
 
 // ============================================================================
 // Fold Logic
 // ============================================================================
 
-/**
- * Trigger fold: summarize session, output to stdout, close.
- * Outputs [SIDECAR_FOLD] marker followed by session metadata and summary.
- */
 async function triggerFold() {
   if (hasFolded) { return; }
   hasFolded = true;
 
   try {
-    // TODO: Call OpenCode summarize API to get session summary
-    const summary = 'Session summary will be captured here';
-
     const output = [
       '[SIDECAR_FOLD]',
       `Model: ${MODEL}`,
@@ -196,14 +321,14 @@ async function triggerFold() {
       `CWD: ${CWD}`,
       `Mode: interactive`,
       '---',
-      summary
+      'Session summary will be captured here'
     ].join('\n');
 
     process.stdout.write(output + '\n');
     logger.info('Fold completed', { taskId: TASK_ID });
   } catch (err) {
     logger.error('Fold failed', { error: err.message });
-    hasFolded = false; // Allow retry
+    hasFolded = false;
   }
 }
 
@@ -211,7 +336,6 @@ async function triggerFold() {
 // IPC Handlers
 // ============================================================================
 
-// Fold signal from preload bridge
 ipcMain.handle('sidecar:fold', () => triggerFold());
 
 // ============================================================================

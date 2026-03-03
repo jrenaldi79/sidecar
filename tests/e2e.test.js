@@ -13,11 +13,16 @@
 
 // Mock the opencode-client SDK module first (before any imports)
 const mockServerClose = jest.fn();
+const mockSendPromptAsync = jest.fn().mockResolvedValue(undefined);
 jest.mock('../src/opencode-client', () => ({
   createClient: jest.fn().mockReturnValue({}),
   createSession: jest.fn().mockResolvedValue('mock-session-id'),
-  sendPrompt: jest.fn().mockResolvedValue({ data: { parts: [{ type: 'text', text: '[SIDECAR_FOLD]' }] } }),
-  getMessages: jest.fn().mockResolvedValue([]),
+  sendPrompt: mockSendPromptAsync,
+  sendPromptAsync: mockSendPromptAsync,
+  getMessages: jest.fn().mockResolvedValue([{
+    info: { role: 'assistant', id: 'msg-1', time: { completed: Date.now() } },
+    parts: [{ type: 'text', text: '[SIDECAR_FOLD]' }]
+  }]),
   checkHealth: jest.fn().mockResolvedValue(true),
   startServer: jest.fn().mockResolvedValue({
     client: {},
@@ -142,8 +147,11 @@ describe('End-to-End Sidecar Flow', () => {
 ${FOLD_MARKER}`;
 
       // Get SDK mocks and configure them for this test
-      const { startServer, sendPrompt, createSession } = require('../src/opencode-client');
-      sendPrompt.mockResolvedValue({ data: { parts: [{ type: 'text', text: mockSummary }] } });
+      const { startServer, sendPromptAsync, getMessages, createSession } = require('../src/opencode-client');
+      getMessages.mockResolvedValue([{
+        info: { role: "assistant", id: "msg-1", time: { completed: Date.now() } },
+        parts: [{ type: "text", text: mockSummary }]
+      }]);
 
       // Step 3: Spy on console.log to capture the summary output
       const logSpy = jest.spyOn(console, 'log').mockImplementation();
@@ -218,8 +226,11 @@ ${FOLD_MARKER}`;
     it('should read sidecar summary after completion', async () => {
       // Configure SDK mock for this test
       const testSummary = `## Test Summary\nThis is the analysis result.\n${FOLD_MARKER}`;
-      const { sendPrompt } = require('../src/opencode-client');
-      sendPrompt.mockResolvedValue({ data: { parts: [{ type: 'text', text: testSummary }] } });
+      const { getMessages: getMessages2 } = require("../src/opencode-client");
+      getMessages2.mockResolvedValue([{
+        info: { role: "assistant", id: "msg-1", time: { completed: Date.now() } },
+        parts: [{ type: "text", text: testSummary }]
+      }]);
 
       await startSidecar({
         model: 'google/gemini-2.5-flash',
@@ -261,8 +272,8 @@ ${FOLD_MARKER}`;
       });
 
       // Verify sendPrompt was called with context in user message, not system
-      const { sendPrompt } = require('../src/opencode-client');
-      const promptCall = sendPrompt.mock.calls[0];
+      const { sendPromptAsync: spa } = require("../src/opencode-client");
+      const promptCall = spa.mock.calls[0];
       const systemPrompt = promptCall[2].system;
       const userMessage = promptCall[2].parts[0].text;
 
@@ -334,9 +345,9 @@ ${FOLD_MARKER}`;
   });
 
   describe('Model Environment Configuration', () => {
-    it('should pass model to SDK sendPrompt call', async () => {
+    it("should pass model to SDK sendPromptAsync call", async () => {
       // Get SDK mock
-      const { sendPrompt } = require('../src/opencode-client');
+      const { sendPromptAsync: spa2 } = require("../src/opencode-client");
 
       await startSidecar({
         model: 'anthropic/claude-3.5-sonnet',
@@ -346,9 +357,9 @@ ${FOLD_MARKER}`;
       });
 
       // Verify SDK sendPrompt was called with the correct model
-      expect(sendPrompt).toHaveBeenCalled();
-      const promptCall = sendPrompt.mock.calls[0];
-      expect(promptCall[2].model).toBe('anthropic/claude-3.5-sonnet');
+      expect(spa2).toHaveBeenCalled();
+      const promptCall2 = spa2.mock.calls[0];
+      expect(promptCall2[2].model).toBe("anthropic/claude-3.5-sonnet");
     });
   });
 

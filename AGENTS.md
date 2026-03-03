@@ -95,14 +95,14 @@ CLI parses args (cli.js)
        ↓
 buildContext() extracts from ~/.claude/projects/[project]/[session].jsonl
        ↓
-buildSystemPrompt() combines briefing + context + mode instructions
+buildPrompts() creates lean system prompt + user message (context in user msg)
        ↓
 createSession() initializes .claude/sidecar_sessions/<taskId>/
        ↓
 [Interactive]                    [Headless]
-Electron window opens            OpenCode HTTP API spawned
+Electron window opens            OpenCode async API (promptAsync)
 User converses                   Agent works autonomously
-FOLD clicked                     [SIDECAR_COMPLETE] marker
+FOLD clicked                     [SIDECAR_FOLD] marker
        ↓                              ↓
 Summary captured to conversation.jsonl
        ↓
@@ -206,8 +206,8 @@ sidecar/
 | `cli.js` | Argument parsing & validation | `parseArgs()`, `validateStartArgs()`, `validateSubagentArgs()` |
 | `context.js` | Context filtering | `filterContext()`, `takeLastNTurns()`, `estimateTokens()` |
 | `session-manager.js` | Session persistence | `createSession()`, `updateSession()`, `saveConversation()`, `saveSummary()` |
-| `prompt-builder.js` | System prompt construction | `buildSystemPrompt()`, `buildPrompts()`, `getSummaryTemplate()` |
-| `headless.js` | Autonomous execution | Spawns OpenCode HTTP API, polls for `[SIDECAR_COMPLETE]` |
+| `prompt-builder.js` | Prompt construction | `buildPrompts()` (system=instructions, user=context+briefing) |
+| `headless.js` | Autonomous execution | Uses async API (`promptAsync`), polls `getMessages` for `[SIDECAR_FOLD]` |
 | `conflict.js` | File conflict detection | Compares mtimes against session start, formats warnings |
 | `drift.js` | Context staleness | `calculateDrift()`, `isDriftSignificant()`, `countTurnsSince()` |
 | `session.js` | Session resolution | Primary (explicit ID) / Fallback (most recent mtime) |
@@ -1065,7 +1065,7 @@ For async, monitor progress via SSE at `/global/event`.
 2. Inject Context    → POST /session/:id/message { content, noReply: true }
 3. Send Briefing     → POST /session/:id/prompt_async { content }
 4. Poll Status       → GET /session/:id (check status)
-5. Check Messages    → GET /session/:id/message (look for [SIDECAR_COMPLETE])
+5. Check Messages    → GET /session/:id/message (look for [SIDECAR_FOLD])
 6. Capture Summary   → Extract text after completion marker
 ```
 
@@ -1164,7 +1164,7 @@ await sendToAPIStreaming(answerTextToSend);
 | Headless timeout | Task too complex | Increase `SIDECAR_TIMEOUT` |
 | Context too large | Too many turns | Use `--turns` or `--tokens` filter |
 | API key errors | Missing env var | Set `OPENROUTER_API_KEY` in .env |
-| Summary not captured | Fold not clicked | Click FOLD button or wait for [SIDECAR_COMPLETE] |
+| Summary not captured | Fold not clicked | Click FOLD button or wait for [SIDECAR_FOLD] |
 | Question tool fails after answer | Using sync API | Ensure `sendToAPIStreaming()` is used, not `sendToAPI()`. See "Async-Only Architecture" section. |
 
 ---

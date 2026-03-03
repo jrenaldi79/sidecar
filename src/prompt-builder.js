@@ -94,11 +94,21 @@ function buildPrompts(briefing, context, project, headless, mode, summaryLength 
     headless ? buildHeadlessModeSection(summaryLength) : buildInteractiveModeSection()
   ];
 
-  // Context goes in user message, not system prompt, to keep system lean
-  const contextSection = buildContextSection(context);
-  const userMessage = contextSection
-    ? `${contextSection}\n\n${briefing}`
-    : briefing;
+  let userMessage;
+  if (headless) {
+    // Headless: context in user message (no UI, better model behavior)
+    const contextSection = buildContextSection(context);
+    userMessage = contextSection
+      ? `${contextSection}\n\n${briefing}`
+      : briefing;
+  } else {
+    // Interactive: context in system prompt (hidden from UI)
+    const contextSection = buildContextSection(context);
+    if (contextSection) {
+      systemSections.push(contextSection);
+    }
+    userMessage = briefing;
+  }
 
   return {
     system: systemSections.join('\n\n'),
@@ -152,11 +162,12 @@ ${briefing}`;
 }
 
 /**
- * Build the conversation context section
+ * Build the conversation context section (legacy, system-prompt placement)
  * Spec Reference: §5.3 Context Format
  *
  * @param {string} context - Formatted context from Claude Code session
  * @returns {string}
+ * @deprecated Only used by deprecated buildSystemPrompt(). Use buildContextSection() instead.
  */
 function buildConversationContextSection(context) {
   return `## CONVERSATION CONTEXT (from Claude Code)

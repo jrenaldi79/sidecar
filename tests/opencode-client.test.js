@@ -156,7 +156,7 @@ describe('OpenCode Client Wrapper', () => {
     it('should send prompt with model specification', async () => {
       const mockClient = {
         session: {
-          prompt: jest.fn().mockResolvedValue({
+          promptAsync: jest.fn().mockResolvedValue({
             data: {
               parts: [{ type: 'text', text: 'Response text' }]
             }
@@ -169,7 +169,7 @@ describe('OpenCode Client Wrapper', () => {
         parts: [{ type: 'text', text: 'Hello' }]
       });
 
-      expect(mockClient.session.prompt).toHaveBeenCalledWith({
+      expect(mockClient.session.promptAsync).toHaveBeenCalledWith({
         path: { id: 'session-123' },
         body: expect.objectContaining({
           model: { providerID: 'openrouter', modelID: 'google/gemini-2.5-flash' },
@@ -182,7 +182,7 @@ describe('OpenCode Client Wrapper', () => {
     it('should include system prompt when provided', async () => {
       const mockClient = {
         session: {
-          prompt: jest.fn().mockResolvedValue({
+          promptAsync: jest.fn().mockResolvedValue({
             data: { parts: [] }
           })
         }
@@ -194,7 +194,7 @@ describe('OpenCode Client Wrapper', () => {
         parts: [{ type: 'text', text: 'Hello' }]
       });
 
-      expect(mockClient.session.prompt).toHaveBeenCalledWith({
+      expect(mockClient.session.promptAsync).toHaveBeenCalledWith({
         path: { id: 'session-123' },
         body: expect.objectContaining({
           system: 'You are a helpful assistant'
@@ -205,7 +205,7 @@ describe('OpenCode Client Wrapper', () => {
     it('should include agent when provided', async () => {
       const mockClient = {
         session: {
-          prompt: jest.fn().mockResolvedValue({
+          promptAsync: jest.fn().mockResolvedValue({
             data: { parts: [] }
           })
         }
@@ -217,7 +217,7 @@ describe('OpenCode Client Wrapper', () => {
         agent: 'build'
       });
 
-      expect(mockClient.session.prompt).toHaveBeenCalledWith({
+      expect(mockClient.session.promptAsync).toHaveBeenCalledWith({
         path: { id: 'session-123' },
         body: expect.objectContaining({
           agent: 'build'
@@ -228,7 +228,7 @@ describe('OpenCode Client Wrapper', () => {
     it('should include tools config when provided', async () => {
       const mockClient = {
         session: {
-          prompt: jest.fn().mockResolvedValue({
+          promptAsync: jest.fn().mockResolvedValue({
             data: { parts: [] }
           })
         }
@@ -240,7 +240,7 @@ describe('OpenCode Client Wrapper', () => {
         tools: { Bash: true, Edit: false }
       });
 
-      expect(mockClient.session.prompt).toHaveBeenCalledWith({
+      expect(mockClient.session.promptAsync).toHaveBeenCalledWith({
         path: { id: 'session-123' },
         body: expect.objectContaining({
           tools: { Bash: true, Edit: false }
@@ -251,7 +251,7 @@ describe('OpenCode Client Wrapper', () => {
     it('should handle model as object (already parsed)', async () => {
       const mockClient = {
         session: {
-          prompt: jest.fn().mockResolvedValue({
+          promptAsync: jest.fn().mockResolvedValue({
             data: { parts: [] }
           })
         }
@@ -262,7 +262,7 @@ describe('OpenCode Client Wrapper', () => {
         parts: [{ type: 'text', text: 'Hello' }]
       });
 
-      expect(mockClient.session.prompt).toHaveBeenCalledWith({
+      expect(mockClient.session.promptAsync).toHaveBeenCalledWith({
         path: { id: 'session-123' },
         body: expect.objectContaining({
           model: { providerID: 'anthropic', modelID: 'claude-3-5-sonnet' }
@@ -273,7 +273,7 @@ describe('OpenCode Client Wrapper', () => {
     it('should include reasoning parameter when provided', async () => {
       const mockClient = {
         session: {
-          prompt: jest.fn().mockResolvedValue({
+          promptAsync: jest.fn().mockResolvedValue({
             data: { parts: [] }
           })
         }
@@ -285,7 +285,7 @@ describe('OpenCode Client Wrapper', () => {
         reasoning: { effort: 'low' }
       });
 
-      expect(mockClient.session.prompt).toHaveBeenCalledWith({
+      expect(mockClient.session.promptAsync).toHaveBeenCalledWith({
         path: { id: 'session-123' },
         body: expect.objectContaining({
           reasoning: { effort: 'low' }
@@ -296,7 +296,7 @@ describe('OpenCode Client Wrapper', () => {
     it('should support all reasoning effort levels', async () => {
       const mockClient = {
         session: {
-          prompt: jest.fn().mockResolvedValue({
+          promptAsync: jest.fn().mockResolvedValue({
             data: { parts: [] }
           })
         }
@@ -311,7 +311,7 @@ describe('OpenCode Client Wrapper', () => {
           reasoning: { effort }
         });
 
-        expect(mockClient.session.prompt).toHaveBeenLastCalledWith({
+        expect(mockClient.session.promptAsync).toHaveBeenLastCalledWith({
           path: { id: 'session-123' },
           body: expect.objectContaining({
             reasoning: { effort }
@@ -323,7 +323,7 @@ describe('OpenCode Client Wrapper', () => {
     it('should not include reasoning when not provided', async () => {
       const mockClient = {
         session: {
-          prompt: jest.fn().mockResolvedValue({
+          promptAsync: jest.fn().mockResolvedValue({
             data: { parts: [] }
           })
         }
@@ -334,14 +334,14 @@ describe('OpenCode Client Wrapper', () => {
         parts: [{ type: 'text', text: 'Hello' }]
       });
 
-      const callBody = mockClient.session.prompt.mock.calls[0][0].body;
+      const callBody = mockClient.session.promptAsync.mock.calls[0][0].body;
       expect(callBody).not.toHaveProperty('reasoning');
     });
 
     it('should combine reasoning with other optional parameters', async () => {
       const mockClient = {
         session: {
-          prompt: jest.fn().mockResolvedValue({
+          promptAsync: jest.fn().mockResolvedValue({
             data: { parts: [] }
           })
         }
@@ -356,7 +356,7 @@ describe('OpenCode Client Wrapper', () => {
         reasoning: { effort: 'high' }
       });
 
-      expect(mockClient.session.prompt).toHaveBeenCalledWith({
+      expect(mockClient.session.promptAsync).toHaveBeenCalledWith({
         path: { id: 'session-123' },
         body: {
           model: { providerID: 'openrouter', modelID: 'google/gemini-3-pro-preview' },
@@ -500,6 +500,13 @@ describe('OpenCode Client Wrapper', () => {
       const children = await getChildren(mockClient, 'parent-123');
 
       expect(children).toEqual([]);
+    });
+  });
+
+  describe('sendPromptAsync alias', () => {
+    it('should be the same function as sendPrompt', () => {
+      const { sendPrompt, sendPromptAsync } = require('../src/opencode-client');
+      expect(sendPromptAsync).toBe(sendPrompt);
     });
   });
 

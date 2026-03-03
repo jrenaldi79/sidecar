@@ -22,6 +22,9 @@
     "sidecar": "./bin/sidecar.js"
   },
   "main": "src/index.js",
+  "exports": {
+    "./opencode-client": "./src/opencode-client.mjs"
+  },
   "files": [
     "bin/",
     "src/",
@@ -29,7 +32,7 @@
     "skill/"
   ],
   "scripts": {
-    "start": "node bin/sidecar.js",
+    "start": "node --experimental-top-level-await --experimental-vm-modules bin/sidecar.js",
     "test": "jest",
     "lint": "eslint src/",
     "postinstall": "node scripts/postinstall.js",

@@ -10,7 +10,7 @@ const { detectConflicts, formatConflictWarning } = require('../conflict');
 const { logger } = require('../utils/logger');
 
 /** Standard heartbeat interval in milliseconds */
-const HEARTBEAT_INTERVAL = 5000;
+const HEARTBEAT_INTERVAL = 15000;
 
 /** Session path utilities - eliminates magic strings across modules */
 const SessionPaths = {
@@ -81,13 +81,19 @@ function finalizeSession(sessionDir, summary, project, metadata) {
 
 /** Output summary to stdout with standard formatting */
 function outputSummary(summary) {
-  process.stdout.write('\n\n');
   console.log(summary);
 }
 
-/** Create a heartbeat that writes dots to stdout periodically */
+/** Create a heartbeat that writes status to stderr periodically */
 function createHeartbeat(interval = HEARTBEAT_INTERVAL) {
-  const intervalId = setInterval(() => process.stdout.write('.'), interval);
+  const startTime = Date.now();
+  const intervalId = setInterval(() => {
+    const elapsed = Math.round((Date.now() - startTime) / 1000);
+    const mins = Math.floor(elapsed / 60);
+    const secs = elapsed % 60;
+    const ts = mins > 0 ? `${mins}m${secs}s` : `${secs}s`;
+    process.stderr.write(`[sidecar] still running... ${ts} elapsed\n`);
+  }, interval);
 
   return {
     stop() {
@@ -161,6 +167,38 @@ async function executeMode(options) {
   return result;
 }
 
+/**
+ * Start OpenCode server, wait for health, return client+server.
+ * Shared by headless and interactive modes.
+ *
+ * @param {object} [mcpConfig] - Optional MCP server configuration
+ * @returns {Promise<{client: object, server: object}>}
+ * @throws {Error} If server fails to start or health check fails
+ */
+async function startOpenCodeServer(mcpConfig) {
+  const { checkHealth, startServer } = require('../opencode-client');
+  const { ensureNodeModulesBinInPath } = require('../utils/path-setup');
+  const { ensurePortAvailable } = require('../utils/server-setup');
+  const { waitForServer } = require('../headless');
+
+  ensureNodeModulesBinInPath();
+  ensurePortAvailable();
+
+  const serverOptions = {};
+  if (mcpConfig) { serverOptions.mcp = mcpConfig; }
+
+  const { client, server } = await startServer(serverOptions);
+  logger.debug('OpenCode server started', { url: server.url });
+
+  const ready = await waitForServer(client, checkHealth);
+  if (!ready) {
+    server.close();
+    throw new Error('OpenCode server failed to become ready');
+  }
+
+  return { client, server };
+}
+
 module.exports = {
   HEARTBEAT_INTERVAL,
   SessionPaths,
@@ -168,5 +206,6 @@ module.exports = {
   finalizeSession,
   outputSummary,
   createHeartbeat,
-  executeMode
+  executeMode,
+  startOpenCodeServer
 };

@@ -15,6 +15,7 @@ const {
   finalizeSession,
   outputSummary,
   createHeartbeat,
+  startOpenCodeServer,
   HEARTBEAT_INTERVAL
 } = require('./session-utils');
 const { buildPrompts } = require('../prompt-builder');
@@ -82,7 +83,51 @@ function buildMcpConfig(options) {
 
 /** Run sidecar in interactive mode (Electron GUI) */
 async function runInteractive(model, systemPrompt, userMessage, taskId, project, options = {}) {
-  const { agent, isResume, conversation, mcp } = options;
+  const { agent, isResume, conversation, mcp, reasoning } = options;
+  const { createSession, sendPromptAsync } = require('../opencode-client');
+
+  // Start OpenCode server (shared with headless mode)
+  let client, server;
+  try {
+    const result = await startOpenCodeServer(mcp);
+    client = result.client;
+    server = result.server;
+  } catch (error) {
+    logger.error('Failed to start OpenCode server', { error: error.message });
+    return {
+      summary: '', completed: false, timedOut: false, taskId,
+      error: `Failed to start server: ${error.message}`
+    };
+  }
+
+  // Create session and send initial prompt
+  let sessionId;
+  try {
+    sessionId = await createSession(client);
+
+    const promptOptions = {
+      model, system: systemPrompt,
+      parts: [{ type: 'text', text: userMessage }]
+    };
+
+    if (agent) {
+      const agentConfig = mapAgentToOpenCode(agent);
+      promptOptions.agent = agentConfig.agent;
+      if (agentConfig.permissions) { promptOptions.permissions = agentConfig.permissions; }
+    }
+    if (reasoning) { promptOptions.reasoning = reasoning; }
+
+    await sendPromptAsync(client, sessionId, promptOptions);
+    logger.debug('Interactive session ready', { sessionId });
+  } catch (error) {
+    server.close();
+    return {
+      summary: '', completed: false, timedOut: false, taskId,
+      error: `Session setup failed: ${error.message}`
+    };
+  }
+
+  const serverPort = new URL(server.url).port;
 
   return new Promise((resolve, _reject) => {
     const electronPath = path.join(__dirname, '..', '..', 'node_modules', '.bin', 'electron');
@@ -91,32 +136,40 @@ async function runInteractive(model, systemPrompt, userMessage, taskId, project,
     const nodeModulesBin = path.join(__dirname, '..', '..', 'node_modules', '.bin');
     const existingPath = process.env.PATH || '';
     const env = buildElectronEnv(
-      taskId, model, systemPrompt, userMessage, project,
-      nodeModulesBin, existingPath, agent, isResume, conversation, mcp
+      taskId, model, project, nodeModulesBin, existingPath,
+      { agent, isResume, conversation, mcp }
     );
 
+    // Pass OpenCode server info to Electron
+    env.SIDECAR_OPENCODE_PORT = serverPort;
+    env.SIDECAR_SESSION_ID = sessionId;
+
     const debugPort = process.env.SIDECAR_DEBUG_PORT || '9222';
-    logger.debug('Launching Electron', { taskId, model, debugPort });
+    logger.debug('Launching Electron', { taskId, model, debugPort, serverPort, sessionId });
 
     const electronProcess = spawn(electronPath, [
       `--remote-debugging-port=${debugPort}`,
       mainPath
     ], { cwd: project, env, stdio: ['ignore', 'pipe', 'pipe'] });
 
-    handleElectronProcess(electronProcess, taskId, resolve);
+    // Clean up server when Electron exits
+    const originalResolve = resolve;
+    handleElectronProcess(electronProcess, taskId, (result) => {
+      server.close();
+      logger.debug('OpenCode server closed after Electron exit');
+      originalResolve(result);
+    });
   });
 }
 
 /** Build environment variables for Electron process */
-function buildElectronEnv(taskId, model, systemPrompt, userMessage, project,
-                          nodeModulesBin, existingPath, agent, isResume, conversation, mcp) {
+function buildElectronEnv(taskId, model, project, nodeModulesBin, existingPath, options = {}) {
+  const { agent, isResume, conversation, mcp } = options;
   const env = {
     ...process.env,
     PATH: `${nodeModulesBin}:${existingPath}`,
     SIDECAR_TASK_ID: taskId,
     SIDECAR_MODEL: model,
-    SIDECAR_SYSTEM_PROMPT: systemPrompt,
-    SIDECAR_USER_MESSAGE: userMessage,
     SIDECAR_PROJECT: project
   };
 
@@ -167,54 +220,43 @@ function handleElectronProcess(electronProcess, taskId, resolve) {
 /** Start a new sidecar session - Spec Reference: §4.1, §9 */
 async function startSidecar(options) {
   const {
-    model,
-    prompt, briefing,
-    sessionId, session = 'current',
-    cwd, project = process.cwd(),
-    contextTurns = 50, contextSince, contextMaxTokens = 2000,
-    noUi, headless = false,
-    timeout = 15, agent, mcp, mcpConfig,
-    summaryLength = 'normal', thinking,
-    client, sessionDir, foldShortcut, opencodePort
+    model, prompt, briefing, sessionId, session = 'current',
+    cwd, project = process.cwd(), contextTurns = 50, contextSince,
+    contextMaxTokens = 80000, noUi, headless = false, timeout = 15,
+    agent, mcp, mcpConfig, summaryLength = 'normal', thinking,
+    client, sessionDir
   } = options;
 
-  // Resolve v3 names with backward compatibility
   const effectivePrompt = prompt || briefing;
   const effectiveSession = sessionId || session;
   const effectiveProject = cwd || project;
   const effectiveHeadless = noUi !== undefined ? noUi : headless;
-
   const mcpServers = buildMcpConfig({ mcp, mcpConfig });
   const taskId = generateTaskId();
+  const reasoning = thinking ? { effort: thinking } : undefined;
+
   logger.info('Starting task', { taskId, model, mode: effectiveHeadless ? 'headless' : 'interactive' });
 
-  // Build context and prompts
   const context = buildContext(effectiveProject, effectiveSession, { contextTurns, contextSince, contextMaxTokens, sessionDir, client });
   const { system: systemPrompt, userMessage } = buildPrompts(
     effectivePrompt, context, effectiveProject, effectiveHeadless, agent, summaryLength
   );
 
-  // Create session
   const sessDir = createSessionMetadata(taskId, effectiveProject, {
     model, prompt: effectivePrompt, noUi: effectiveHeadless, agent, thinking
   });
   saveInitialContext(sessDir, systemPrompt, userMessage);
 
-  // Start heartbeat
   const heartbeat = createHeartbeat();
-
   let summary;
-  const reasoning = thinking ? { effort: thinking } : undefined;
 
   try {
     if (effectiveHeadless) {
       const result = await runHeadless(
         model, systemPrompt, userMessage, taskId, effectiveProject,
-        timeout * 60 * 1000, agent,
-        { mcp: mcpServers, summaryLength, reasoning }
+        timeout * 60 * 1000, agent, { mcp: mcpServers, summaryLength, reasoning }
       );
       summary = result.summary || '## Sidecar Results: No Output\n\nHeadless mode completed without summary.';
-
       if (result.timedOut) { logger.warn('Task timed out', { taskId }); }
       if (result.error) { logger.error('Task error', { taskId, error: result.error }); }
     } else {
@@ -230,10 +272,7 @@ async function startSidecar(options) {
     heartbeat.stop();
   }
 
-  // Output summary
   outputSummary(summary);
-
-  // Finalize session - load metadata for finalization
   const metaPath = SessionPaths.metadataFile(sessDir);
   const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
   finalizeSession(sessDir, summary, effectiveProject, meta);

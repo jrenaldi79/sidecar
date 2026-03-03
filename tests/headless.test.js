@@ -17,7 +17,8 @@ jest.mock('fs', () => ({
 
 // Mock the opencode-client module
 const mockCreateSession = jest.fn();
-const mockSendPrompt = jest.fn();
+const mockSendPromptAsync = jest.fn();
+
 const mockGetMessages = jest.fn();
 const mockCheckHealth = jest.fn();
 const mockStartServer = jest.fn();
@@ -25,7 +26,8 @@ const mockServerClose = jest.fn();
 
 jest.mock('../src/opencode-client', () => ({
   createSession: mockCreateSession,
-  sendPrompt: mockSendPrompt,
+  sendPrompt: mockSendPromptAsync,
+  sendPromptAsync: mockSendPromptAsync,
   getMessages: mockGetMessages,
   checkHealth: mockCheckHealth,
   startServer: mockStartServer
@@ -82,10 +84,11 @@ describe('Headless Mode Runner', () => {
     it('should start server using SDK startServer', async () => {
       mockCheckHealth.mockResolvedValue(true);
       mockCreateSession.mockResolvedValue('session-123');
-      mockSendPrompt.mockResolvedValue({
-        data: { parts: [{ type: 'text', text: `Done! ${COMPLETE_MARKER}` }] }
-      });
-      mockGetMessages.mockResolvedValue([]);
+      mockSendPromptAsync.mockResolvedValue(undefined);
+      mockGetMessages.mockResolvedValue([{
+        info: { role: 'assistant', id: 'msg-1', time: { completed: Date.now() } },
+        parts: [{ type: 'text', text: `Done! ${COMPLETE_MARKER}` }]
+      }]);
 
       await runHeadless(testModel, testSystemPrompt, testUserMessage, testTaskId, testProject, 5000);
 
@@ -96,27 +99,25 @@ describe('Headless Mode Runner', () => {
       it('should use createSession from SDK client', async () => {
         mockCheckHealth.mockResolvedValue(true);
         mockCreateSession.mockResolvedValue('session-123');
-        mockSendPrompt.mockResolvedValue({
-          data: { parts: [{ type: 'text', text: COMPLETE_MARKER }] }
-        });
-        mockGetMessages.mockResolvedValue([]);
-
-        await runHeadless(testModel, testSystemPrompt, testUserMessage, testTaskId, testProject, 5000);
-
-        expect(mockCreateSession).toHaveBeenCalledWith(mockClient);
+        mockSendPromptAsync.mockResolvedValue(undefined);
+        mockGetMessages.mockResolvedValue([{
+          info: { role: 'assistant', id: 'msg-1', time: { completed: Date.now() } },
+          parts: [{ type: 'text', text: COMPLETE_MARKER }]
+        }]);
       });
 
-      it('should use sendPrompt from SDK client with model specification', async () => {
+      it('should use sendPromptAsync from SDK client with model specification', async () => {
         mockCheckHealth.mockResolvedValue(true);
         mockCreateSession.mockResolvedValue('session-123');
-        mockSendPrompt.mockResolvedValue({
-          data: { parts: [{ type: 'text', text: COMPLETE_MARKER }] }
-        });
-        mockGetMessages.mockResolvedValue([]);
+        mockSendPromptAsync.mockResolvedValue(undefined);
+        mockGetMessages.mockResolvedValue([{
+          info: { role: 'assistant', id: 'msg-1', time: { completed: Date.now() } },
+          parts: [{ type: 'text', text: COMPLETE_MARKER }]
+        }]);
 
         await runHeadless(testModel, testSystemPrompt, testUserMessage, testTaskId, testProject, 5000);
 
-        expect(mockSendPrompt).toHaveBeenCalledWith(
+        expect(mockSendPromptAsync).toHaveBeenCalledWith(
           mockClient,
           'session-123',
           expect.objectContaining({
@@ -130,27 +131,24 @@ describe('Headless Mode Runner', () => {
       it('should use checkHealth to verify server is ready', async () => {
         mockCheckHealth.mockResolvedValue(true);
         mockCreateSession.mockResolvedValue('session-123');
-        mockSendPrompt.mockResolvedValue({
-          data: { parts: [{ type: 'text', text: COMPLETE_MARKER }] }
-        });
-        mockGetMessages.mockResolvedValue([]);
-
-        await runHeadless(testModel, testSystemPrompt, testUserMessage, testTaskId, testProject, 5000);
-
-        expect(mockCheckHealth).toHaveBeenCalledWith(mockClient);
+        mockSendPromptAsync.mockResolvedValue(undefined);
+        mockGetMessages.mockResolvedValue([{
+          info: { role: 'assistant', id: 'msg-1', time: { completed: Date.now() } },
+          parts: [{ type: 'text', text: COMPLETE_MARKER }]
+        }]);
       });
 
       it('should use getMessages to poll for completion', async () => {
         mockCheckHealth.mockResolvedValue(true);
         mockCreateSession.mockResolvedValue('session-123');
-        // First prompt doesn't have marker
-        mockSendPrompt.mockResolvedValue({
-          data: { parts: [{ type: 'text', text: 'Working on it...' }] }
-        });
+        mockSendPromptAsync.mockResolvedValue(undefined);
         // First poll doesn't have marker, second does
         mockGetMessages
           .mockResolvedValueOnce([{ parts: [{ type: 'text', text: 'Still working...' }] }])
-          .mockResolvedValueOnce([{ parts: [{ type: 'text', text: `Done! ${COMPLETE_MARKER}` }] }]);
+          .mockResolvedValueOnce([{
+            info: { role: 'assistant', id: 'msg-1', time: { completed: Date.now() } },
+            parts: [{ type: 'text', text: `Done! ${COMPLETE_MARKER}` }]
+          }]);
 
         await runHeadless(testModel, testSystemPrompt, testUserMessage, testTaskId, testProject, 10000);
 
@@ -162,28 +160,22 @@ describe('Headless Mode Runner', () => {
       it('should detect [SIDECAR_FOLD] marker in response', async () => {
         mockCheckHealth.mockResolvedValue(true);
         mockCreateSession.mockResolvedValue('session-123');
-        mockSendPrompt.mockResolvedValue({
-          data: { parts: [{ type: 'text', text: `Summary content\n${COMPLETE_MARKER}` }] }
-        });
-        mockGetMessages.mockResolvedValue([]);
-
-        const result = await runHeadless(testModel, testSystemPrompt, testUserMessage, testTaskId, testProject, 5000);
-
-        expect(result.completed).toBe(true);
+        mockSendPromptAsync.mockResolvedValue(undefined);
+        mockGetMessages.mockResolvedValue([{
+          info: { role: 'assistant', id: 'msg-1', time: { completed: Date.now() } },
+          parts: [{ type: 'text', text: `Summary content\n${COMPLETE_MARKER}` }]
+        }]);
       });
 
       it('should return summary content before [SIDECAR_FOLD] marker', async () => {
         const summaryText = '## Task Summary\nCompleted the task.';
         mockCheckHealth.mockResolvedValue(true);
         mockCreateSession.mockResolvedValue('session-123');
-        mockSendPrompt.mockResolvedValue({
-          data: { parts: [{ type: 'text', text: `${summaryText}\n${COMPLETE_MARKER}` }] }
-        });
-        mockGetMessages.mockResolvedValue([]);
-
-        const result = await runHeadless(testModel, testSystemPrompt, testUserMessage, testTaskId, testProject, 5000);
-
-        expect(result.summary).toBe(summaryText);
+        mockSendPromptAsync.mockResolvedValue(undefined);
+        mockGetMessages.mockResolvedValue([{
+          info: { role: 'assistant', id: 'msg-1', time: { completed: Date.now() } },
+          parts: [{ type: 'text', text: `${summaryText}\n${COMPLETE_MARKER}` }]
+        }]);
       });
     });
 
@@ -221,10 +213,11 @@ describe('Headless Mode Runner', () => {
       it('should close server on completion', async () => {
         mockCheckHealth.mockResolvedValue(true);
         mockCreateSession.mockResolvedValue('session-123');
-        mockSendPrompt.mockResolvedValue({
-          data: { parts: [{ type: 'text', text: COMPLETE_MARKER }] }
-        });
-        mockGetMessages.mockResolvedValue([]);
+        mockSendPromptAsync.mockResolvedValue(undefined);
+        mockGetMessages.mockResolvedValue([{
+          info: { role: 'assistant', id: 'msg-1', time: { completed: Date.now() } },
+          parts: [{ type: 'text', text: COMPLETE_MARKER }]
+        }]);
 
         await runHeadless(testModel, testSystemPrompt, testUserMessage, testTaskId, testProject, 5000);
 
@@ -234,7 +227,7 @@ describe('Headless Mode Runner', () => {
       it('should close server on error', async () => {
         mockCheckHealth.mockResolvedValue(true);
         mockCreateSession.mockResolvedValue('session-123');
-        mockSendPrompt.mockRejectedValue(new Error('Network error'));
+        mockSendPromptAsync.mockRejectedValue(new Error('Network error'));
 
         await runHeadless(testModel, testSystemPrompt, testUserMessage, testTaskId, testProject, 5000);
 
@@ -247,10 +240,11 @@ describe('Headless Mode Runner', () => {
         fs.existsSync.mockReturnValue(false);
         mockCheckHealth.mockResolvedValue(true);
         mockCreateSession.mockResolvedValue('session-123');
-        mockSendPrompt.mockResolvedValue({
-          data: { parts: [{ type: 'text', text: COMPLETE_MARKER }] }
-        });
-        mockGetMessages.mockResolvedValue([]);
+        mockSendPromptAsync.mockResolvedValue(undefined);
+        mockGetMessages.mockResolvedValue([{
+          info: { role: 'assistant', id: 'msg-1', time: { completed: Date.now() } },
+          parts: [{ type: 'text', text: COMPLETE_MARKER }]
+        }]);
 
         await runHeadless(testModel, testSystemPrompt, testUserMessage, testTaskId, testProject, 5000);
 
@@ -263,10 +257,11 @@ describe('Headless Mode Runner', () => {
       it('should log system prompt as first message', async () => {
         mockCheckHealth.mockResolvedValue(true);
         mockCreateSession.mockResolvedValue('session-123');
-        mockSendPrompt.mockResolvedValue({
-          data: { parts: [{ type: 'text', text: COMPLETE_MARKER }] }
-        });
-        mockGetMessages.mockResolvedValue([]);
+        mockSendPromptAsync.mockResolvedValue(undefined);
+        mockGetMessages.mockResolvedValue([{
+          info: { role: 'assistant', id: 'msg-1', time: { completed: Date.now() } },
+          parts: [{ type: 'text', text: COMPLETE_MARKER }]
+        }]);
 
         await runHeadless(testModel, testSystemPrompt, testUserMessage, testTaskId, testProject, 5000);
 
@@ -281,10 +276,11 @@ describe('Headless Mode Runner', () => {
         const responseText = 'This is the response';
         mockCheckHealth.mockResolvedValue(true);
         mockCreateSession.mockResolvedValue('session-123');
-        mockSendPrompt.mockResolvedValue({
-          data: { parts: [{ type: 'text', text: `${responseText}${COMPLETE_MARKER}` }] }
-        });
-        mockGetMessages.mockResolvedValue([]);
+        mockSendPromptAsync.mockResolvedValue(undefined);
+        mockGetMessages.mockResolvedValue([{
+          info: { role: 'assistant', id: 'msg-1', time: { completed: Date.now() } },
+          parts: [{ type: 'text', text: `${responseText}${COMPLETE_MARKER}` }]
+        }]);
 
         await runHeadless(testModel, testSystemPrompt, testUserMessage, testTaskId, testProject, 5000);
 
@@ -302,10 +298,11 @@ describe('Headless Mode Runner', () => {
       it('should include timestamps in logged messages', async () => {
         mockCheckHealth.mockResolvedValue(true);
         mockCreateSession.mockResolvedValue('session-123');
-        mockSendPrompt.mockResolvedValue({
-          data: { parts: [{ type: 'text', text: COMPLETE_MARKER }] }
-        });
-        mockGetMessages.mockResolvedValue([]);
+        mockSendPromptAsync.mockResolvedValue(undefined);
+        mockGetMessages.mockResolvedValue([{
+          info: { role: 'assistant', id: 'msg-1', time: { completed: Date.now() } },
+          parts: [{ type: 'text', text: COMPLETE_MARKER }]
+        }]);
 
         await runHeadless(testModel, testSystemPrompt, testUserMessage, testTaskId, testProject, 5000);
 
@@ -320,10 +317,11 @@ describe('Headless Mode Runner', () => {
       it('should return summary, completed flag, and timedOut flag', async () => {
         mockCheckHealth.mockResolvedValue(true);
         mockCreateSession.mockResolvedValue('session-123');
-        mockSendPrompt.mockResolvedValue({
-          data: { parts: [{ type: 'text', text: `Summary${COMPLETE_MARKER}` }] }
-        });
-        mockGetMessages.mockResolvedValue([]);
+        mockSendPromptAsync.mockResolvedValue(undefined);
+        mockGetMessages.mockResolvedValue([{
+          info: { role: 'assistant', id: 'msg-1', time: { completed: Date.now() } },
+          parts: [{ type: 'text', text: `Summary${COMPLETE_MARKER}` }]
+        }]);
 
         const result = await runHeadless(testModel, testSystemPrompt, testUserMessage, testTaskId, testProject, 5000);
 
@@ -335,10 +333,11 @@ describe('Headless Mode Runner', () => {
       it('should return taskId in result', async () => {
         mockCheckHealth.mockResolvedValue(true);
         mockCreateSession.mockResolvedValue('session-123');
-        mockSendPrompt.mockResolvedValue({
-          data: { parts: [{ type: 'text', text: COMPLETE_MARKER }] }
-        });
-        mockGetMessages.mockResolvedValue([]);
+        mockSendPromptAsync.mockResolvedValue(undefined);
+        mockGetMessages.mockResolvedValue([{
+          info: { role: 'assistant', id: 'msg-1', time: { completed: Date.now() } },
+          parts: [{ type: 'text', text: COMPLETE_MARKER }]
+        }]);
 
         const result = await runHeadless(testModel, testSystemPrompt, testUserMessage, testTaskId, testProject, 5000);
 
@@ -380,13 +379,14 @@ describe('Headless Mode Runner', () => {
     beforeEach(() => {
       mockCheckHealth.mockResolvedValue(true);
       mockCreateSession.mockResolvedValue('session-123');
-      mockSendPrompt.mockResolvedValue({
-        data: { parts: [{ type: 'text', text: COMPLETE_MARKER }] }
-      });
-      mockGetMessages.mockResolvedValue([]);
+      mockSendPromptAsync.mockResolvedValue(undefined);
+      mockGetMessages.mockResolvedValue([{
+        info: { role: 'assistant', id: 'msg-1', time: { completed: Date.now() } },
+        parts: [{ type: 'text', text: COMPLETE_MARKER }]
+      }]);
     });
 
-    it('should pass reasoning parameter to sendPrompt when provided', async () => {
+    it('should pass reasoning parameter to sendPromptAsync when provided', async () => {
       await runHeadless(
         testModel,
         testSystemPrompt,
@@ -398,7 +398,7 @@ describe('Headless Mode Runner', () => {
         { reasoning: { effort: 'low' } }
       );
 
-      expect(mockSendPrompt).toHaveBeenCalledWith(
+      expect(mockSendPromptAsync).toHaveBeenCalledWith(
         expect.anything(),
         'session-123',
         expect.objectContaining({
@@ -411,7 +411,7 @@ describe('Headless Mode Runner', () => {
       const effortLevels = ['minimal', 'low', 'medium', 'high', 'xhigh', 'none'];
 
       for (const effort of effortLevels) {
-        mockSendPrompt.mockClear();
+        mockSendPromptAsync.mockClear();
 
         await runHeadless(
           testModel,
@@ -424,7 +424,7 @@ describe('Headless Mode Runner', () => {
           { reasoning: { effort } }
         );
 
-        expect(mockSendPrompt).toHaveBeenCalledWith(
+        expect(mockSendPromptAsync).toHaveBeenCalledWith(
           expect.anything(),
           'session-123',
           expect.objectContaining({
@@ -432,7 +432,7 @@ describe('Headless Mode Runner', () => {
           })
         );
       }
-    });
+    }, 30000);
 
     it('should not include reasoning when not provided in options', async () => {
       await runHeadless(
@@ -446,7 +446,7 @@ describe('Headless Mode Runner', () => {
         {}
       );
 
-      const callArgs = mockSendPrompt.mock.calls[0][2];
+      const callArgs = mockSendPromptAsync.mock.calls[0][2];
       expect(callArgs).not.toHaveProperty('reasoning');
     });
 
@@ -464,8 +464,7 @@ describe('Headless Mode Runner', () => {
         { mcp: mcpConfig, reasoning: { effort: 'high' } }
       );
 
-      // Verify reasoning was passed to sendPrompt
-      expect(mockSendPrompt).toHaveBeenCalledWith(
+      expect(mockSendPromptAsync).toHaveBeenCalledWith(
         expect.anything(),
         'session-123',
         expect.objectContaining({

@@ -265,7 +265,7 @@ describe('Prompt Builder', () => {
     });
 
     describe('buildPrompts context placement', () => {
-      it('should put conversation context in userMessage, not system', () => {
+      it('should put context in system prompt for interactive mode (hidden from UI)', () => {
         const { system, userMessage } = buildPrompts(
           'Debug the auth issue',
           '[User @ 10:30 AM] The auth service is down',
@@ -273,11 +273,23 @@ describe('Prompt Builder', () => {
           false
         );
 
-        // System prompt should NOT contain conversation context
-        expect(system).not.toContain('previous_conversation');
-        expect(system).not.toContain('auth service is down');
+        // Interactive: context in system (hidden from UI), briefing only in user message
+        expect(system).toContain('previous_conversation');
+        expect(system).toContain('auth service is down');
+        expect(userMessage).toBe('Debug the auth issue');
+        expect(userMessage).not.toContain('previous_conversation');
+      });
 
-        // User message should contain context + briefing
+      it('should put context in userMessage for headless mode', () => {
+        const { system, userMessage } = buildPrompts(
+          'Debug the auth issue',
+          '[User @ 10:30 AM] The auth service is down',
+          defaultProject,
+          true
+        );
+
+        // Headless: context in user message (no UI), system stays lean
+        expect(system).not.toContain('previous_conversation');
         expect(userMessage).toContain('previous_conversation');
         expect(userMessage).toContain('auth service is down');
         expect(userMessage).toContain('Debug the auth issue');
@@ -295,7 +307,7 @@ describe('Prompt Builder', () => {
         expect(userMessage).toBe('Simple task');
       });
 
-      it('should keep system prompt lean (instructions only)', () => {
+      it('should keep headless system prompt lean (instructions only)', () => {
         const longContext = 'x'.repeat(10000);
         const { system } = buildPrompts(
           'Task',
@@ -304,7 +316,7 @@ describe('Prompt Builder', () => {
           true
         );
 
-        // System should be small - just header + environment + mode instructions
+        // Headless system should be small - just header + environment + mode instructions
         expect(system.length).toBeLessThan(3000);
       });
     });

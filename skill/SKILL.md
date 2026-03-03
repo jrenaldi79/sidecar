@@ -274,7 +274,9 @@ sidecar list --json # Output as JSON
 sidecar resume <task_id>
 ```
 
-Reopens a previous session with full conversation history.
+Reopens a previous session with full conversation history. The sidecar continues in the **same** OpenCode session — all previous messages and tool state are preserved.
+
+**Use resume when:** You want to pick up exactly where you left off (e.g., re-examine findings, ask follow-up questions in the same conversation).
 
 **Optional:**
 - `--no-ui`: Continue session in autonomous mode
@@ -287,7 +289,9 @@ Reopens a previous session with full conversation history.
 sidecar continue <task_id> --prompt "<new task>"
 ```
 
-Starts a NEW sidecar that inherits the old sidecar's conversation as context.
+Starts a **new** sidecar session that inherits the old session's conversation as context. The previous session's messages become read-only background context for the new task.
+
+**Use continue when:** You want to build on previous findings with a new task or different model (e.g., "Now implement the fix from the previous analysis").
 
 **Required:**
 - `--prompt`: New task description for the continuation
@@ -539,22 +543,6 @@ Full tool access for implementation work. **Only use when implementation is expl
 sidecar start --model gemini-2.5-flash --prompt "Implement the login feature" --agent Build
 ```
 
-#### Plan Agent
-
-Read-only mode for analysis and planning without modifying files:
-- **Enabled**: read, glob, grep, list, webfetch, todowrite, todoread
-- **Disabled**: write, edit, patch, bash
-
-```bash
-sidecar start --model gemini-2.5-flash --prompt "Review the auth implementation and suggest improvements" --agent Plan
-```
-
-**Use Plan agent when:**
-- Reviewing code without making changes
-- Creating implementation plans
-- Analyzing architecture
-- Safety-first exploration of unfamiliar code
-
 ### Subagents (Spawned Within Sessions)
 
 These agents are spawned from within a sidecar session using `sidecar subagent spawn`:
@@ -626,15 +614,29 @@ sidecar start \
 
 ---
 
-## Async Execution
+## Background Execution (REQUIRED)
 
-The sidecar command **blocks** until complete. If the user wants to continue working:
+**ALWAYS run sidecar commands in the background.** Use the Bash tool's `run_in_background: true` parameter for every `sidecar start`, `sidecar resume`, and `sidecar continue` invocation. This ensures:
 
-1. They can press **Ctrl+B** to background the task (Claude Code native feature)
-2. You continue working on other things
-3. When the sidecar folds, the summary appears in your context
+- No timeout ceiling — tasks can run for the full 15+ minutes
+- You can continue working while the sidecar runs
+- You'll be automatically notified when it completes
 
-**When user backgrounds a sidecar, warn them:**
+**Example invocation pattern:**
+```
+Bash tool:
+  command: "sidecar start --model openrouter/google/gemini-2.5-flash --prompt '...' --no-ui"
+  run_in_background: true
+```
+
+After launching, tell the user:
+> "Sidecar is running in the background. I'll share the results when it completes."
+
+**When the background task completes**, you will be automatically notified. Use the `TaskOutput` tool with the task ID to read the sidecar's summary output, then present it to the user. Do NOT poll or sleep — the notification arrives automatically.
+
+**Interactive mode note:** When running without `--no-ui`, the Electron GUI opens in a separate window. Backgrounding frees the terminal but does not prevent the user from interacting with the GUI window.
+
+**Important:** Warn users about potential file conflicts:
 > "I recommend committing your current changes before the sidecar completes, in case there are file conflicts."
 
 ---

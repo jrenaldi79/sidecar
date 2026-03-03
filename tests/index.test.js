@@ -10,7 +10,11 @@ jest.mock('../src/opencode-client', () => ({
   createClient: jest.fn().mockReturnValue({}),
   createSession: jest.fn().mockResolvedValue('mock-session-id'),
   sendPrompt: jest.fn().mockResolvedValue({ data: { parts: [{ type: 'text', text: '[SIDECAR_FOLD]' }] } }),
-  getMessages: jest.fn().mockResolvedValue([]),
+  sendPromptAsync: jest.fn().mockResolvedValue(undefined),
+  getMessages: jest.fn().mockResolvedValue([{
+    info: { role: 'assistant', id: 'msg-1', time: { completed: Date.now() } },
+    parts: [{ type: 'text', text: '## Sidecar Results: Test\n\n[SIDECAR_FOLD]' }]
+  }]),
   checkHealth: jest.fn().mockResolvedValue(true),
   startServer: jest.fn().mockResolvedValue({
     client: {},
@@ -481,7 +485,7 @@ describe('Index Module', () => {
       fs.writeFileSync(path.join(oldSessionDir, 'summary.md'), 'Summary');
 
       // Get reference to mocked SDK functions
-      const { sendPrompt } = require('../src/opencode-client');
+      const { sendPromptAsync } = require('../src/opencode-client');
 
       jest.spyOn(console, 'error').mockImplementation();
       jest.spyOn(console, 'log').mockImplementation();
@@ -495,9 +499,9 @@ describe('Index Module', () => {
         // No model specified
       });
 
-      // Check SDK sendPrompt was called with inherited model
-      expect(sendPrompt).toHaveBeenCalled();
-      const promptCall = sendPrompt.mock.calls[0];
+      // Check SDK sendPromptAsync was called with inherited model
+      expect(sendPromptAsync).toHaveBeenCalled();
+      const promptCall = sendPromptAsync.mock.calls[0];
       // Model is passed as the second argument's model field
       expect(promptCall[2].model).toBe('anthropic/claude-3.5-sonnet');
     });

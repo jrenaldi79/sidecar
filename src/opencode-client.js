@@ -377,6 +377,7 @@ module.exports = {
   createSession,
   createChildSession,
   sendPrompt,
+  sendPromptAsync: sendPrompt, // Alias: sendPrompt already uses promptAsync internally
   getMessages,
   getChildren,
   getSessionStatus,
