@@ -171,7 +171,7 @@ async function startSidecar(options) {
     prompt, briefing,
     sessionId, session = 'current',
     cwd, project = process.cwd(),
-    contextTurns = 50, contextSince, contextMaxTokens = 80000,
+    contextTurns = 50, contextSince, contextMaxTokens = 2000,
     noUi, headless = false,
     timeout = 15, agent, mcp, mcpConfig,
     summaryLength = 'normal', thinking,

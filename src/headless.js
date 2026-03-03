@@ -8,13 +8,6 @@
 const fs = require('fs');
 const path = require('path');
 const { logger } = require('./utils/logger');
-const {
-  createSession,
-  sendPrompt,
-  getMessages,
-  checkHealth,
-  startServer
-} = require('./opencode-client');
 const { ensureNodeModulesBinInPath } = require('./utils/path-setup');
 const { ensurePortAvailable } = require('./utils/server-setup');
 const { mapAgentToOpenCode } = require('./utils/agent-mapping');
@@ -31,10 +24,6 @@ const COMPLETE_MARKER = FOLD_MARKER; // backward compat
  */
 const DEFAULT_TIMEOUT = 15 * 60 * 1000;
 
-/**
- * Grace period after injecting summary prompt (30 seconds per spec)
- */
-const SUMMARY_GRACE_PERIOD = 30 * 1000;
 
 /**
  * Wait for the OpenCode server to be ready using SDK health check
@@ -73,6 +62,15 @@ async function waitForServer(client, maxAttempts = 30) {
  * @returns {Promise<object>} Result object with summary, completed, timedOut flags
  */
 async function runHeadless(model, systemPrompt, userMessage, taskId, project, timeoutMs = DEFAULT_TIMEOUT, agent, options = {}) {
+  // Dynamically import opencode-client.js (ESM module)
+  const {
+    createSession,
+    sendPromptAsync,
+    getMessages,
+    checkHealth,
+    startServer
+  } = await import('./opencode-client.js');
+
   const { summaryLength = 'normal', reasoning } = options;  const sessionDir = path.join(project, '.claude', 'sidecar_sessions', taskId);
   const conversationPath = path.join(sessionDir, 'conversation.jsonl');
 
@@ -183,70 +181,16 @@ async function runHeadless(model, systemPrompt, userMessage, taskId, project, ti
       promptOptions.reasoning = reasoning;
     }
 
-    const messageResult = await sendPrompt(client, sessionId, promptOptions);
-    logger.debug('Message result', { partsCount: messageResult.data?.parts?.length || 0 });
+    // Send prompt asynchronously (returns immediately, we poll for results)
+    await sendPromptAsync(client, sessionId, promptOptions);
+    logger.debug('Async prompt sent');
 
     let output = '';
     let completed = false;
     let timedOut = false;
-    const toolCalls = []; // Track tool calls for debugging
+    const toolCalls = [];
 
-    // Process response parts (text, tool_use, tool_result)
-    if (messageResult.data?.parts) {
-      for (const part of messageResult.data.parts) {
-        if (part.type === 'text' && part.text) {
-          output += part.text;
-          logMessage(conversationPath, {
-            role: 'assistant',
-            content: part.text,
-            timestamp: new Date().toISOString()
-          });
-        } else if (part.type === 'tool_use') {
-          // Log tool calls (including Task tool for subagent spawning)
-          const toolCall = {
-            id: part.id,
-            name: part.name,
-            input: part.input
-          };
-          toolCalls.push(toolCall);
-          logger.debug('Tool call detected', {
-            toolName: part.name,
-            toolId: part.id,
-            subagentType: part.input?.subagent_type,
-            model: part.input?.model
-          });
-          logMessage(conversationPath, {
-            role: 'assistant',
-            type: 'tool_use',
-            toolCall,
-            timestamp: new Date().toISOString()
-          });
-        } else if (part.type === 'tool_result') {
-          // Log tool results
-          logger.debug('Tool result received', {
-            toolUseId: part.tool_use_id,
-            isError: part.is_error || false,
-            contentLength: part.content?.length || 0
-          });
-          logMessage(conversationPath, {
-            role: 'tool',
-            type: 'tool_result',
-            toolUseId: part.tool_use_id,
-            isError: part.is_error || false,
-            content: part.content,
-            timestamp: new Date().toISOString()
-          });
-        }
-      }
-    }
-
-    // Check for completion marker
-    if (output.includes(FOLD_MARKER)) {
-      completed = true;
-    }
-
-    // Poll for completion by checking messages directly
-    // Note: session.status() API returns {} so we check messages instead
+    // Poll for completion by checking messages
     const startTime = Date.now();
     let pollCount = 0;
     let lastAssistantMsgId = null;
@@ -363,42 +307,10 @@ async function runHeadless(model, systemPrompt, userMessage, taskId, project, ti
       }
     }
 
-    // Handle timeout - inject summary prompt
+    // Handle timeout
     if (!completed && (Date.now() - startTime) >= timeoutMs) {
       timedOut = true;
-
-      // Send summary prompt using SDK
-      let summaryPrompt = '\n\nYou are running out of time. Please output your summary now in the required format, followed by [SIDECAR_FOLD].\n';
-      if (summaryLength === 'brief') {
-        summaryPrompt = '\n\nYou are running out of time. Please output a BRIEF summary now, followed by [SIDECAR_FOLD].\n';
-      }
-
-      await sendPrompt(client, sessionId, {
-        model: model,
-        parts: [{ type: 'text', text: summaryPrompt }]
-      });
-
-      // Wait grace period for response
-      await new Promise(resolve => setTimeout(resolve, SUMMARY_GRACE_PERIOD));
-
-      // Get final messages using SDK
-      const finalMessages = await getMessages(client, sessionId);
-
-      if (finalMessages && Array.isArray(finalMessages)) {
-        for (const msg of finalMessages) {
-          if (msg.parts) {
-            for (const part of msg.parts) {
-              if (part.type === 'text' && part.text && !output.includes(part.text)) {
-                output += part.text;
-              }
-            }
-          }
-        }
-      }
-
-      if (output.includes(FOLD_MARKER)) {
-        completed = true;
-      }
+      logger.warn('Task timed out', { taskId, elapsed: Date.now() - startTime });
     }
 
     server.close();
@@ -454,7 +366,6 @@ function extractSummary(output) {
 
 /**
  * Format a structured fold output with metadata
- *
  * @param {Object} options - Fold output options
  * @param {string} options.model - Model identifier
  * @param {string} options.sessionId - Session identifier
