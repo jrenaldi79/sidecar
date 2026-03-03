@@ -90,14 +90,19 @@ function buildSystemPrompt(briefing, context, project, headless, mode) {
 function buildPrompts(briefing, context, project, headless, mode, summaryLength = 'normal') {
   const systemSections = [
     buildHeader(),
-    buildContextSection(context),
     buildEnvironmentSection(project, mode),
     headless ? buildHeadlessModeSection(summaryLength) : buildInteractiveModeSection()
   ];
 
+  // Context goes in user message, not system prompt, to keep system lean
+  const contextSection = buildContextSection(context);
+  const userMessage = contextSection
+    ? `${contextSection}\n\n${briefing}`
+    : briefing;
+
   return {
     system: systemSections.join('\n\n'),
-    userMessage: briefing
+    userMessage
   };
 }
 

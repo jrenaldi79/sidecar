@@ -245,15 +245,13 @@ ${FOLD_MARKER}`;
   });
 
   describe('Context Passing', () => {
-    it('should include Claude Code conversation context in system prompt', async () => {
+    it('should pass conversation context in user message, not system prompt', async () => {
       // Create Claude Code session with specific context
       createMockClaudeSession(tmpDir, [
         { role: 'user', content: 'The API endpoint /users/profile returns 500 errors' },
         { role: 'assistant', content: 'Let me check the profile endpoint handler' },
         { role: 'user', content: 'Here is the error log: "Database connection timeout"' }
       ]);
-
-      // SDK mocks are already configured by default
 
       await startSidecar({
         model: 'google/gemini-2.5-flash',
@@ -262,13 +260,19 @@ ${FOLD_MARKER}`;
         headless: true
       });
 
-      // Check that the initial context includes conversation details
-      const sessions = fs.readdirSync(path.join(tmpDir, '.claude', 'sidecar_sessions'));
-      const contextPath = path.join(tmpDir, '.claude', 'sidecar_sessions', sessions[0], 'initial_context.md');
-      const context = fs.readFileSync(contextPath, 'utf-8');
+      // Verify sendPrompt was called with context in user message, not system
+      const { sendPrompt } = require('../src/opencode-client');
+      const promptCall = sendPrompt.mock.calls[0];
+      const systemPrompt = promptCall[2].system;
+      const userMessage = promptCall[2].parts[0].text;
 
-      // Context should include the briefing
-      expect(context).toContain('Investigate the database timeout issue');
+      // System prompt should be lean - no conversation context
+      expect(systemPrompt).not.toContain('previous_conversation');
+      expect(systemPrompt).not.toContain('Database connection timeout');
+
+      // User message should contain both context and briefing
+      expect(userMessage).toContain('previous_conversation');
+      expect(userMessage).toContain('Investigate the database timeout issue');
     });
   });
 

@@ -264,6 +264,51 @@ describe('Prompt Builder', () => {
       });
     });
 
+    describe('buildPrompts context placement', () => {
+      it('should put conversation context in userMessage, not system', () => {
+        const { system, userMessage } = buildPrompts(
+          'Debug the auth issue',
+          '[User @ 10:30 AM] The auth service is down',
+          defaultProject,
+          false
+        );
+
+        // System prompt should NOT contain conversation context
+        expect(system).not.toContain('previous_conversation');
+        expect(system).not.toContain('auth service is down');
+
+        // User message should contain context + briefing
+        expect(userMessage).toContain('previous_conversation');
+        expect(userMessage).toContain('auth service is down');
+        expect(userMessage).toContain('Debug the auth issue');
+      });
+
+      it('should return just briefing as userMessage when no context', () => {
+        const { system, userMessage } = buildPrompts(
+          'Simple task',
+          '',
+          defaultProject,
+          false
+        );
+
+        expect(system).not.toContain('previous_conversation');
+        expect(userMessage).toBe('Simple task');
+      });
+
+      it('should keep system prompt lean (instructions only)', () => {
+        const longContext = 'x'.repeat(10000);
+        const { system } = buildPrompts(
+          'Task',
+          longContext,
+          defaultProject,
+          true
+        );
+
+        // System should be small - just header + environment + mode instructions
+        expect(system.length).toBeLessThan(3000);
+      });
+    });
+
     describe('buildSystemPrompt with mode parameter', () => {
       it('should delegate tool restrictions to OpenCode', () => {
         const prompt = buildSystemPrompt(
