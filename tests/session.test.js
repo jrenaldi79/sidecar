@@ -244,6 +244,53 @@ describe('Session Resolver', () => {
       });
     });
 
+    describe('Multi-Environment Session Resolution', () => {
+      it('should resolve session from explicit session-dir', () => {
+        // Create temp dir simulating a non-standard session directory (e.g., code-web)
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-env-test-'));
+        const sessionFile = path.join(tmpDir, 'test-session.jsonl');
+        fs.writeFileSync(sessionFile, '{"type":"human","text":"hello"}\n');
+
+        const result = resolveSession(tmpDir, 'test-session');
+        expect(result.path).toBe(sessionFile);
+        expect(result.method).toBe('explicit');
+        fs.rmSync(tmpDir, { recursive: true });
+      });
+
+      it('should fall back to most recent when explicit session not found in session-dir', () => {
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-env-test-'));
+        const sessionFile = path.join(tmpDir, 'other-session.jsonl');
+        fs.writeFileSync(sessionFile, '{"type":"human","text":"hello"}\n');
+
+        const result = resolveSession(tmpDir, 'nonexistent');
+        expect(result.path).toBe(sessionFile);
+        expect(result.method).toBe('fallback');
+        expect(result.warning).toContain('not found');
+        fs.rmSync(tmpDir, { recursive: true });
+      });
+
+      it('should resolve from arbitrary directory path (simulating code-web session root)', () => {
+        // This tests that resolveSession works with any directory, not just ~/.claude/projects/
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-web-'));
+        const webSessionDir = path.join(tmpDir, 'web-sessions');
+        fs.mkdirSync(webSessionDir, { recursive: true });
+
+        const sessionFile = path.join(webSessionDir, 'web-session-123.jsonl');
+        fs.writeFileSync(sessionFile, '{"type":"user","message":{"content":"from web"}}\n');
+
+        const result = resolveSession(webSessionDir, 'web-session-123');
+        expect(result.path).toBe(sessionFile);
+        expect(result.method).toBe('explicit');
+
+        // Also test fallback works with arbitrary dirs
+        const fallbackResult = resolveSession(webSessionDir);
+        expect(fallbackResult.path).toBe(sessionFile);
+        expect(fallbackResult.method).toBe('fallback');
+
+        fs.rmSync(tmpDir, { recursive: true });
+      });
+    });
+
     describe('Edge Cases', () => {
       it('should handle empty project directory', () => {
         const result = resolveSession(tempProjectDir, 'current');

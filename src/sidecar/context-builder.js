@@ -90,21 +90,25 @@ function applyContextFilters(messages, options) {
  * @param {number} [options.contextTurns=50] - Max conversation turns
  * @param {string} [options.contextSince] - Time filter (e.g., '2h')
  * @param {number} [options.contextMaxTokens=80000] - Max context tokens
+ * @param {string} [options.sessionDir] - Explicit session directory override (for code-web, cowork)
+ * @param {string} [options.client] - Client type (code-local, code-web, cowork)
  * @returns {string} Formatted context string
  */
 function buildContext(project, session, options) {
-  const { contextTurns = 50, contextSince, contextMaxTokens = 80000 } = options;
+  const { contextTurns = 50, contextSince, contextMaxTokens = 80000, sessionDir: sessionDirOverride, client } = options;
 
-  // Get session directory for this project
-  const sessionDir = getSessionDirectory(project, os.homedir());
+  // Determine session directory:
+  // 1. If sessionDir is explicitly provided, use it directly (code-web, cowork)
+  // 2. Otherwise, use the standard getSessionDirectory for code-local
+  const resolvedSessionDir = sessionDirOverride || getSessionDirectory(project, os.homedir());
 
-  if (!fs.existsSync(sessionDir)) {
-    logger.warn('No Claude Code conversation history found', { project });
+  if (!fs.existsSync(resolvedSessionDir)) {
+    logger.warn('No Claude Code conversation history found', { project, sessionDir: resolvedSessionDir, client });
     return '[No Claude Code conversation history found]';
   }
 
   // Resolve session file
-  const resolution = resolveSessionFile(sessionDir, session);
+  const resolution = resolveSessionFile(resolvedSessionDir, session);
 
   if (!resolution.path) {
     logger.warn('No Claude Code session found', { project, session });
