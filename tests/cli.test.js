@@ -774,6 +774,20 @@ describe('CLI Argument Parser', () => {
     });
   });
 
+  describe('mcp command', () => {
+    test('parseArgs recognizes mcp as a command', () => {
+      const args = parseArgs(['mcp']);
+      expect(args._[0]).toBe('mcp');
+    });
+
+    test('mcp command appears in usage text as a command', () => {
+      const { getUsage } = require('../src/cli');
+      const usage = getUsage();
+      // Should appear in the Commands section as its own line
+      expect(usage).toMatch(/^\s+mcp\s+.*MCP server/m);
+    });
+  });
+
   describe('validateSubagentArgs', () => {
     describe('subagent spawn', () => {
       it('should validate valid spawn command', () => {

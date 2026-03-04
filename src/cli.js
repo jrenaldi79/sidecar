@@ -330,6 +330,7 @@ Commands:
   subagent    Manage sub-agents within a sidecar
   setup       Configure default model and aliases
     --api-keys               Open API key setup window
+  mcp         Start MCP server (stdio transport)
 
 Options for 'start':
   --model <model>              Optional (uses config default). Model to use:

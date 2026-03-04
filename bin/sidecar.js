@@ -56,6 +56,9 @@ async function main() {
       case 'setup':
         await handleSetup(args);
         break;
+      case 'mcp':
+        await handleMcp();
+        break;
       default:
         console.error(`Unknown command: ${command}`);
         console.log(getUsage());
@@ -251,6 +254,15 @@ async function handleSetup(args) {
   }
 
   await runInteractiveSetup();
+}
+
+/**
+ * Handle 'sidecar mcp' command
+ * Starts the MCP server on stdio transport
+ */
+async function handleMcp() {
+  const { startMcpServer } = require('../src/mcp-server');
+  await startMcpServer();
 }
 
 // Run main
