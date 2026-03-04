@@ -2,45 +2,122 @@
 
 /**
  * Post-install script for claude-sidecar
- * 
- * Copies the SKILL.md to the user's Claude Code skills directory
- * so Claude Code automatically learns how to use sidecars.
+ *
+ * 1. Copies SKILL.md to ~/.claude/skills/sidecar/
+ * 2. Registers MCP server in Claude Code (~/.claude.json)
+ * 3. Registers MCP server in Claude Desktop/Cowork config
  */
 
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { execFileSync } = require('child_process');
 
 const SKILL_SOURCE = path.join(__dirname, '..', 'skill', 'SKILL.md');
 const SKILL_DEST_DIR = path.join(os.homedir(), '.claude', 'skills', 'sidecar');
 const SKILL_DEST = path.join(SKILL_DEST_DIR, 'SKILL.md');
 
-function main() {
-  console.log('[claude-sidecar] Installing skill...');
-  
+const MCP_CONFIG = { command: 'sidecar', args: ['mcp'] };
+
+/**
+ * Add an MCP server to a JSON config file.
+ * Does NOT overwrite an existing entry with the same name.
+ *
+ * @param {string} configPath - Path to the JSON config file
+ * @param {string} name - MCP server name
+ * @param {object} config - MCP server config object
+ * @returns {boolean} true if added, false if already existed
+ */
+function addMcpToConfigFile(configPath, name, config) {
+  let existing = {};
   try {
-    // Create skills directory if it doesn't exist
+    existing = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  } catch {
+    // File doesn't exist or invalid JSON — start fresh
+  }
+
+  if (!existing.mcpServers) { existing.mcpServers = {}; }
+  if (existing.mcpServers[name]) { return false; }
+
+  existing.mcpServers[name] = config;
+  const dir = path.dirname(configPath);
+  if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
+  fs.writeFileSync(configPath, JSON.stringify(existing, null, 2));
+  return true;
+}
+
+/** Install skill file to ~/.claude/skills/sidecar/ */
+function installSkill() {
+  try {
     fs.mkdirSync(SKILL_DEST_DIR, { recursive: true });
-    
-    // Copy skill file
     fs.copyFileSync(SKILL_SOURCE, SKILL_DEST);
-    
-    console.log('[claude-sidecar] ✓ Skill installed to ~/.claude/skills/sidecar/');
-    console.log('[claude-sidecar] Claude Code will now know how to use sidecars.');
-    console.log('');
-    console.log('[claude-sidecar] Quick start:');
-    console.log('  sidecar start --model google/gemini-2.5-pro --briefing "Your task"');
-    console.log('');
-    console.log('[claude-sidecar] Prerequisites:');
-    console.log('  - OpenCode CLI: npm install -g opencode-ai');
-    console.log('  - Configure API: Run `npx opencode-ai` and use /connect');
-    console.log('  - Or set direct API keys: GEMINI_API_KEY, OPENAI_API_KEY, etc.');
-    
+    console.log('[claude-sidecar] Skill installed to ~/.claude/skills/sidecar/');
   } catch (err) {
-    console.error('[claude-sidecar] Warning: Could not install skill automatically.');
-    console.error('[claude-sidecar] You can manually copy SKILL.md to ~/.claude/skills/sidecar/');
-    console.error(`[claude-sidecar] Error: ${err.message}`);
+    console.error(`[claude-sidecar] Warning: Could not install skill: ${err.message}`);
   }
 }
 
-main();
+/** Register MCP server in Claude Code config */
+function registerClaudeCode() {
+  // Try the CLI first
+  try {
+    const mcpJson = JSON.stringify(MCP_CONFIG);
+    execFileSync('claude', ['mcp', 'add-json', 'sidecar', mcpJson, '--scope', 'user'], {
+      stdio: 'pipe',
+      timeout: 10000,
+    });
+    console.log('[claude-sidecar] MCP registered in Claude Code (via CLI).');
+    return;
+  } catch {
+    // CLI not available or failed — fall back to file edit
+  }
+
+  // Fallback: direct file edit
+  const claudeConfigPath = path.join(os.homedir(), '.claude.json');
+  const added = addMcpToConfigFile(claudeConfigPath, 'sidecar', MCP_CONFIG);
+  if (added) {
+    console.log('[claude-sidecar] MCP registered in Claude Code (~/.claude.json).');
+  } else {
+    console.log('[claude-sidecar] MCP already registered in Claude Code.');
+  }
+}
+
+/** Register MCP server in Claude Desktop / Cowork config */
+function registerClaudeDesktop() {
+  let configDir;
+  if (process.platform === 'darwin') {
+    configDir = path.join(os.homedir(), 'Library', 'Application Support', 'Claude');
+  } else if (process.platform === 'win32') {
+    configDir = path.join(process.env.APPDATA || '', 'Claude');
+  } else {
+    configDir = path.join(os.homedir(), '.config', 'claude');
+  }
+
+  const configPath = path.join(configDir, 'claude_desktop_config.json');
+  const added = addMcpToConfigFile(configPath, 'sidecar', MCP_CONFIG);
+  if (added) {
+    console.log('[claude-sidecar] MCP registered in Claude Desktop.');
+  } else {
+    console.log('[claude-sidecar] MCP already registered in Claude Desktop.');
+  }
+}
+
+function main() {
+  console.log('[claude-sidecar] Installing...');
+  installSkill();
+  registerClaudeCode();
+  registerClaudeDesktop();
+
+  console.log('');
+  console.log('[claude-sidecar] Prerequisites:');
+  console.log('  - OpenCode CLI: npm install -g opencode-ai');
+  console.log('  - Configure API: Run `npx opencode-ai` and use /connect');
+  console.log('  - Or set direct API keys: GEMINI_API_KEY, OPENAI_API_KEY, etc.');
+}
+
+// Only run main when executed directly (not when required for testing)
+if (require.main === module) {
+  main();
+}
+
+module.exports = { addMcpToConfigFile };
