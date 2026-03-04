@@ -8,6 +8,7 @@
  */
 
 // Load environment variables from .env files
+const fs = require('fs');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env'), quiet: true });
 
@@ -16,6 +17,7 @@ const homeDir = process.env.HOME || process.env.USERPROFILE;
 require('dotenv').config({ path: path.join(homeDir, '.config', 'sidecar', '.env'), override: false });
 
 const { parseArgs, validateStartArgs, getUsage } = require('../src/cli');
+const { validateTaskId, safeSessionDir } = require('../src/utils/validators');
 
 const VERSION = '0.1.0';
 
@@ -55,6 +57,9 @@ async function main() {
         break;
       case 'setup':
         await handleSetup(args);
+        break;
+      case 'abort':
+        await handleAbort(args);
         break;
       case 'mcp':
         await handleMcp();
@@ -118,7 +123,9 @@ async function handleStart(args) {
     client: args.client,
     sessionDir: args['session-dir'],
     foldShortcut: args['fold-shortcut'],
-    opencodePort: args['opencode-port']
+    opencodePort: args['opencode-port'],
+    noMcp: args['no-mcp'],
+    excludeMcp: args['exclude-mcp']
   });
 }
 
@@ -150,6 +157,12 @@ async function handleResume(args) {
     process.exit(1);
   }
 
+  const taskIdCheck = validateTaskId(taskId);
+  if (!taskIdCheck.valid) {
+    console.error(taskIdCheck.error);
+    process.exit(1);
+  }
+
   const { resumeSidecar } = require('../src/index');
 
   await resumeSidecar({
@@ -170,6 +183,12 @@ async function handleContinue(args) {
   if (!taskId) {
     console.error('Error: task_id is required for continue');
     console.error('Usage: sidecar continue <task_id> --prompt "..."');
+    process.exit(1);
+  }
+
+  const taskIdCheck = validateTaskId(taskId);
+  if (!taskIdCheck.valid) {
+    console.error(taskIdCheck.error);
     process.exit(1);
   }
 
@@ -202,6 +221,12 @@ async function handleRead(args) {
   if (!taskId) {
     console.error('Error: task_id is required for read');
     console.error('Usage: sidecar read <task_id> [--summary|--conversation]');
+    process.exit(1);
+  }
+
+  const taskIdCheck = validateTaskId(taskId);
+  if (!taskIdCheck.valid) {
+    console.error(taskIdCheck.error);
     process.exit(1);
   }
 
@@ -254,6 +279,41 @@ async function handleSetup(args) {
   }
 
   await runInteractiveSetup();
+}
+
+/**
+ * Handle 'sidecar abort' command
+ * Marks a running session as aborted
+ */
+async function handleAbort(args) {
+  const taskId = args._[1];
+
+  if (!taskId) {
+    console.error('Error: task_id is required for abort');
+    console.error('Usage: sidecar abort <task_id>');
+    process.exit(1);
+  }
+
+  const taskIdCheck = validateTaskId(taskId);
+  if (!taskIdCheck.valid) {
+    console.error(taskIdCheck.error);
+    process.exit(1);
+  }
+
+  const project = args.cwd || process.cwd();
+  const sessionDir = safeSessionDir(project, taskId);
+  const metaPath = path.join(sessionDir, 'metadata.json');
+
+  if (!fs.existsSync(metaPath)) {
+    console.error(`Session ${taskId} not found`);
+    process.exit(1);
+  }
+
+  const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+  meta.status = 'aborted';
+  meta.abortedAt = new Date().toISOString();
+  fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), { mode: 0o600 });
+  console.log(`Session ${taskId} marked as aborted.`);
 }
 
 /**

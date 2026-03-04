@@ -62,7 +62,7 @@ function createSession(projectDir, taskId, metadata) {
   }
 
   // Create session directory
-  fs.mkdirSync(sessionDir, { recursive: true });
+  fs.mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
 
   // Build metadata per spec §7.4
   const sessionMetadata = {
@@ -85,11 +85,12 @@ function createSession(projectDir, taskId, metadata) {
   // Write metadata.json
   fs.writeFileSync(
     path.join(sessionDir, 'metadata.json'),
-    JSON.stringify(sessionMetadata, null, 2)
+    JSON.stringify(sessionMetadata, null, 2),
+    { mode: 0o600 }
   );
 
   // Create empty conversation.jsonl
-  fs.writeFileSync(path.join(sessionDir, 'conversation.jsonl'), '');
+  fs.writeFileSync(path.join(sessionDir, 'conversation.jsonl'), '', { mode: 0o600 });
 }
 
 /**
@@ -130,7 +131,7 @@ function updateSession(projectDir, taskId, updates) {
   Object.assign(metadata, updates);
 
   // Write updated metadata
-  fs.writeFileSync(metaPath, JSON.stringify(metadata, null, 2));
+  fs.writeFileSync(metaPath, JSON.stringify(metadata, null, 2), { mode: 0o600 });
 }
 
 /**
@@ -178,7 +179,7 @@ function saveConversation(projectDir, taskId, message) {
   };
 
   // Append to conversation.jsonl
-  fs.appendFileSync(convPath, JSON.stringify(messageWithTimestamp) + '\n');
+  fs.appendFileSync(convPath, JSON.stringify(messageWithTimestamp) + '\n', { mode: 0o600 });
 }
 
 /**
@@ -201,7 +202,7 @@ function saveSummary(projectDir, taskId, summary) {
   }
 
   // Write summary file
-  fs.writeFileSync(summaryPath, summary);
+  fs.writeFileSync(summaryPath, summary, { mode: 0o600 });
 
   // Update session status
   updateSession(projectDir, taskId, {
@@ -246,7 +247,7 @@ function createSubagentSession(projectDir, parentTaskId, subagentId, metadata) {
   const subagentDir = getSubagentDir(projectDir, parentTaskId, subagentId);
 
   // Create sub-agent directory
-  fs.mkdirSync(subagentDir, { recursive: true });
+  fs.mkdirSync(subagentDir, { recursive: true, mode: 0o700 });
 
   // Build sub-agent metadata
   const subagentMetadata = {
@@ -262,11 +263,12 @@ function createSubagentSession(projectDir, parentTaskId, subagentId, metadata) {
   // Write metadata
   fs.writeFileSync(
     path.join(subagentDir, 'metadata.json'),
-    JSON.stringify(subagentMetadata, null, 2)
+    JSON.stringify(subagentMetadata, null, 2),
+    { mode: 0o600 }
   );
 
   // Initialize empty conversation file
-  fs.writeFileSync(path.join(subagentDir, 'conversation.jsonl'), '');
+  fs.writeFileSync(path.join(subagentDir, 'conversation.jsonl'), '', { mode: 0o600 });
 
   return subagentDir;
 }
@@ -289,7 +291,7 @@ function updateSubagentSession(projectDir, parentTaskId, subagentId, updates) {
 
   const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf-8'));
   const updated = { ...metadata, ...updates };
-  fs.writeFileSync(metadataPath, JSON.stringify(updated, null, 2));
+  fs.writeFileSync(metadataPath, JSON.stringify(updated, null, 2), { mode: 0o600 });
 }
 
 /**
@@ -360,7 +362,7 @@ function saveSubagentSummary(projectDir, parentTaskId, subagentId, summary) {
   const subagentDir = getSubagentDir(projectDir, parentTaskId, subagentId);
   const summaryPath = path.join(subagentDir, 'summary.md');
 
-  fs.writeFileSync(summaryPath, summary);
+  fs.writeFileSync(summaryPath, summary, { mode: 0o600 });
 
   // Update sub-agent status
   updateSubagentSession(projectDir, parentTaskId, subagentId, {

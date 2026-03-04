@@ -44,7 +44,11 @@ const DEFAULT_ALIASES = {
  */
 function getConfigDir() {
   if (process.env.SIDECAR_CONFIG_DIR) {
-    return process.env.SIDECAR_CONFIG_DIR;
+    const resolved = path.resolve(process.env.SIDECAR_CONFIG_DIR);
+    if (resolved.includes('\0')) {
+      throw new Error('Invalid SIDECAR_CONFIG_DIR: null bytes not allowed');
+    }
+    return resolved;
   }
   const homeDir = process.env.HOME || process.env.USERPROFILE;
   return path.join(homeDir, '.config', 'sidecar');
@@ -84,9 +88,9 @@ function loadConfig() {
  */
 function saveConfig(configData) {
   const configDir = getConfigDir();
-  fs.mkdirSync(configDir, { recursive: true });
+  fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
   const configPath = getConfigPath();
-  fs.writeFileSync(configPath, JSON.stringify(configData, null, 2));
+  fs.writeFileSync(configPath, JSON.stringify(configData, null, 2), { mode: 0o600 });
 }
 
 /**

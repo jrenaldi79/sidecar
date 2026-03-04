@@ -48,7 +48,7 @@ const SessionPaths = {
 /** Save system prompt and user message to initial_context.md */
 function saveInitialContext(sessionDir, systemPrompt, userMessage) {
   const content = `# System Prompt\n\n${systemPrompt}\n\n# User Message (Task)\n\n${userMessage}`;
-  fs.writeFileSync(SessionPaths.contextFile(sessionDir), content);
+  fs.writeFileSync(SessionPaths.contextFile(sessionDir), content, { mode: 0o600 });
 }
 
 /** Finalize session - detect conflicts, save summary, update metadata */
@@ -69,12 +69,12 @@ function finalizeSession(sessionDir, summary, project, metadata) {
   }
 
   // Save summary
-  fs.writeFileSync(SessionPaths.summaryFile(sessionDir), summary);
+  fs.writeFileSync(SessionPaths.summaryFile(sessionDir), summary, { mode: 0o600 });
 
   // Update metadata to complete
   metadata.status = 'complete';
   metadata.completedAt = new Date().toISOString();
-  fs.writeFileSync(metaPath, JSON.stringify(metadata, null, 2));
+  fs.writeFileSync(metaPath, JSON.stringify(metadata, null, 2), { mode: 0o600 });
 
   logger.info('Session complete', { taskId: metadata.taskId });
 }

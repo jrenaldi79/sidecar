@@ -41,8 +41,8 @@ function addMcpToConfigFile(configPath, name, config) {
 
   existing.mcpServers[name] = config;
   const dir = path.dirname(configPath);
-  if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
-  fs.writeFileSync(configPath, JSON.stringify(existing, null, 2));
+  if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); }
+  fs.writeFileSync(configPath, JSON.stringify(existing, null, 2), { mode: 0o600 });
   return true;
 }
 

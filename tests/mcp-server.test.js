@@ -10,6 +10,38 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+describe('safeSessionDir (shared validator)', () => {
+  const { safeSessionDir, validateTaskId } = require('../src/utils/validators');
+
+  test('allows valid task IDs', () => {
+    const result = safeSessionDir('/tmp/project', 'abc-123_task');
+    expect(result).toContain('abc-123_task');
+  });
+
+  test('rejects path traversal attempts', () => {
+    expect(() => safeSessionDir('/tmp/project', '../../../etc'))
+      .toThrow('path traversal');
+  });
+
+  test('rejects dot-dot within task ID', () => {
+    expect(() => safeSessionDir('/tmp/project', 'task/../../../etc'))
+      .toThrow('path traversal');
+  });
+
+  test('validateTaskId accepts valid IDs', () => {
+    expect(validateTaskId('abc123').valid).toBe(true);
+    expect(validateTaskId('task-001').valid).toBe(true);
+    expect(validateTaskId('my_task').valid).toBe(true);
+  });
+
+  test('validateTaskId rejects invalid IDs', () => {
+    expect(validateTaskId('../etc').valid).toBe(false);
+    expect(validateTaskId('').valid).toBe(false);
+    expect(validateTaskId(null).valid).toBe(false);
+    expect(validateTaskId('a;rm -rf /').valid).toBe(false);
+  });
+});
+
 describe('MCP Server Handlers', () => {
   let handlers;
 

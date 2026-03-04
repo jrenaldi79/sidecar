@@ -95,7 +95,8 @@ describe('Session Utils', () => {
 
       expect(spy).toHaveBeenCalledWith(
         path.join(sessDir, 'initial_context.md'),
-        '# System Prompt\n\nSystem prompt here\n\n# User Message (Task)\n\nUser message here'
+        '# System Prompt\n\nSystem prompt here\n\n# User Message (Task)\n\nUser message here',
+        { mode: 0o600 }
       );
 
       spy.mockRestore();
@@ -129,7 +130,8 @@ describe('Session Utils', () => {
       // Should write summary.md
       expect(writeFileSyncSpy).toHaveBeenCalledWith(
         path.join(sessDir, 'summary.md'),
-        summary
+        summary,
+        { mode: 0o600 }
       );
 
       // Should write metadata.json with status=complete

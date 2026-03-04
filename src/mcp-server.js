@@ -8,13 +8,15 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { TOOLS, getGuideText } = require('./mcp-tools');
 const { logger } = require('./utils/logger');
+const { safeSessionDir } = require('./utils/validators');
 
 /** @returns {string} Project directory (cwd of MCP client) */
 function getProjectDir() { return process.cwd(); }
 
 /** Read session metadata from disk, or null if not found */
 function readMetadata(taskId, project) {
-  const metaPath = path.join(project, '.claude', 'sidecar_sessions', taskId, 'metadata.json');
+  const sessionDir = safeSessionDir(project, taskId);
+  const metaPath = path.join(sessionDir, 'metadata.json');
   if (!fs.existsSync(metaPath)) { return null; }
   return JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
 }
@@ -76,7 +78,7 @@ const handlers = {
 
   async sidecar_read(input, project) {
     const cwd = project || getProjectDir();
-    const sessionDir = path.join(cwd, '.claude', 'sidecar_sessions', input.taskId);
+    const sessionDir = safeSessionDir(cwd, input.taskId);
     if (!fs.existsSync(sessionDir)) {
       return textResult(`Session ${input.taskId} not found.`, true);
     }
@@ -104,11 +106,21 @@ const handlers = {
     if (!fs.existsSync(sessionsDir)) { return textResult('No sidecar sessions found.'); }
 
     let sessions = fs.readdirSync(sessionsDir)
+      .filter(d => /^[a-zA-Z0-9_-]{1,64}$/.test(d))
       .filter(d => fs.existsSync(path.join(sessionsDir, d, 'metadata.json')))
       .map(d => {
-        const meta = JSON.parse(fs.readFileSync(path.join(sessionsDir, d, 'metadata.json'), 'utf-8'));
-        return { id: d, ...meta };
+        try {
+          const meta = JSON.parse(fs.readFileSync(path.join(sessionsDir, d, 'metadata.json'), 'utf-8'));
+          return {
+            id: d, model: meta.model, status: meta.status, agent: meta.agent,
+            briefing: (String(meta.briefing || '')).slice(0, 80),
+            createdAt: meta.createdAt,
+          };
+        } catch {
+          return null;
+        }
       })
+      .filter(Boolean)
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
     if (input.status && input.status !== 'all') {
@@ -116,10 +128,7 @@ const handlers = {
     }
     if (sessions.length === 0) { return textResult('No sidecar sessions found.'); }
 
-    return textResult(JSON.stringify(sessions.map(s => ({
-      id: s.id, model: s.model, status: s.status, agent: s.agent,
-      briefing: (s.briefing || '').slice(0, 80), createdAt: s.createdAt,
-    })), null, 2));
+    return textResult(JSON.stringify(sessions, null, 2));
   },
 
   async sidecar_resume(input, project) {
@@ -146,6 +155,27 @@ const handlers = {
     return textResult(JSON.stringify({
       taskId: input.taskId, status: 'running',
       message: 'Continuation started. Use sidecar_status to check progress.',
+    }));
+  },
+
+  async sidecar_abort(input, project) {
+    const cwd = project || getProjectDir();
+    const metadata = readMetadata(input.taskId, cwd);
+    if (!metadata) { return textResult(`Session ${input.taskId} not found.`, true); }
+    if (metadata.status !== 'running') {
+      return textResult(`Session ${input.taskId} is not running (status: ${metadata.status}).`);
+    }
+
+    // Update metadata to aborted
+    const sessionDir = safeSessionDir(cwd, input.taskId);
+    const metaPath = path.join(sessionDir, 'metadata.json');
+    metadata.status = 'aborted';
+    metadata.abortedAt = new Date().toISOString();
+    fs.writeFileSync(metaPath, JSON.stringify(metadata, null, 2));
+
+    return textResult(JSON.stringify({
+      taskId: input.taskId, status: 'aborted',
+      message: 'Session abort requested. The sidecar process will terminate shortly.',
     }));
   },
 

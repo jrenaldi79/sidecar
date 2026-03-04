@@ -24,6 +24,7 @@ const { logger } = require('../utils/logger');
 const { loadMcpConfig, parseMcpSpec } = require('../opencode-client');
 const { mapAgentToOpenCode } = require('../utils/agent-mapping');
 const { checkConfigChanged } = require('../utils/config');
+const { discoverParentMcps } = require('../utils/mcp-discovery');
 
 /** Generate a unique 8-character hex task ID */
 function generateTaskId() {
@@ -35,7 +36,7 @@ function createSessionMetadata(taskId, project, options) {
   const { model, prompt, briefing, noUi, headless, agent, thinking } = options;
 
   const sessionDir = SessionPaths.sessionDir(project, taskId);
-  fs.mkdirSync(sessionDir, { recursive: true });
+  fs.mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
 
   const effectiveBriefing = prompt || briefing;
   const isHeadless = noUi !== undefined ? noUi : headless;
@@ -52,22 +53,44 @@ function createSessionMetadata(taskId, project, options) {
     createdAt: new Date().toISOString()
   };
 
-  fs.writeFileSync(SessionPaths.metadataFile(sessionDir), JSON.stringify(metadata, null, 2));
+  fs.writeFileSync(SessionPaths.metadataFile(sessionDir), JSON.stringify(metadata, null, 2), { mode: 0o600 });
 
   return sessionDir;
 }
 
-/** Build MCP configuration from options */
+/**
+ * Build MCP configuration from options.
+ * Merge priority: CLI --mcp > --mcp-config > file config > discovered parent MCPs
+ *
+ * @param {object} options
+ * @param {string} [options.mcp] - CLI --mcp spec
+ * @param {string} [options.mcpConfig] - CLI --mcp-config path
+ * @param {string} [options.clientType] - Parent client type for discovery
+ * @param {boolean} [options.noMcp] - Skip MCP inheritance from parent
+ * @param {string[]} [options.excludeMcp] - Server names to exclude
+ * @returns {object|null} MCP server configs or null
+ */
 function buildMcpConfig(options) {
-  const { mcp, mcpConfig } = options;
+  const { mcp, mcpConfig, clientType, noMcp, excludeMcp } = options;
   let mcpServers = null;
 
-  const fileConfig = loadMcpConfig(mcpConfig);
-  if (fileConfig) {
-    mcpServers = { ...fileConfig };
-    logger.debug('Loaded MCP config from file', { serverCount: Object.keys(mcpServers).length });
+  // Layer 1: Discover parent MCPs (unless --no-mcp)
+  if (!noMcp) {
+    const discovered = discoverParentMcps(clientType);
+    if (discovered) {
+      mcpServers = { ...discovered };
+      logger.info('Discovered parent MCP servers', { serverCount: Object.keys(mcpServers).length });
+    }
   }
 
+  // Layer 2: File config (opencode.json) overrides discovered
+  const fileConfig = loadMcpConfig(mcpConfig);
+  if (fileConfig) {
+    mcpServers = mcpServers ? { ...mcpServers, ...fileConfig } : { ...fileConfig };
+    logger.debug('Loaded MCP config from file', { serverCount: Object.keys(fileConfig).length });
+  }
+
+  // Layer 3: CLI --mcp (highest priority)
   if (mcp) {
     const parsed = parseMcpSpec(mcp);
     if (parsed) {
@@ -76,6 +99,20 @@ function buildMcpConfig(options) {
       logger.debug('Added CLI MCP server', { name: parsed.name });
     } else {
       logger.warn('Invalid MCP server spec', { mcp });
+    }
+  }
+
+  // Apply exclusions
+  if (excludeMcp && Array.isArray(excludeMcp) && mcpServers) {
+    for (const name of excludeMcp) {
+      if (mcpServers[name]) {
+        delete mcpServers[name];
+        logger.debug('Excluded MCP server', { name });
+      }
+    }
+    // Return null if all servers were excluded
+    if (Object.keys(mcpServers).length === 0) {
+      mcpServers = null;
     }
   }
 
@@ -249,14 +286,14 @@ async function startSidecar(options) {
     cwd, project = process.cwd(), contextTurns = 50, contextSince,
     contextMaxTokens = 80000, noUi, headless = false, timeout = 15,
     agent, mcp, mcpConfig, summaryLength = 'normal', thinking,
-    client, sessionDir
+    client, sessionDir, noMcp, excludeMcp
   } = options;
 
   const effectivePrompt = prompt || briefing;
   const effectiveSession = sessionId || session;
   const effectiveProject = cwd || project;
   const effectiveHeadless = noUi !== undefined ? noUi : headless;
-  const mcpServers = buildMcpConfig({ mcp, mcpConfig });
+  const mcpServers = buildMcpConfig({ mcp, mcpConfig, clientType: client, noMcp, excludeMcp });
   const taskId = generateTaskId();
   const reasoning = thinking ? { effort: thinking } : undefined;
 
@@ -319,7 +356,7 @@ async function startSidecar(options) {
   // Persist OpenCode session ID for resume capability
   if (result && result.opencodeSessionId) {
     meta.opencodeSessionId = result.opencodeSessionId;
-    fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+    fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), { mode: 0o600 });
   }
 
   finalizeSession(sessDir, summary, effectiveProject, meta);

@@ -70,13 +70,13 @@ async function runHeadless(model, systemPrompt, userMessage, taskId, project, ti
     startServer
   } = require('./opencode-client');
 
-  const { summaryLength = 'normal', reasoning } = options;
+  const { reasoning } = options;
   const sessionDir = path.join(project, '.claude', 'sidecar_sessions', taskId);
   const conversationPath = path.join(sessionDir, 'conversation.jsonl');
 
   // Ensure session directory exists
   if (!fs.existsSync(sessionDir)) {
-    fs.mkdirSync(sessionDir, { recursive: true });
+    fs.mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
   }
 
   // Log system prompt as first message in conversation
@@ -117,6 +117,8 @@ async function runHeadless(model, systemPrompt, userMessage, taskId, project, ti
     };
   }
 
+  let sessionId;
+
   try {
     // Wait for server to be ready
     logger.debug('Waiting for OpenCode server to be ready');
@@ -136,7 +138,6 @@ async function runHeadless(model, systemPrompt, userMessage, taskId, project, ti
 
     // Create a new session using SDK
     logger.debug('Creating OpenCode session');
-    let sessionId;
     try {
       sessionId = await createSession(client);
     } catch (error) {
@@ -180,6 +181,7 @@ async function runHeadless(model, systemPrompt, userMessage, taskId, project, ti
     let output = '';
     let completed = false;
     let timedOut = false;
+    let aborted = false;
     const toolCalls = [];
 
     // Poll for completion by checking messages
@@ -189,10 +191,32 @@ async function runHeadless(model, systemPrompt, userMessage, taskId, project, ti
     let lastOutputLength = 0; // Track output growth to detect streaming
     let stablePolls = 0; // Count polls where nothing has changed
     const seenTextParts = new Map(); // partId -> last captured text length
-    const seenPartIds = new Set(); // Track processed non-text part IDs
+    // seenPartIds reserved for future use (tracking processed non-text parts)
 
     while (!completed && (Date.now() - startTime) < timeoutMs) {
       await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // Check for external abort signal (MCP tool or CLI command)
+      try {
+        const metaCheck = path.join(sessionDir, 'metadata.json');
+        if (fs.existsSync(metaCheck)) {
+          const metaContent = fs.readFileSync(metaCheck, 'utf-8');
+          const meta = JSON.parse(metaContent);
+          if (meta.status === 'aborted') {
+            logger.info('External abort signal received', { taskId });
+            try {
+              const { abortSession } = require('./opencode-client');
+              await abortSession(client, sessionId);
+            } catch (abortErr) {
+              logger.warn('Failed to abort OpenCode session', { error: abortErr.message });
+            }
+            aborted = true;
+            break;
+          }
+        }
+      } catch {
+        // Ignore metadata read errors during polling
+      }
       pollCount++;
 
       try {
@@ -328,9 +352,18 @@ async function runHeadless(model, systemPrompt, userMessage, taskId, project, ti
     }
 
     // Handle timeout
-    if (!completed && (Date.now() - startTime) >= timeoutMs) {
+    if (!completed && !aborted && (Date.now() - startTime) >= timeoutMs) {
       timedOut = true;
       logger.warn('Task timed out', { taskId, elapsed: Date.now() - startTime });
+
+      // Abort the OpenCode session on timeout (agent keeps running otherwise)
+      try {
+        const { abortSession } = require('./opencode-client');
+        await abortSession(client, sessionId);
+        logger.info('Session aborted after timeout', { taskId, sessionId });
+      } catch (abortErr) {
+        logger.warn('Failed to abort session after timeout', { error: abortErr.message });
+      }
     }
 
     server.close();
@@ -350,17 +383,28 @@ async function runHeadless(model, systemPrompt, userMessage, taskId, project, ti
       summary: extractSummary(output),
       completed,
       timedOut,
+      aborted,
       taskId,
       toolCalls, // Include tool calls in result for verification
       exitCode: 0
     };
 
   } catch (error) {
+    // Abort session on error (agent may keep running)
+    if (sessionId) {
+      try {
+        const { abortSession } = require('./opencode-client');
+        await abortSession(client, sessionId);
+      } catch {
+        // Ignore abort errors during error handling
+      }
+    }
     server.close();
     return {
       summary: '',
       completed: false,
       timedOut: false,
+      aborted: false,
       taskId,
       error: error.message
     };
@@ -422,7 +466,7 @@ function formatFoldOutput({ model, sessionId, client, cwd, mode, summary }) {
  * @param {object} message - Message object with role, content, timestamp
  */
 function logMessage(conversationPath, message) {
-  fs.appendFileSync(conversationPath, JSON.stringify(message) + '\n');
+  fs.appendFileSync(conversationPath, JSON.stringify(message) + '\n', { mode: 0o600 });
 }
 
 module.exports = {

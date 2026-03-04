@@ -40,7 +40,11 @@ const VALIDATION_ENDPOINTS = {
 /** Get the path to the .env file */
 function getEnvPath() {
   if (process.env.SIDECAR_ENV_DIR) {
-    return path.join(process.env.SIDECAR_ENV_DIR, '.env');
+    const resolved = path.resolve(process.env.SIDECAR_ENV_DIR);
+    if (resolved.includes('\0')) {
+      throw new Error('Invalid SIDECAR_ENV_DIR: null bytes not allowed');
+    }
+    return path.join(resolved, '.env');
   }
   const homeDir = process.env.HOME || process.env.USERPROFILE;
   return path.join(homeDir, '.config', 'sidecar', '.env');

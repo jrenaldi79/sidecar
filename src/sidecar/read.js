@@ -7,6 +7,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { safeSessionDir, TASK_ID_PATTERN } = require('../utils/validators');
 
 /**
  * Format a timestamp as relative age
@@ -47,16 +48,25 @@ async function listSidecars(options) {
   }
 
   let sessions = fs.readdirSync(sessionsDir)
+    .filter(d => TASK_ID_PATTERN.test(d))
     .filter(d => {
       const metaPath = path.join(sessionsDir, d, 'metadata.json');
       return fs.existsSync(metaPath);
     })
     .map(d => {
-      const meta = JSON.parse(
-        fs.readFileSync(path.join(sessionsDir, d, 'metadata.json'), 'utf-8')
-      );
-      return { ...meta, id: d };
+      try {
+        const meta = JSON.parse(
+          fs.readFileSync(path.join(sessionsDir, d, 'metadata.json'), 'utf-8')
+        );
+        return {
+          id: d, model: meta.model, status: meta.status, agent: meta.agent,
+          briefing: meta.briefing, createdAt: meta.createdAt,
+        };
+      } catch {
+        return null;
+      }
     })
+    .filter(Boolean)
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
   // Filter by status if specified
@@ -102,7 +112,7 @@ async function listSidecars(options) {
 async function readSidecar(options) {
   const { taskId, conversation, metadata, project = process.cwd() } = options;
 
-  const sessionDir = path.join(project, '.claude', 'sidecar_sessions', taskId);
+  const sessionDir = safeSessionDir(project, taskId);
 
   if (!fs.existsSync(sessionDir)) {
     throw new Error(`Session ${taskId} not found`);

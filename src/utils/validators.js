@@ -27,6 +27,40 @@ const PROVIDER_KEY_MAP = {
   'deepseek': { key: 'DEEPSEEK_API_KEY', name: 'DeepSeek' },
 };
 
+/** Task ID format: alphanumeric, hyphens, underscores, 1-64 chars */
+const TASK_ID_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
+
+/**
+ * Validate a task ID format (safe for use in file paths)
+ * @param {string} taskId
+ * @returns {{valid: boolean, error?: string}}
+ */
+function validateTaskId(taskId) {
+  if (!taskId) {
+    return { valid: false, error: 'Task ID is required' };
+  }
+  if (!TASK_ID_PATTERN.test(taskId)) {
+    return { valid: false, error: 'Invalid task ID format. Must be 1-64 alphanumeric, hyphen, or underscore characters.' };
+  }
+  return { valid: true };
+}
+
+/**
+ * Resolve and validate a session path, preventing path traversal.
+ * @param {string} project - Project root directory
+ * @param {string} taskId - Task ID (should be pre-validated with validateTaskId)
+ * @returns {string} Absolute path to the session directory
+ * @throws {Error} If resolved path escapes the sessions directory
+ */
+function safeSessionDir(project, taskId) {
+  const sessionsDir = path.join(project, '.claude', 'sidecar_sessions');
+  const resolved = path.resolve(sessionsDir, taskId);
+  if (!resolved.startsWith(sessionsDir + path.sep)) {
+    throw new Error('Invalid task ID: path traversal detected');
+  }
+  return resolved;
+}
+
 /**
  * Validate prompt content is not empty or whitespace-only
  * @param {string} prompt
@@ -378,6 +412,9 @@ module.exports = {
   VALID_AGENT_MODES,
   PROVIDER_KEY_MAP,
   MODEL_THINKING_SUPPORT,
+  TASK_ID_PATTERN,
+  validateTaskId,
+  safeSessionDir,
   validatePromptContent,
   validateCwdPath,
   // Backward-compatible aliases

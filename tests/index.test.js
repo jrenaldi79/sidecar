@@ -19,7 +19,14 @@ jest.mock('../src/opencode-client', () => ({
   startServer: jest.fn().mockResolvedValue({
     client: {},
     server: { url: 'http://127.0.0.1:4440', close: jest.fn() }
-  })
+  }),
+  loadMcpConfig: jest.fn().mockReturnValue(null),
+  parseMcpSpec: jest.fn().mockReturnValue(null),
+  abortSession: jest.fn().mockResolvedValue(undefined)
+}));
+
+jest.mock('../src/utils/mcp-discovery', () => ({
+  discoverParentMcps: jest.fn().mockReturnValue(null)
 }));
 
 jest.mock('../src/utils/logger', () => ({
@@ -174,7 +181,7 @@ describe('Index Module', () => {
       const output = consoleSpy.mock.calls[0][0];
       const parsed = JSON.parse(output);
       expect(Array.isArray(parsed)).toBe(true);
-      expect(parsed[0].taskId).toBe('json1234');
+      expect(parsed[0].id).toBe('json1234');
       consoleSpy.mockRestore();
     });
 

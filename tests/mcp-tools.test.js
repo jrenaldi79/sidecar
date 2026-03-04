@@ -5,7 +5,7 @@
  * and the sidecar_guide text content.
  */
 
-const { TOOLS, getGuideText } = require('../src/mcp-tools');
+const { TOOLS, getGuideText, safeTaskId, safeModel } = require('../src/mcp-tools');
 
 describe('MCP Tool Definitions', () => {
   test('exports TOOLS array with correct structure', () => {
@@ -197,6 +197,46 @@ describe('MCP Tool Definitions', () => {
     test('contains briefing guidance', () => {
       const guide = getGuideText();
       expect(guide.toLowerCase()).toContain('briefing');
+    });
+  });
+
+  describe('Input Validation (Security)', () => {
+    test('safeTaskId accepts valid IDs', () => {
+      expect(safeTaskId.parse('abc-123')).toBe('abc-123');
+      expect(safeTaskId.parse('task_001')).toBe('task_001');
+      expect(safeTaskId.parse('a'.repeat(64))).toBe('a'.repeat(64));
+    });
+
+    test('safeTaskId rejects path traversal', () => {
+      expect(() => safeTaskId.parse('../etc/passwd')).toThrow();
+      expect(() => safeTaskId.parse('task/../../../etc')).toThrow();
+      expect(() => safeTaskId.parse('../../..')).toThrow();
+    });
+
+    test('safeTaskId rejects empty and too-long IDs', () => {
+      expect(() => safeTaskId.parse('')).toThrow();
+      expect(() => safeTaskId.parse('a'.repeat(65))).toThrow();
+    });
+
+    test('safeTaskId rejects special characters', () => {
+      expect(() => safeTaskId.parse('task;rm -rf /')).toThrow();
+      expect(() => safeTaskId.parse('task$(evil)')).toThrow();
+    });
+
+    test('safeModel accepts valid model strings', () => {
+      expect(safeModel.parse('gemini')).toBe('gemini');
+      expect(safeModel.parse('openrouter/google/gemini-3-flash-preview')).toBe('openrouter/google/gemini-3-flash-preview');
+      expect(safeModel.parse('anthropic/claude-sonnet-4')).toBe('anthropic/claude-sonnet-4');
+    });
+
+    test('safeModel rejects flag injection', () => {
+      expect(() => safeModel.parse('--malicious')).toThrow();
+      expect(() => safeModel.parse('-flag')).toThrow();
+    });
+
+    test('safeModel rejects shell metacharacters', () => {
+      expect(() => safeModel.parse('model;rm -rf /')).toThrow();
+      expect(() => safeModel.parse('model$(evil)')).toThrow();
     });
   });
 });

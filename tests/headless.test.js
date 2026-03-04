@@ -23,6 +23,7 @@ const mockGetMessages = jest.fn();
 const mockCheckHealth = jest.fn();
 const mockStartServer = jest.fn();
 const mockServerClose = jest.fn();
+const mockAbortSession = jest.fn();
 
 jest.mock('../src/opencode-client', () => ({
   createSession: mockCreateSession,
@@ -30,7 +31,8 @@ jest.mock('../src/opencode-client', () => ({
   sendPromptAsync: mockSendPromptAsync,
   getMessages: mockGetMessages,
   checkHealth: mockCheckHealth,
-  startServer: mockStartServer
+  startServer: mockStartServer,
+  abortSession: mockAbortSession
 }));
 
 jest.mock('../src/utils/logger', () => ({
@@ -293,7 +295,7 @@ describe('Headless Mode Runner', () => {
 
         expect(fs.mkdirSync).toHaveBeenCalledWith(
           expect.stringContaining(testTaskId),
-          { recursive: true }
+          { recursive: true, mode: 0o700 }
         );
       });
 

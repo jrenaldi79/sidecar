@@ -9,6 +9,18 @@
 
 const { z } = require('zod');
 
+/** Zod pattern for safe task IDs (alphanumeric, hyphens, underscores only) */
+const safeTaskId = z.string().regex(
+  /^[a-zA-Z0-9_-]{1,64}$/,
+  'Task ID must be 1-64 alphanumeric, hyphen, or underscore characters'
+);
+
+/** Zod pattern for safe model identifiers (must not start with -) */
+const safeModel = z.string().regex(
+  /^[a-zA-Z0-9_/.@:][a-zA-Z0-9_/.@:-]{0,199}$/,
+  'Model must be 1-200 chars, start with alphanumeric, and contain only provider/model characters'
+);
+
 /**
  * All MCP tools exposed by the sidecar server.
  * Each tool has a name, description, and Zod-based inputSchema.
@@ -26,7 +38,7 @@ const TOOLS = [
       'mode. Call sidecar_guide first if you need help choosing models or ' +
       'writing a good briefing.',
     inputSchema: {
-      model: z.string().optional().describe(
+      model: safeModel.optional().describe(
         'Model alias (gemini, opus, gpt) or full ID ' +
         '(openrouter/google/gemini-3-flash-preview). ' +
         'If omitted, uses the configured default model.'
@@ -58,7 +70,7 @@ const TOOLS = [
       '(running/complete), elapsed time, and model info. Use after ' +
       'sidecar_start to poll for completion.',
     inputSchema: {
-      taskId: z.string().describe(
+      taskId: safeTaskId.describe(
         'The task ID returned by sidecar_start.'
       ),
     },
@@ -69,7 +81,7 @@ const TOOLS = [
       'Read the results of a completed sidecar task. Returns the summary ' +
       'by default, or full conversation history, or session metadata.',
     inputSchema: {
-      taskId: z.string().describe('The task ID to read.'),
+      taskId: safeTaskId.describe('The task ID to read.'),
       mode: z.enum(['summary', 'conversation', 'metadata']).optional()
         .default('summary').describe(
           'What to read. summary (default): the fold summary. ' +
@@ -95,7 +107,7 @@ const TOOLS = [
       'preserved. The sidecar continues in the same OpenCode session. ' +
       'Returns a task ID immediately — use sidecar_status to poll.',
     inputSchema: {
-      taskId: z.string().describe(
+      taskId: safeTaskId.describe(
         'The task ID of the session to resume.'
       ),
       noUi: z.boolean().optional().default(false).describe(
@@ -111,13 +123,13 @@ const TOOLS = [
       'read-only background for the new task. Returns a task ID ' +
       'immediately — use sidecar_status to poll.',
     inputSchema: {
-      taskId: z.string().describe(
+      taskId: safeTaskId.describe(
         'The task ID of the previous session to continue from.'
       ),
       prompt: z.string().describe(
         'New task description for the continuation.'
       ),
-      model: z.string().optional().describe(
+      model: safeModel.optional().describe(
         'Override model. Defaults to the original session\'s model.'
       ),
       noUi: z.boolean().optional().default(false).describe(
@@ -131,6 +143,18 @@ const TOOLS = [
       'Open the sidecar setup wizard to configure API keys and default ' +
       'model. Launches an interactive Electron window for configuration.',
     inputSchema: {},
+  },
+  {
+    name: 'sidecar_abort',
+    description:
+      'Abort a running sidecar session. Stops the OpenCode agent ' +
+      'immediately. Use when a sidecar is taking too long or is no ' +
+      'longer needed.',
+    inputSchema: {
+      taskId: safeTaskId.describe(
+        'The task ID of the running session to abort.'
+      ),
+    },
   },
   {
     name: 'sidecar_guide',
@@ -212,4 +236,6 @@ findings.
 module.exports = {
   TOOLS,
   getGuideText,
+  safeTaskId,
+  safeModel,
 };

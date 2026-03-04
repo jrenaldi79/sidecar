@@ -184,13 +184,16 @@ function rebrandUI() {
 function navigateToSession(sessionId, retries = 8) {
   if (!contentView || retries <= 0) { return; }
 
+  // Use JSON.stringify to safely escape sessionId for JS interpolation
+  const safeId = JSON.stringify(sessionId);
   const js = `
     (function() {
+      const targetId = ${safeId};
       const clickables = [...document.querySelectorAll('a, button')];
       for (const el of clickables) {
         const text = el.textContent || '';
         const href = el.href || '';
-        if (href.includes('${sessionId}') || text.includes('${sessionId}')) {
+        if (href.includes(targetId) || text.includes(targetId)) {
           el.click();
           return 'clicked session';
         }
