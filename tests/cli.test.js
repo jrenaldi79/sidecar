@@ -262,11 +262,19 @@ describe('CLI Argument Parser', () => {
   });
 
   describe('validateStartArgs', () => {
-    it('should return error if --model is missing', () => {
-      const args = { _: ['start'], briefing: 'test' };
+    it('should pass validation when --model is not provided (resolved externally)', () => {
+      // Model resolution happens in handleStart before validateStartArgs is called.
+      // When model is undefined, validateStartArgs should skip model format check.
+      const args = { _: ['start'], prompt: 'test' };
       const result = validateStartArgs(args);
-      expect(result.valid).toBe(false);
-      expect(result.error).toContain('--model');
+      // Should pass because model is optional now (resolved before validation)
+      expect(result.valid).toBe(true);
+    });
+
+    it('should validate model format when a resolved full model string is provided', () => {
+      const args = { _: ['start'], model: 'openrouter/google/gemini-3-flash-preview', prompt: 'test' };
+      const result = validateStartArgs(args);
+      expect(result.valid).toBe(true);
     });
 
     it('should return error if --prompt is missing', () => {

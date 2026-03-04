@@ -363,35 +363,16 @@ sidecar subagent read <subagent-id> --conversation  # Show full conversation
 
 ## Models Available
 
-### Via OpenRouter (prefix with `openrouter/`)
+### Model Selection
 
-| Model | Full Name | Best For |
-|-------|-----------|----------|
-| Gemini 2.5 Pro | `openrouter/google/gemini-2.5-pro` | Large context (1M), long documents |
-| Gemini 2.5 Flash | `openrouter/google/gemini-2.5-flash` | Fast, cost-effective (1M context) |
-| GPT-4o | `openrouter/openai/gpt-4o` | General tasks, coding (128K) |
-| o3-mini | `openrouter/openai/o3-mini` | Complex reasoning, math (128K) |
-| Claude Sonnet 4 | `openrouter/anthropic/claude-sonnet-4` | Balanced performance (200K) |
-| DeepSeek Chat | `openrouter/deepseek/deepseek-chat` | Coding, cost-effective (64K) |
+Use short aliases when a default is configured (`sidecar setup`):
+- `--model gemini` -- Google Gemini 3 Flash (fast, 1M context)
+- `--model opus` -- Claude Opus 4.6 (deep analysis)
+- `--model gpt` -- OpenAI GPT-5.2
+- `--model deepseek` -- DeepSeek v3.2
+- Omit `--model` entirely to use your configured default
 
-### Via Direct API Keys (no prefix)
-
-| Model | Full Name | Required Env Var |
-|-------|-----------|------------------|
-| Gemini 2.5 Pro | `google/gemini-2.5-pro` | `GEMINI_API_KEY` |
-| Gemini 2.5 Flash | `google/gemini-2.5-flash` | `GEMINI_API_KEY` |
-| GPT-4o | `openai/gpt-4o` | `OPENAI_API_KEY` |
-| o3-mini | `openai/o3-mini` | `OPENAI_API_KEY` |
-| Claude Sonnet 4 | `anthropic/claude-sonnet-4` | `ANTHROPIC_API_KEY` |
-| DeepSeek Chat | `deepseek/deepseek-chat` | `DEEPSEEK_API_KEY` |
-
-### Interactive Mode Model Picker
-
-In interactive mode, these 6 models are available in the dropdown for quick switching:
-- **Google:** Gemini 2.5 Flash, Gemini 2.5 Pro
-- **OpenAI:** GPT-4o, o3-mini
-- **Anthropic:** Claude Sonnet 4
-- **DeepSeek:** DeepSeek Chat
+Full model strings still work: `--model openrouter/google/gemini-3-flash-preview`
 
 ### Verifying Model Names
 
@@ -514,7 +495,7 @@ Read-only mode for analysis and planning without modifying files:
 
 ```bash
 # RECOMMENDED: Start most sidecars in Plan mode
-sidecar start --model gemini-2.5-flash --prompt "Analyze the auth flow" --agent Plan
+sidecar start --model gemini --prompt "Analyze the auth flow" --agent Plan
 
 # This is the safest approach - analyze first, implement later
 ```
@@ -540,7 +521,7 @@ Full tool access for implementation work. **Only use when implementation is expl
 
 ```bash
 # Only use when user explicitly requests changes:
-sidecar start --model gemini-2.5-flash --prompt "Implement the login feature" --agent Build
+sidecar start --model gemini --prompt "Implement the login feature" --agent Build
 ```
 
 ### Subagents (Spawned Within Sessions)
@@ -715,9 +696,8 @@ closures but I can't identify the source.
 
 ```bash
 # Build mode is appropriate here because user explicitly requested file creation
-# Requires: export GEMINI_API_KEY=your-key
 sidecar start \
-  --model google/gemini-2.5-flash \
+  --model gemini \
   --agent Build \
   --prompt "Generate comprehensive Jest tests for all exported functions
 in src/utils/. Include edge cases. Write to tests/utils/." \
@@ -730,7 +710,7 @@ in src/utils/. Include edge cases. Write to tests/utils/." \
 ```bash
 # Plan mode is ideal for code review - read-only analysis
 sidecar start \
-  --model openrouter/google/gemini-2.5-pro \
+  --model gemini \
   --agent Plan \
   --prompt "Review the authentication flow for security issues.
 Focus on: token handling, session management, CSRF protection.
@@ -741,7 +721,7 @@ Analyze and report findings."
 
 ```bash
 # First, start a sidecar in Plan mode (recommended default)
-sidecar start --model openrouter/google/gemini-2.5-flash --agent Plan --prompt "Debug auth issues"
+sidecar start --model gemini --agent Plan --prompt "Debug auth issues"
 # Output: Started sidecar with task ID: abc123
 
 # Spawn an Explore subagent for codebase search
@@ -771,7 +751,7 @@ sidecar read abc123
 
 # Continue with a follow-up task
 sidecar continue abc123 \
-  --model openrouter/openai/gpt-4o \
+  --model gpt \
   --prompt "Implement the fix recommended in the previous session.
 The mutex approach looks correct. Add tests."
 ```

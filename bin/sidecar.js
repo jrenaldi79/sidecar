@@ -49,6 +49,9 @@ async function main() {
       case 'read':
         await handleRead(args);
         break;
+      case 'setup':
+        await handleSetup(args);
+        break;
       default:
         console.error(`Unknown command: ${command}`);
         console.log(getUsage());
@@ -65,7 +68,16 @@ async function main() {
  * Spec Reference: §4.1
  */
 async function handleStart(args) {
-  // Validate required arguments
+  // Resolve model alias or use config default before validation
+  const { resolveModel } = require('../src/utils/config');
+  try {
+    args.model = resolveModel(args.model);
+  } catch (err) {
+    console.error(err.message);
+    process.exit(1);
+  }
+
+  // Validate required arguments (model is now resolved)
   const validation = validateStartArgs(args);
   if (!validation.valid) {
     console.error(validation.error);
@@ -192,6 +204,34 @@ async function handleRead(args) {
     metadata: args.metadata,
     project: args.cwd
   });
+}
+
+/**
+ * Handle 'sidecar setup' command
+ * Runs interactive setup wizard or adds an alias via --add-alias
+ */
+async function handleSetup(args) {
+  const { addAlias, runInteractiveSetup } = require('../src/sidecar/setup');
+
+  if (args['add-alias']) {
+    const spec = args['add-alias'];
+    const eqIndex = spec.indexOf('=');
+    if (eqIndex === -1) {
+      console.error('Error: --add-alias must be in format name=model');
+      process.exit(1);
+    }
+    const name = spec.slice(0, eqIndex);
+    const model = spec.slice(eqIndex + 1);
+    if (!name || !model) {
+      console.error('Error: --add-alias must be in format name=model');
+      process.exit(1);
+    }
+    addAlias(name, model);
+    console.log(`Alias '${name}' added: ${model}`);
+    return;
+  }
+
+  await runInteractiveSetup();
 }
 
 // Run main

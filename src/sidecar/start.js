@@ -23,6 +23,7 @@ const { runHeadless } = require('../headless');
 const { logger } = require('../utils/logger');
 const { loadMcpConfig, parseMcpSpec } = require('../opencode-client');
 const { mapAgentToOpenCode } = require('../utils/agent-mapping');
+const { checkConfigChanged } = require('../utils/config');
 
 /** Generate a unique 8-character hex task ID */
 function generateTaskId() {
@@ -236,6 +237,19 @@ async function startSidecar(options) {
   const reasoning = thinking ? { effort: thinking } : undefined;
 
   logger.info('Starting task', { taskId, model, mode: effectiveHeadless ? 'headless' : 'interactive' });
+
+  // Check for config changes and emit update data to stderr
+  const claudeMdPath = path.join(effectiveProject, 'CLAUDE.md');
+  let currentHash = null;
+  if (fs.existsSync(claudeMdPath)) {
+    const content = fs.readFileSync(claudeMdPath, 'utf-8');
+    const match = content.match(/<!-- sidecar-config-hash: ([0-9a-f]+) -->/);
+    if (match) { currentHash = match[1]; }
+  }
+  const configCheck = checkConfigChanged(currentHash);
+  if (configCheck.changed) {
+    process.stderr.write(`\n[SIDECAR_CONFIG_UPDATE] Model configuration has changed.\nUpdate your project doc file with:\n\n${configCheck.updateData}\n\n`);
+  }
 
   const context = buildContext(effectiveProject, effectiveSession, { contextTurns, contextSince, contextMaxTokens, sessionDir, client });
   const { system: systemPrompt, userMessage } = buildPrompts(

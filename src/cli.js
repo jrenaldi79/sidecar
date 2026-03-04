@@ -115,11 +115,6 @@ function parseValue(key, value) {
  * @returns {{ valid: boolean, error?: string }}
  */
 function validateStartArgs(args) {
-  // Required: --model
-  if (!args.model) {
-    return { valid: false, error: 'Error: --model is required' };
-  }
-
   // Required: --prompt (presence check)
   if (!args.prompt) {
     return { valid: false, error: 'Error: --prompt is required' };
@@ -131,8 +126,8 @@ function validateStartArgs(args) {
     return promptCheck;
   }
 
-  // Validate model format: provider/model
-  if (!isValidModelFormat(args.model)) {
+  // Validate model format if model is present (model is resolved externally via resolveModel)
+  if (args.model && !isValidModelFormat(args.model)) {
     return { valid: false, error: 'Error: --model must be in format provider/model (e.g., google/gemini-2.5-flash) or openrouter/provider/model' };
   }
 
@@ -314,9 +309,11 @@ Commands:
   continue    New sidecar building on previous
   read        Output sidecar summary/conversation
   subagent    Manage sub-agents within a sidecar
+  setup       Configure default model and aliases
 
 Options for 'start':
-  --model <model>              Required. Model to use:
+  --model <model>              Optional (uses config default). Model to use:
+                               - Short aliases: gemini, opus, gpt (see 'sidecar setup')
                                - Direct API: google/gemini-2.5-flash
                                - OpenRouter: openrouter/google/gemini-2.5-flash
   --prompt <text>              Required. Task description

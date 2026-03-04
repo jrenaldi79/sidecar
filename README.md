@@ -52,22 +52,54 @@ export OPENAI_API_KEY=your-openai-api-key    # For OpenAI models
 export ANTHROPIC_API_KEY=your-anthropic-key  # For Anthropic models
 ```
 
+### Configure Model Defaults
+
+```bash
+sidecar setup
+```
+
+The setup wizard configures your default model and 21+ short aliases. After setup:
+- `sidecar start --prompt "..."` uses your default model
+- `sidecar start --model opus --prompt "..."` uses an alias
+- Full model strings still work
+
+Add custom aliases anytime:
+```bash
+sidecar setup --add-alias fast=openrouter/google/gemini-3-flash-preview
+```
+
 ## Quick Start
 
 ```bash
-# Interactive sidecar with Gemini (via OpenRouter)
-sidecar start \
-  --model openrouter/google/gemini-2.5-pro \
-  --briefing "Debug the auth race condition in TokenManager.ts"
+# First time: run setup to configure your default model
+sidecar setup
 
-# Headless (autonomous) test generation with direct API key
-sidecar start \
-  --model google/gemini-2.5-flash \
-  --briefing "Generate Jest tests for src/utils/" \
-  --headless
+# Start a sidecar (uses your default model)
+sidecar start --prompt "Debug the auth race condition in TokenManager.ts"
+
+# Use a specific model alias
+sidecar start --model opus --prompt "Deep analysis of the caching layer"
+
+# Headless (autonomous) mode
+sidecar start --model gemini --prompt "Generate Jest tests for src/utils/" --no-ui
+
+# Full model strings still work
+sidecar start --model openrouter/google/gemini-3-flash-preview --prompt "..."
 ```
 
 ## Model Naming
+
+After running `sidecar setup`, you can use short aliases instead of full model strings:
+
+| Alias | Model |
+|-------|-------|
+| `gemini` | Gemini 3 Flash (default) |
+| `opus` | Claude Opus 4.6 |
+| `gpt` | OpenAI GPT-5.2 |
+| `deepseek` | DeepSeek v3.2 |
+| ...and 17 more | See `~/.config/sidecar/config.json` |
+
+Full model strings continue to work as before:
 
 The model name format determines which authentication is used:
 
@@ -82,6 +114,7 @@ The model name format determines which authentication is used:
 
 | Command | Description |
 |---------|-------------|
+| `sidecar setup` | Configure default model and aliases |
 | `sidecar start` | Launch a new sidecar |
 | `sidecar list` | Show previous sidecars |
 | `sidecar resume <id>` | Reopen a previous sidecar |

@@ -40,6 +40,8 @@ node bin/sidecar.js list [--status <filter>] [--all]
 node bin/sidecar.js resume <task_id>
 node bin/sidecar.js continue <task_id> --briefing "..."
 node bin/sidecar.js read <task_id> [--summary|--conversation]
+sidecar setup                    # Configure default model and aliases
+sidecar setup --add-alias name=model  # Add a custom alias
 ```
 
 ### OpenCode Agent Types
@@ -148,7 +150,8 @@ sidecar/
 │   │   ├── continue.js          # continueSidecar(), loadPreviousSession()
 │   │   ├── read.js              # readSidecar(), listSidecars(), formatAge()
 │   │   ├── context-builder.js   # buildContext(), parseDuration()
-│   │   └── session-utils.js     # Shared utilities (SessionPaths, finalizeSession, etc.)
+│   │   ├── session-utils.js     # Shared utilities (SessionPaths, finalizeSession, etc.)
+│   │   └── setup.js             # addAlias(), createDefaultConfig(), runInteractiveSetup()
 │   ├── context.js               # Context extraction & filtering
 │   ├── session-manager.js       # Session persistence & metadata
 │   ├── prompt-builder.js        # System prompt construction
@@ -159,6 +162,7 @@ sidecar/
 │   ├── jsonl-parser.js          # JSONL parsing & formatting
 │   └── utils/                   # Utility modules
 │       ├── agent-mapping.js     # OpenCode agent mapping & validation
+│       ├── config.js            # Config loading, alias resolution, hash detection
 │       ├── validators.js        # CLI input validation helpers
 │       ├── logger.js            # Structured logging
 │       ├── path-setup.js        # PATH configuration for OpenCode
@@ -201,8 +205,8 @@ sidecar/
 ├── jest.config.js
 ├── .eslintrc.js
 ├── CLAUDE.md                    # This file (primary)
-├── GEMINI.md                    # Synced from CLAUDE.md
-└── AGENTS.md                    # Synced from CLAUDE.md
+├── GEMINI.md                    # Symlink → CLAUDE.md
+└── AGENTS.md                    # Symlink → CLAUDE.md
 ```
 
 ---
@@ -219,6 +223,7 @@ sidecar/
 | `sidecar/read.js` | Session listing/reading | `readSidecar()`, `listSidecars()`, `formatAge()` |
 | `sidecar/context-builder.js` | Context from Claude Code | `buildContext()`, `parseDuration()` |
 | `sidecar/session-utils.js` | Shared utilities | `SessionPaths`, `finalizeSession()`, `saveInitialContext()`, `createHeartbeat()` |
+| `sidecar/setup.js` | Interactive setup wizard | `addAlias()`, `createDefaultConfig()`, `runInteractiveSetup()` |
 
 ### Supporting Modules (`src/`)
 
@@ -234,6 +239,7 @@ sidecar/
 | `drift.js` | Context staleness | `calculateDrift()`, `isDriftSignificant()`, `countTurnsSince()` |
 | `session.js` | Session resolution | Primary (explicit ID) / Fallback (most recent mtime) |
 | `utils/agent-mapping.js` | OpenCode agent mapping | `mapAgentToOpenCode()`, `isValidAgent()`, `OPENCODE_AGENTS` |
+| `utils/config.js` | Config loading, alias resolution, hash detection | `loadConfig()`, `saveConfig()`, `resolveModel()`, `computeConfigHash()` |
 | `utils/model-router.js` | Subagent model routing | `resolveModel()`, `getConfiguredCheapModel()`, `isRoutingEnabled()` |
 | `utils/agent-model-config.js` | Model config persistence | `loadConfig()`, `saveConfig()`, `getModelForAgent()`, `setAgentModel()` |
 | `utils/validators.js` | CLI input validation | `validateBriefingContent()`, `validateProjectPath()`, `validateApiKey()` |
@@ -926,6 +932,19 @@ curl https://openrouter.ai/api/v1/models | jq '.data[].id' | grep -i gemini
 
 **Note**: Model names change frequently. Always verify current names via the API.
 
+### Model Aliases
+
+Sidecar supports model aliases configured via `sidecar setup`. Config is stored at `~/.config/sidecar/config.json`.
+
+```bash
+sidecar setup                              # Interactive wizard
+sidecar start --prompt "Review auth"       # Uses config default model
+sidecar start --model opus --prompt "..."  # Uses alias
+sidecar start --model openrouter/google/gemini-3-flash-preview --prompt "..."  # Full string
+```
+
+Run `sidecar setup --add-alias name=model` to add custom aliases.
+
 ---
 
 ## SDK & API Notes
@@ -1151,7 +1170,6 @@ The v3 interactive mode uses OpenCode's native web UI directly via Electron's `B
 - [ ] Run `npm test` - all tests passing
 - [ ] Run `npm run lint` - no lint errors
 - [ ] Update CLAUDE.md if architecture changed
-- [ ] Sync docs: `node scripts/sync-agent-docs.js`
 
 ---
 
@@ -1181,24 +1199,12 @@ The v3 interactive mode uses OpenCode's native web UI directly via Electron's `B
 - [ ] Structured logging (not console.log)
 - [ ] JSDoc comments on public APIs
 - [ ] Documentation updated if architecture changed
-- [ ] Agent docs synced (`node scripts/sync-agent-docs.js`)
 
 ---
 
-## Agent Documentation Sync
+## Agent Documentation
 
-This project maintains synced documentation for multiple AI agents:
-- **CLAUDE.md** (primary) - Claude Code instructions
-- **GEMINI.md** - Gemini instructions (synced)
-- **AGENTS.md** - Generic agent instructions (synced)
-
-### Sync Command
-
-```bash
-node scripts/sync-agent-docs.js
-```
-
-This script copies CLAUDE.md content to GEMINI.md and AGENTS.md, updating the title line appropriately.
+GEMINI.md and AGENTS.md are symlinks to CLAUDE.md -- no sync needed.
 
 ---
 
@@ -1216,12 +1222,6 @@ This script copies CLAUDE.md content to GEMINI.md and AGENTS.md, updating the ti
 ## Maintaining This Documentation
 
 **CRITICAL**: Keep CLAUDE.md in sync with the codebase. Outdated docs lead to incorrect AI assistance.
-
-**IMPORTANT**: After ANY edit to CLAUDE.md, immediately run:
-```bash
-node scripts/sync-agent-docs.js
-```
-This syncs changes to GEMINI.md and AGENTS.md. Do not wait until commit time.
 
 ### When to Update CLAUDE.md
 
@@ -1247,7 +1247,6 @@ After making significant changes, verify:
 - [ ] **Essential Commands** match `package.json` scripts
 - [ ] **Test count** matches `npm test` output (currently 297 tests, 12 suites)
 - [ ] **Dependencies table** matches `package.json`
-- [ ] Run `node scripts/sync-agent-docs.js` to sync GEMINI.md and AGENTS.md
 
 ### Quick Validation Commands
 
