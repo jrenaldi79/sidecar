@@ -3,9 +3,11 @@
  *
  * Provides interactive setup, alias management, and API key detection
  * for the sidecar configuration.
+ *
+ * runInteractiveSetup() is Electron-first: launches the GUI wizard,
+ * falls back to runReadlineSetup() for headless environments.
  */
 
-const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 const { loadConfig, saveConfig, getDefaultAliases, getConfigDir } = require('../utils/config');
@@ -25,8 +27,8 @@ const MODEL_CHOICES = [
 
 /**
  * Add a model alias to the existing config (or create config if none exists)
- * @param {string} name - Alias name (e.g., 'my-model')
- * @param {string} modelString - Full model identifier (e.g., 'openrouter/custom/model-v1')
+ * @param {string} name - Alias name
+ * @param {string} modelString - Full model identifier
  */
 function addAlias(name, modelString) {
   const cfg = loadConfig() || { aliases: {} };
@@ -49,62 +51,20 @@ function createDefaultConfig(defaultModel) {
     aliases: getDefaultAliases()
   };
   saveConfig(cfg);
-  logger.info('Default config created', { default: defaultModel, aliasCount: Object.keys(cfg.aliases).length });
+  logger.info('Default config created', {
+    default: defaultModel,
+    aliasCount: Object.keys(cfg.aliases).length
+  });
   return cfg;
 }
 
 /**
- * Detect available API keys from environment variables and OpenCode's auth.json
- * @param {string} authDir - Path to directory containing auth.json
+ * Detect available API keys from .env file and process.env
  * @returns {{openrouter: boolean, google: boolean, openai: boolean, anthropic: boolean}}
  */
-function detectApiKeys(authDir) {
-  const result = {
-    openrouter: false,
-    google: false,
-    openai: false,
-    anthropic: false
-  };
-
-  // Check environment variables
-  if (process.env.OPENROUTER_API_KEY) {
-    result.openrouter = true;
-  }
-  if (process.env.GEMINI_API_KEY) {
-    result.google = true;
-  }
-  if (process.env.OPENAI_API_KEY) {
-    result.openai = true;
-  }
-  if (process.env.ANTHROPIC_API_KEY) {
-    result.anthropic = true;
-  }
-
-  // Check auth.json in the provided directory
-  try {
-    const authPath = path.join(authDir, 'auth.json');
-    if (fs.existsSync(authPath)) {
-      const content = fs.readFileSync(authPath, 'utf-8');
-      const authData = JSON.parse(content);
-
-      if (authData.openrouter && authData.openrouter.apiKey) {
-        result.openrouter = true;
-      }
-      if (authData.google && authData.google.apiKey) {
-        result.google = true;
-      }
-      if (authData.openai && authData.openai.apiKey) {
-        result.openai = true;
-      }
-      if (authData.anthropic && authData.anthropic.apiKey) {
-        result.anthropic = true;
-      }
-    }
-  } catch (_err) {
-    logger.debug('Could not read auth.json', { authDir, error: _err.message });
-  }
-
-  return result;
+function detectApiKeys() {
+  const { readApiKeys } = require('../utils/api-key-store');
+  return readApiKeys();
 }
 
 /**
@@ -127,13 +87,11 @@ function askQuestion(rl, prompt) {
  * @returns {string|null} Resolved alias name, or null if invalid
  */
 function resolveChoice(input) {
-  // Try as a number
   const num = parseInt(input, 10);
   if (num >= 1 && num <= MODEL_CHOICES.length) {
     return MODEL_CHOICES[num - 1].alias;
   }
 
-  // Try as an alias name from default aliases
   const defaults = getDefaultAliases();
   if (defaults[input] !== undefined) {
     return input;
@@ -143,30 +101,50 @@ function resolveChoice(input) {
 }
 
 /**
- * Run the interactive setup wizard
+ * Launch the Electron setup wizard
+ * @returns {Promise<{success: boolean, default?: string, keyCount?: number}>}
+ */
+async function launchWizard() {
+  const { launchSetupWindow } = require('./setup-window');
+  return launchSetupWindow();
+}
+
+/**
+ * Standalone API key setup — launches the Electron window directly
+ * Used by `sidecar setup --api-keys`
+ * @returns {Promise<boolean>} true if keys were configured
+ */
+async function runApiKeySetup() {
+  try {
+    const result = await launchWizard();
+    return result.success;
+  } catch (err) {
+    logger.warn('Could not launch setup window', { error: err.message });
+    return false;
+  }
+}
+
+/**
+ * Run the readline-based setup wizard (headless fallback)
  *
  * Guides the user through:
  * 1. API key detection
  * 2. Default model selection
- * 3. Config file creation with all default aliases
+ * 3. Config file creation
  */
 /* eslint-disable no-console -- CLI wizard requires direct console output */
-async function runInteractiveSetup() {
+async function runReadlineSetup() {
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
   });
 
   try {
-    // Welcome message
     console.log('');
     console.log('=== Sidecar Setup Wizard ===');
     console.log('');
 
-    // Detect API keys
-    const homeDir = process.env.HOME || process.env.USERPROFILE;
-    const authDir = path.join(homeDir, '.config', 'opencode');
-    const keys = detectApiKeys(authDir);
+    const keys = detectApiKeys();
 
     const foundKeys = Object.entries(keys)
       .filter(([, found]) => found)
@@ -175,11 +153,11 @@ async function runInteractiveSetup() {
     if (foundKeys.length > 0) {
       console.log(`API keys detected: ${foundKeys.join(', ')}`);
     } else {
-      console.log('No API keys detected. Set OPENROUTER_API_KEY to get started.');
+      console.log('No API keys detected.');
+      console.log('Set OPENROUTER_API_KEY to get started, or run: sidecar setup');
     }
     console.log('');
 
-    // Present model choices
     console.log('Choose your default model:');
     console.log('');
     for (const choice of MODEL_CHOICES) {
@@ -187,7 +165,6 @@ async function runInteractiveSetup() {
     }
     console.log('');
 
-    // Get user choice
     const answer = await askQuestion(rl, 'Pick a default (1-5 or alias name): ');
     const chosen = resolveChoice(answer);
 
@@ -213,6 +190,49 @@ async function runInteractiveSetup() {
   }
 }
 
+/**
+ * Run the interactive setup wizard (Electron-first)
+ *
+ * Attempts to launch the Electron GUI wizard. If Electron is not
+ * available or fails, falls back to the readline-based setup.
+ */
+async function runInteractiveSetup() {
+  try {
+    const result = await launchWizard();
+    if (result.success) {
+      // Wizard handled config creation; if it returned a default, ensure config exists
+      if (result.default) {
+        const existing = loadConfig();
+        if (!existing || !existing.default) {
+          createDefaultConfig(result.default);
+        }
+      }
+
+      const configPath = path.join(getConfigDir(), 'config.json');
+      const keyLabel = result.keyCount
+        ? `${result.keyCount} API key(s) configured.`
+        : 'API keys configured.';
+      const modelLabel = result.default
+        ? `Default model: ${result.default}`
+        : '';
+
+      console.log('');
+      console.log('Setup complete!');
+      if (keyLabel) { console.log(keyLabel); }
+      if (modelLabel) { console.log(modelLabel); }
+      console.log(`Config: ${configPath}`);
+      return;
+    }
+  } catch (err) {
+    logger.debug('Electron wizard unavailable, falling back to readline', {
+      error: err.message
+    });
+  }
+
+  // Fallback to readline
+  await runReadlineSetup();
+}
+
 /* eslint-enable no-console */
 
 module.exports = {
@@ -220,5 +240,7 @@ module.exports = {
   createDefaultConfig,
   detectApiKeys,
   runInteractiveSetup,
+  runReadlineSetup,
+  runApiKeySetup,
   MODEL_CHOICES,
 };

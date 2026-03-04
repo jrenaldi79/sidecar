@@ -1,11 +1,7 @@
 /**
- * API Key Store
- *
- * Manages reading, saving, and validating API keys.
- * Keys are stored in ~/.config/sidecar/.env (industry-standard secrets format).
- * File permissions are set to 0o600 (owner read/write only).
+ * API Key Store — reading, saving, and validating API keys.
+ * Keys stored in ~/.config/sidecar/.env with 0o600 permissions.
  */
-
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
@@ -41,10 +37,7 @@ const VALIDATION_ENDPOINTS = {
   }
 };
 
-/**
- * Get the path to the .env file
- * @returns {string} Full path to .env
- */
+/** Get the path to the .env file */
 function getEnvPath() {
   if (process.env.SIDECAR_ENV_DIR) {
     return path.join(process.env.SIDECAR_ENV_DIR, '.env');
@@ -53,11 +46,7 @@ function getEnvPath() {
   return path.join(homeDir, '.config', 'sidecar', '.env');
 }
 
-/**
- * Parse a .env file into a key-value map
- * @param {string} content - Raw .env file content
- * @returns {Map<string, string>} Parsed key-value pairs (comments/blanks excluded)
- */
+/** Parse a .env file into a key-value map (comments/blanks excluded) */
 function parseEnvContent(content) {
   const entries = new Map();
   const lines = content.split('\n');
@@ -77,19 +66,8 @@ function parseEnvContent(content) {
   return entries;
 }
 
-/**
- * Read API key availability from .env file and process.env
- * @returns {{openrouter: boolean, google: boolean, openai: boolean, anthropic: boolean}}
- */
-function readApiKeys() {
-  const result = {
-    openrouter: false,
-    google: false,
-    openai: false,
-    anthropic: false
-  };
-
-  // Check .env file
+/** Load .env file entries */
+function loadEnvEntries() {
   const envPath = getEnvPath();
   let fileEntries = new Map();
   try {
@@ -100,16 +78,28 @@ function readApiKeys() {
   } catch (_err) {
     // Ignore read errors
   }
+  return fileEntries;
+}
 
-  // Check both .env file and process.env for each provider
+/** Resolve key value: file entry takes precedence over process.env */
+function resolveKeyValue(fileEntries, envVar) {
+  const fromFile = fileEntries.get(envVar);
+  if (fromFile && fromFile.length > 0) { return fromFile; }
+  const fromEnv = process.env[envVar];
+  if (fromEnv && fromEnv.length > 0) { return fromEnv; }
+  return '';
+}
+
+/**
+ * Read API key availability from .env file and process.env
+ * @returns {{openrouter: boolean, google: boolean, openai: boolean, anthropic: boolean}}
+ */
+function readApiKeys() {
+  const result = { openrouter: false, google: false, openai: false, anthropic: false };
+  const entries = loadEnvEntries();
   for (const [provider, envVar] of Object.entries(PROVIDER_ENV_MAP)) {
-    const fromFile = fileEntries.get(envVar);
-    const fromEnv = process.env[envVar];
-    if ((fromFile && fromFile.length > 0) || (fromEnv && fromEnv.length > 0)) {
-      result[provider] = true;
-    }
+    if (resolveKeyValue(entries, envVar)) { result[provider] = true; }
   }
-
   return result;
 }
 
@@ -118,42 +108,34 @@ function readApiKeys() {
  * @returns {{openrouter: string|false, google: string|false, openai: string|false, anthropic: string|false}}
  */
 function readApiKeyHints() {
-  const result = {
-    openrouter: false,
-    google: false,
-    openai: false,
-    anthropic: false
-  };
-
-  const envPath = getEnvPath();
-  let fileEntries = new Map();
-  try {
-    if (fs.existsSync(envPath)) {
-      const content = fs.readFileSync(envPath, 'utf-8');
-      fileEntries = parseEnvContent(content);
-    }
-  } catch (_err) {
-    // Ignore read errors
-  }
-
+  const result = { openrouter: false, google: false, openai: false, anthropic: false };
+  const entries = loadEnvEntries();
   for (const [provider, envVar] of Object.entries(PROVIDER_ENV_MAP)) {
-    const key = fileEntries.get(envVar) || process.env[envVar] || '';
-    if (key.length > 0) {
-      // Show first 8 chars + masked remainder
+    const key = resolveKeyValue(entries, envVar);
+    if (key) {
       const visible = key.slice(0, 8);
       result[provider] = visible + '\u2022'.repeat(Math.max(0, Math.min(key.length - 8, 12)));
     }
   }
-
   return result;
 }
 
 /**
- * Save an API key for a provider to the .env file
- * @param {string} provider - Provider name (e.g., 'openrouter')
- * @param {string} key - API key value
- * @returns {{ success: boolean }}
+ * Read actual API key strings for configured providers.
+ * Used by model-fetcher to authenticate against provider APIs.
+ * @returns {Object<string, string>} Map of provider → key string (only set providers)
  */
+function readApiKeyValues() {
+  const result = {};
+  const entries = loadEnvEntries();
+  for (const [provider, envVar] of Object.entries(PROVIDER_ENV_MAP)) {
+    const value = resolveKeyValue(entries, envVar);
+    if (value) { result[provider] = value; }
+  }
+  return result;
+}
+
+/** Save an API key for a provider to the .env file */
 function saveApiKey(provider, key) {
   const envVar = PROVIDER_ENV_MAP[provider];
   if (!envVar) {
@@ -203,11 +185,7 @@ function saveApiKey(provider, key) {
   return { success: true };
 }
 
-/**
- * Remove an API key for a provider from the .env file
- * @param {string} provider - Provider name (e.g., 'openrouter')
- * @returns {{ success: boolean }}
- */
+/** Remove an API key for a provider from the .env file */
 function removeApiKey(provider) {
   const envVar = PROVIDER_ENV_MAP[provider];
   if (!envVar) {
@@ -239,12 +217,7 @@ function removeApiKey(provider) {
   return { success: true };
 }
 
-/**
- * Validate an API key by making a test request to the provider's API
- * @param {string} provider - Provider name (openrouter, openai, anthropic, google)
- * @param {string} key - API key to validate
- * @returns {Promise<{ valid: boolean, error?: string }>}
- */
+/** Validate an API key by making a test request to the provider's API */
 function validateApiKey(provider, key) {
   if (!key || key.trim().length === 0) {
     return Promise.resolve({ valid: false, error: 'API key is required' });
@@ -301,6 +274,7 @@ module.exports = {
   getEnvPath,
   readApiKeys,
   readApiKeyHints,
+  readApiKeyValues,
   saveApiKey,
   removeApiKey,
   validateApiKey,

@@ -214,7 +214,7 @@ function checkConfigChanged(currentHash) {
 
   // Config has changed (or was created/removed)
   const aliasTable = buildAliasTable();
-  const hashComment = newHash ? `<!-- config-hash: ${newHash} -->` : '';
+  const hashComment = newHash ? `<!-- sidecar-config-hash: ${newHash} -->` : '';
   const updateData = [hashComment, aliasTable].filter(Boolean).join('\n');
 
   return {

@@ -94,16 +94,20 @@ function buildPrompts(briefing, context, project, headless, mode, summaryLength 
     headless ? buildHeadlessModeSection(summaryLength) : buildInteractiveModeSection()
   ];
 
+  // Strip [SIDECAR_FOLD] markers from context so the model doesn't
+  // mimic them from previous sidecar outputs in the conversation history
+  const cleanContext = context ? context.replace(/\[SIDECAR_FOLD\]/g, '') : context;
+
   let userMessage;
   if (headless) {
     // Headless: context in user message (no UI, better model behavior)
-    const contextSection = buildContextSection(context);
+    const contextSection = buildContextSection(cleanContext);
     userMessage = contextSection
       ? `${contextSection}\n\n${briefing}`
       : briefing;
   } else {
     // Interactive: context in system prompt (hidden from UI)
-    const contextSection = buildContextSection(context);
+    const contextSection = buildContextSection(cleanContext);
     if (contextSection) {
       systemSections.push(contextSection);
     }

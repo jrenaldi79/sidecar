@@ -36,7 +36,7 @@ describe('MCP Server Handlers', () => {
     const expectedTools = [
       'sidecar_start', 'sidecar_status', 'sidecar_read',
       'sidecar_list', 'sidecar_resume', 'sidecar_continue',
-      'sidecar_setup', 'sidecar_guide',
+      'sidecar_setup', 'sidecar_guide', 'sidecar_abort',
     ];
     for (const name of expectedTools) {
       expect(handlers).toHaveProperty(name);
@@ -341,6 +341,61 @@ describe('MCP Server Handlers', () => {
   describe('sidecar_setup', () => {
     test('handler is an async function', () => {
       expect(typeof handlers.sidecar_setup).toBe('function');
+    });
+  });
+
+  describe('sidecar_abort', () => {
+    test('aborts a running session — status updated to aborted', async () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-test-'));
+      const sessDir = path.join(tmpDir, '.claude', 'sidecar_sessions', 'abort1');
+      fs.mkdirSync(sessDir, { recursive: true });
+      fs.writeFileSync(path.join(sessDir, 'metadata.json'), JSON.stringify({
+        taskId: 'abort1', status: 'running', model: 'gemini',
+        createdAt: new Date().toISOString(),
+      }));
+
+      try {
+        const result = await handlers.sidecar_abort({ taskId: 'abort1' }, tmpDir);
+        expect(result.isError).toBeUndefined();
+        const parsed = JSON.parse(result.content[0].text);
+        expect(parsed.status).toBe('aborted');
+        expect(parsed.taskId).toBe('abort1');
+
+        // Verify metadata was updated on disk
+        const meta = JSON.parse(fs.readFileSync(path.join(sessDir, 'metadata.json'), 'utf-8'));
+        expect(meta.status).toBe('aborted');
+        expect(meta.abortedAt).toBeDefined();
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true });
+      }
+    });
+
+    test('returns informational message for non-running session', async () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-test-'));
+      const sessDir = path.join(tmpDir, '.claude', 'sidecar_sessions', 'done1');
+      fs.mkdirSync(sessDir, { recursive: true });
+      fs.writeFileSync(path.join(sessDir, 'metadata.json'), JSON.stringify({
+        taskId: 'done1', status: 'complete', model: 'gemini',
+        createdAt: new Date().toISOString(),
+      }));
+
+      try {
+        const result = await handlers.sidecar_abort({ taskId: 'done1' }, tmpDir);
+        expect(result.content[0].text).toContain('not running');
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true });
+      }
+    });
+
+    test('returns error for missing session', async () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-test-'));
+      try {
+        const result = await handlers.sidecar_abort({ taskId: 'nonexistent' }, tmpDir);
+        expect(result.isError).toBe(true);
+        expect(result.content[0].text).toContain('not found');
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true });
+      }
     });
   });
 });

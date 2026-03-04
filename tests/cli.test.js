@@ -177,6 +177,40 @@ describe('CLI Argument Parser', () => {
       });
     });
 
+    describe('--no-mcp and --exclude-mcp options', () => {
+      it('should parse --no-mcp as boolean flag', () => {
+        const result = parseArgs(['start', '--no-mcp']);
+        expect(result['no-mcp']).toBe(true);
+      });
+
+      it('should default --no-mcp to undefined when not specified', () => {
+        const result = parseArgs(['start', '--model', 'x', '--prompt', 'y']);
+        expect(result['no-mcp']).toBeUndefined();
+      });
+
+      it('should parse --exclude-mcp into array', () => {
+        const result = parseArgs(['start', '--exclude-mcp', 'context7']);
+        expect(result['exclude-mcp']).toEqual(['context7']);
+      });
+
+      it('should accumulate multiple --exclude-mcp values', () => {
+        const result = parseArgs([
+          'start', '--exclude-mcp', 'context7', '--exclude-mcp', 'filesystem'
+        ]);
+        expect(result['exclude-mcp']).toEqual(['context7', 'filesystem']);
+      });
+
+      it('should handle --exclude-mcp alongside other options', () => {
+        const result = parseArgs([
+          'start', '--model', 'gemini', '--prompt', 'test',
+          '--exclude-mcp', 'server1', '--no-ui'
+        ]);
+        expect(result['exclude-mcp']).toEqual(['server1']);
+        expect(result.model).toBe('gemini');
+        expect(result['no-ui']).toBe(true);
+      });
+    });
+
     describe('MCP server options', () => {
       it('should parse --mcp option with name=url format', () => {
         const result = parseArgs(['start', '--mcp', 'my-server=https://mcp.example.com']);
@@ -785,6 +819,34 @@ describe('CLI Argument Parser', () => {
       const usage = getUsage();
       // Should appear in the Commands section as its own line
       expect(usage).toMatch(/^\s+mcp\s+.*MCP server/m);
+    });
+  });
+
+  describe('abort command', () => {
+    test('parseArgs recognizes abort as a command', () => {
+      const args = parseArgs(['abort', 'task123']);
+      expect(args._[0]).toBe('abort');
+      expect(args._[1]).toBe('task123');
+    });
+  });
+
+  describe('usage text includes new options', () => {
+    test('--no-mcp appears in usage', () => {
+      const { getUsage } = require('../src/cli');
+      const usage = getUsage();
+      expect(usage).toContain('--no-mcp');
+    });
+
+    test('--exclude-mcp appears in usage', () => {
+      const { getUsage } = require('../src/cli');
+      const usage = getUsage();
+      expect(usage).toContain('--exclude-mcp');
+    });
+
+    test('abort command appears in usage', () => {
+      const { getUsage } = require('../src/cli');
+      const usage = getUsage();
+      expect(usage).toContain('abort');
     });
   });
 

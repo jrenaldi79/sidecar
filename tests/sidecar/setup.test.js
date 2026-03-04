@@ -18,21 +18,34 @@ jest.mock('../../src/utils/logger', () => ({
   }
 }));
 
+// Mock setup-window to prevent Electron spawn in tests
+jest.mock('../../src/sidecar/setup-window', () => ({
+  launchSetupWindow: jest.fn().mockResolvedValue({ success: true })
+}));
+
 describe('Setup Wizard', () => {
   let tmpDir;
+  let envDir;
   let originalEnv;
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-setup-test-'));
+    envDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-env-test-'));
     originalEnv = { ...process.env };
     process.env.SIDECAR_CONFIG_DIR = tmpDir;
+    process.env.SIDECAR_ENV_DIR = envDir;
+    // Clear API key env vars
+    delete process.env.OPENROUTER_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
   });
 
   afterEach(() => {
     process.env = originalEnv;
-    // Clean up temp directory
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(envDir, { recursive: true, force: true });
     } catch (_err) {
       // Ignore cleanup errors
     }
@@ -133,71 +146,50 @@ describe('Setup Wizard', () => {
   });
 
   describe('detectApiKeys', () => {
-    it('should detect OpenRouter key from auth.json', () => {
-      // Create a fake auth.json
-      const authDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-auth-'));
-      const authData = {
-        openrouter: { apiKey: 'sk-or-test-key' }
-      };
+    it('should detect OpenRouter key from .env file', () => {
       fs.writeFileSync(
-        path.join(authDir, 'auth.json'),
-        JSON.stringify(authData)
+        path.join(envDir, '.env'),
+        'OPENROUTER_API_KEY=sk-or-test-key\n'
       );
 
       const { detectApiKeys } = require('../../src/sidecar/setup');
-      const result = detectApiKeys(authDir);
+      const result = detectApiKeys();
 
       expect(result.openrouter).toBe(true);
       expect(result.google).toBe(false);
       expect(result.openai).toBe(false);
       expect(result.anthropic).toBe(false);
-
-      // Clean up
-      fs.rmSync(authDir, { recursive: true, force: true });
     });
 
-    it('should detect Google key from auth.json', () => {
-      const authDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-auth-'));
-      const authData = {
-        google: { apiKey: 'AIza-test-key' }
-      };
+    it('should detect Google key from .env file', () => {
       fs.writeFileSync(
-        path.join(authDir, 'auth.json'),
-        JSON.stringify(authData)
+        path.join(envDir, '.env'),
+        'GEMINI_API_KEY=AIza-test-key\n'
       );
 
       const { detectApiKeys } = require('../../src/sidecar/setup');
-      const result = detectApiKeys(authDir);
+      const result = detectApiKeys();
 
       expect(result.google).toBe(true);
-
-      fs.rmSync(authDir, { recursive: true, force: true });
     });
 
-    it('should detect OpenAI key from auth.json', () => {
-      const authDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-auth-'));
-      const authData = {
-        openai: { apiKey: 'sk-test-key' }
-      };
+    it('should detect OpenAI key from .env file', () => {
       fs.writeFileSync(
-        path.join(authDir, 'auth.json'),
-        JSON.stringify(authData)
+        path.join(envDir, '.env'),
+        'OPENAI_API_KEY=sk-test-key\n'
       );
 
       const { detectApiKeys } = require('../../src/sidecar/setup');
-      const result = detectApiKeys(authDir);
+      const result = detectApiKeys();
 
       expect(result.openai).toBe(true);
-
-      fs.rmSync(authDir, { recursive: true, force: true });
     });
 
     it('should detect env var keys (OPENROUTER_API_KEY)', () => {
       process.env.OPENROUTER_API_KEY = 'sk-or-env-key';
 
       const { detectApiKeys } = require('../../src/sidecar/setup');
-      // Pass a non-existent auth dir so only env vars are checked
-      const result = detectApiKeys('/nonexistent/path');
+      const result = detectApiKeys();
 
       expect(result.openrouter).toBe(true);
     });
@@ -206,7 +198,7 @@ describe('Setup Wizard', () => {
       process.env.GEMINI_API_KEY = 'AIza-env-key';
 
       const { detectApiKeys } = require('../../src/sidecar/setup');
-      const result = detectApiKeys('/nonexistent/path');
+      const result = detectApiKeys();
 
       expect(result.google).toBe(true);
     });
@@ -215,7 +207,7 @@ describe('Setup Wizard', () => {
       process.env.OPENAI_API_KEY = 'sk-env-key';
 
       const { detectApiKeys } = require('../../src/sidecar/setup');
-      const result = detectApiKeys('/nonexistent/path');
+      const result = detectApiKeys();
 
       expect(result.openai).toBe(true);
     });
@@ -224,20 +216,14 @@ describe('Setup Wizard', () => {
       process.env.ANTHROPIC_API_KEY = 'sk-ant-env-key';
 
       const { detectApiKeys } = require('../../src/sidecar/setup');
-      const result = detectApiKeys('/nonexistent/path');
+      const result = detectApiKeys();
 
       expect(result.anthropic).toBe(true);
     });
 
     it('should return all false when no keys found', () => {
-      // Ensure no relevant env vars are set
-      delete process.env.OPENROUTER_API_KEY;
-      delete process.env.GEMINI_API_KEY;
-      delete process.env.OPENAI_API_KEY;
-      delete process.env.ANTHROPIC_API_KEY;
-
       const { detectApiKeys } = require('../../src/sidecar/setup');
-      const result = detectApiKeys('/nonexistent/path');
+      const result = detectApiKeys();
 
       expect(result.openrouter).toBe(false);
       expect(result.google).toBe(false);
@@ -245,72 +231,60 @@ describe('Setup Wizard', () => {
       expect(result.anthropic).toBe(false);
     });
 
-    it('should handle malformed auth.json gracefully', () => {
-      const authDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-auth-'));
-      fs.writeFileSync(path.join(authDir, 'auth.json'), 'not valid json');
+    it('should handle malformed .env file gracefully', () => {
+      fs.writeFileSync(path.join(envDir, '.env'), 'not a valid env format without equals');
 
       const { detectApiKeys } = require('../../src/sidecar/setup');
-      // Should not throw
-      const result = detectApiKeys(authDir);
+      const result = detectApiKeys();
 
       expect(result.openrouter).toBe(false);
       expect(result.google).toBe(false);
-
-      fs.rmSync(authDir, { recursive: true, force: true });
     });
 
-    it('should combine env vars and auth.json keys', () => {
+    it('should combine env vars and .env file keys', () => {
       process.env.OPENROUTER_API_KEY = 'sk-or-env';
 
-      const authDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-auth-'));
       fs.writeFileSync(
-        path.join(authDir, 'auth.json'),
-        JSON.stringify({ google: { apiKey: 'AIza-test' } })
+        path.join(envDir, '.env'),
+        'GEMINI_API_KEY=AIza-test\n'
       );
 
       const { detectApiKeys } = require('../../src/sidecar/setup');
-      const result = detectApiKeys(authDir);
+      const result = detectApiKeys();
 
       expect(result.openrouter).toBe(true);
       expect(result.google).toBe(true);
-
-      fs.rmSync(authDir, { recursive: true, force: true });
     });
   });
 
-  describe('runInteractiveSetup', () => {
-    it('should be an async function', () => {
-      const { runInteractiveSetup } = require('../../src/sidecar/setup');
-      expect(typeof runInteractiveSetup).toBe('function');
+  describe('runReadlineSetup', () => {
+    it('should be an exported async function', () => {
+      const { runReadlineSetup } = require('../../src/sidecar/setup');
+      expect(typeof runReadlineSetup).toBe('function');
     });
 
     it('should create config when user picks option 1 (gemini)', async () => {
       const readline = require('readline');
 
-      // Mock readline to simulate user input
       const mockInterface = {
         question: jest.fn(),
         close: jest.fn()
       };
 
-      // Simulate user picking option "1"
       mockInterface.question.mockImplementation((_prompt, callback) => {
         callback('1');
       });
 
       jest.spyOn(readline, 'createInterface').mockReturnValue(mockInterface);
 
-      const { runInteractiveSetup } = require('../../src/sidecar/setup');
-
-      // Suppress console output during test
+      const { runReadlineSetup } = require('../../src/sidecar/setup');
       const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
-      await runInteractiveSetup();
+      await runReadlineSetup();
 
       logSpy.mockRestore();
       readline.createInterface.mockRestore();
 
-      // Verify config was created with gemini as default
       const saved = JSON.parse(
         fs.readFileSync(path.join(tmpDir, 'config.json'), 'utf-8')
       );
@@ -332,6 +306,77 @@ describe('Setup Wizard', () => {
 
       jest.spyOn(readline, 'createInterface').mockReturnValue(mockInterface);
 
+      const { runReadlineSetup } = require('../../src/sidecar/setup');
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await runReadlineSetup();
+
+      logSpy.mockRestore();
+      readline.createInterface.mockRestore();
+
+      const saved = JSON.parse(
+        fs.readFileSync(path.join(tmpDir, 'config.json'), 'utf-8')
+      );
+      expect(saved.default).toBe('opus');
+    });
+  });
+
+  describe('runInteractiveSetup (Electron-first)', () => {
+    it('should be an async function', () => {
+      const { runInteractiveSetup } = require('../../src/sidecar/setup');
+      expect(typeof runInteractiveSetup).toBe('function');
+    });
+
+    it('should attempt to launch Electron wizard first', async () => {
+      const { launchSetupWindow } = require('../../src/sidecar/setup-window');
+      launchSetupWindow.mockResolvedValue({
+        success: true, default: 'gemini', keyCount: 1
+      });
+
+      const { runInteractiveSetup } = require('../../src/sidecar/setup');
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await runInteractiveSetup();
+
+      logSpy.mockRestore();
+
+      expect(launchSetupWindow).toHaveBeenCalled();
+    });
+
+    it('should create config from Electron wizard result', async () => {
+      const { launchSetupWindow } = require('../../src/sidecar/setup-window');
+      launchSetupWindow.mockResolvedValue({
+        success: true, default: 'gemini-pro', keyCount: 2
+      });
+
+      const { runInteractiveSetup } = require('../../src/sidecar/setup');
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await runInteractiveSetup();
+
+      logSpy.mockRestore();
+
+      // Config should have been created with the wizard's chosen default
+      const saved = JSON.parse(
+        fs.readFileSync(path.join(tmpDir, 'config.json'), 'utf-8')
+      );
+      expect(saved.default).toBe('gemini-pro');
+    });
+
+    it('should fall back to readline when Electron fails', async () => {
+      const { launchSetupWindow } = require('../../src/sidecar/setup-window');
+      launchSetupWindow.mockRejectedValue(new Error('Electron not available'));
+
+      const readline = require('readline');
+      const mockInterface = {
+        question: jest.fn(),
+        close: jest.fn()
+      };
+      mockInterface.question.mockImplementation((_prompt, callback) => {
+        callback('3'); // pick gpt
+      });
+      jest.spyOn(readline, 'createInterface').mockReturnValue(mockInterface);
+
       const { runInteractiveSetup } = require('../../src/sidecar/setup');
       const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
 
@@ -343,7 +388,7 @@ describe('Setup Wizard', () => {
       const saved = JSON.parse(
         fs.readFileSync(path.join(tmpDir, 'config.json'), 'utf-8')
       );
-      expect(saved.default).toBe('opus');
+      expect(saved.default).toBe('gpt');
     });
   });
 });

@@ -5,7 +5,7 @@
  * Re-exports all public APIs for the sidecar CLI.
  */
 
-require('dotenv').config();
+require('dotenv').config({ quiet: true });
 
 // Import sidecar operations from modular components
 const { startSidecar, generateTaskId, runInteractive, HEARTBEAT_INTERVAL } = require('./sidecar/start');

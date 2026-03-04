@@ -10,4 +10,6 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('sidecar', {
   /** Trigger fold: summarize and return to Claude Code */
   fold: () => ipcRenderer.invoke('sidecar:fold'),
+  /** Open settings wizard in a child window */
+  openSettings: () => ipcRenderer.invoke('sidecar:open-settings'),
 });

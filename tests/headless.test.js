@@ -564,6 +564,78 @@ describe('Headless Mode Runner', () => {
     });
   });
 
+  describe('Session Abort', () => {
+    const testProject = '/test/project';
+    const testModel = 'openrouter/google/gemini-2.5-flash';
+    const testSystemPrompt = '# Test system prompt';
+    const testUserMessage = 'Please complete the task';
+    const testTaskId = 'abort123';
+
+    beforeEach(() => {
+      mockCheckHealth.mockResolvedValue(true);
+      mockCreateSession.mockResolvedValue('session-123');
+      mockSendPromptAsync.mockResolvedValue(undefined);
+    });
+
+    it('should set timedOut flag when timeout is reached', async () => {
+      // Never complete — timeout should trigger
+      mockGetMessages.mockResolvedValue([{
+        info: { role: 'assistant', id: 'msg-1', time: {} },
+        parts: [{ id: 'p1', type: 'text', text: 'Still working...' }]
+      }]);
+
+      const result = await runHeadless(
+        testModel, testSystemPrompt, testUserMessage, testTaskId, testProject,
+        3000 // Very short timeout
+      );
+
+      expect(result.timedOut).toBe(true);
+      expect(mockServerClose).toHaveBeenCalled();
+    }, 10000);
+
+    it('should check for external abort signal in metadata', async () => {
+      // First poll: normal. Second poll: metadata says aborted.
+      let pollCount = 0;
+      mockGetMessages.mockImplementation(() => {
+        pollCount++;
+        return Promise.resolve([{
+          info: { role: 'assistant', id: 'msg-1', time: {} },
+          parts: [{ id: 'p1', type: 'text', text: 'Working...' }]
+        }]);
+      });
+
+      // On second poll, simulate metadata.status = 'aborted'
+      const originalReadFileSync = fs.readFileSync;
+      fs.readFileSync = jest.fn((filePath, encoding) => {
+        if (typeof filePath === 'string' && filePath.includes('metadata.json') && pollCount >= 2) {
+          return JSON.stringify({ status: 'aborted' });
+        }
+        // For other reads, return empty string
+        return '';
+      });
+
+      // existsSync should return true for metadata check
+      fs.existsSync.mockImplementation((p) => {
+        if (typeof p === 'string' && p.includes('metadata.json')) {
+          return pollCount >= 2;
+        }
+        return true;
+      });
+
+      const result = await runHeadless(
+        testModel, testSystemPrompt, testUserMessage, testTaskId, testProject,
+        30000 // Long timeout — abort should happen before this
+      );
+
+      // Should have detected external abort
+      expect(result.aborted).toBe(true);
+      expect(mockServerClose).toHaveBeenCalled();
+
+      // Restore
+      fs.readFileSync = originalReadFileSync;
+    }, 15000);
+  });
+
   describe('Polling Behavior', () => {
     const testProject = '/test/project';
     const testModel = 'openrouter/google/gemini-2.5-flash';

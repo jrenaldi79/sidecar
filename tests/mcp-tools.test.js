@@ -33,10 +33,11 @@ describe('MCP Tool Definitions', () => {
     expect(names).toContain('sidecar_continue');
     expect(names).toContain('sidecar_setup');
     expect(names).toContain('sidecar_guide');
+    expect(names).toContain('sidecar_abort');
   });
 
-  test('has exactly 8 tools', () => {
-    expect(TOOLS).toHaveLength(8);
+  test('has exactly 9 tools', () => {
+    expect(TOOLS).toHaveLength(9);
   });
 
   test('tool names are unique', () => {
@@ -156,6 +157,18 @@ describe('MCP Tool Definitions', () => {
     test('has empty input schema', () => {
       const tool = TOOLS.find(t => t.name === 'sidecar_guide');
       expect(Object.keys(tool.inputSchema)).toHaveLength(0);
+    });
+  });
+
+  describe('sidecar_abort', () => {
+    test('has taskId in input schema', () => {
+      const tool = TOOLS.find(t => t.name === 'sidecar_abort');
+      expect(tool.inputSchema).toHaveProperty('taskId');
+    });
+
+    test('description mentions abort', () => {
+      const tool = TOOLS.find(t => t.name === 'sidecar_abort');
+      expect(tool.description.toLowerCase()).toContain('abort');
     });
   });
 

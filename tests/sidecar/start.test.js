@@ -91,3 +91,77 @@ describe('Config change detection on start', () => {
     expect(match).toBeNull();
   });
 });
+
+describe('buildMcpConfig with MCP discovery', () => {
+  beforeEach(() => {
+    jest.resetModules();
+  });
+
+  it('should skip discovery when noMcp is true', () => {
+    // Mock mcp-discovery to track calls
+    jest.mock('../../src/utils/mcp-discovery', () => ({
+      discoverParentMcps: jest.fn(() => ({ 'discovered-server': { command: 'npx' } }))
+    }));
+
+    const { buildMcpConfig } = require('../../src/sidecar/start');
+    const result = buildMcpConfig({ noMcp: true });
+
+    const { discoverParentMcps } = require('../../src/utils/mcp-discovery');
+    expect(discoverParentMcps).not.toHaveBeenCalled();
+    expect(result).toBeNull();
+  });
+
+  it('should remove excluded servers via excludeMcp', () => {
+    jest.mock('../../src/utils/mcp-discovery', () => ({
+      discoverParentMcps: jest.fn(() => ({
+        'keep-me': { command: 'keep' },
+        'remove-me': { command: 'remove' }
+      }))
+    }));
+
+    // Mock loadMcpConfig to return null (no file config)
+    jest.mock('../../src/opencode-client', () => ({
+      loadMcpConfig: jest.fn(() => null),
+      parseMcpSpec: jest.fn(() => null)
+    }));
+
+    const { buildMcpConfig } = require('../../src/sidecar/start');
+    const result = buildMcpConfig({ excludeMcp: ['remove-me'] });
+
+    expect(result['keep-me']).toBeDefined();
+    expect(result['remove-me']).toBeUndefined();
+  });
+
+  it('should merge with correct priority: CLI > file > discovered', () => {
+    jest.mock('../../src/utils/mcp-discovery', () => ({
+      discoverParentMcps: jest.fn(() => ({
+        'shared-server': { command: 'discovered-cmd' },
+        'discovery-only': { command: 'disc' }
+      }))
+    }));
+
+    jest.mock('../../src/opencode-client', () => ({
+      loadMcpConfig: jest.fn(() => ({
+        'shared-server': { command: 'file-cmd' },
+        'file-only': { command: 'file' }
+      })),
+      parseMcpSpec: jest.fn((spec) => {
+        if (spec === 'cli-server=cli-cmd') {
+          return { name: 'cli-server', config: { command: 'cli-cmd' } };
+        }
+        return null;
+      })
+    }));
+
+    const { buildMcpConfig } = require('../../src/sidecar/start');
+    const result = buildMcpConfig({ mcp: 'cli-server=cli-cmd' });
+
+    // CLI server present
+    expect(result['cli-server']).toBeDefined();
+    // File config overrides discovered for shared server
+    expect(result['shared-server'].command).toBe('file-cmd');
+    // Both unique servers present
+    expect(result['file-only']).toBeDefined();
+    expect(result['discovery-only']).toBeDefined();
+  });
+});

@@ -16,6 +16,7 @@ jest.mock('https');
 const {
   readApiKeys,
   readApiKeyHints,
+  readApiKeyValues,
   saveApiKey,
   removeApiKey,
   validateApiKey,
@@ -537,6 +538,54 @@ describe('api-key-store', () => {
       expect(content).toContain('# Comment');
       expect(content).toContain('GEMINI_API_KEY=keep');
       expect(content).not.toContain('OPENROUTER_API_KEY');
+    });
+  });
+
+  describe('readApiKeyValues', () => {
+    it('should return empty object when no keys exist', () => {
+      const result = readApiKeyValues();
+      expect(result).toEqual({});
+    });
+
+    it('should return actual key strings from .env file', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.env'),
+        'OPENROUTER_API_KEY=sk-or-real-key\nGEMINI_API_KEY=AIza-real-key\n'
+      );
+
+      const result = readApiKeyValues();
+      expect(result.openrouter).toBe('sk-or-real-key');
+      expect(result.google).toBe('AIza-real-key');
+      expect(result.openai).toBeUndefined();
+      expect(result.anthropic).toBeUndefined();
+    });
+
+    it('should return key strings from process.env', () => {
+      process.env.OPENAI_API_KEY = 'sk-from-env';
+
+      const result = readApiKeyValues();
+      expect(result.openai).toBe('sk-from-env');
+    });
+
+    it('should prefer .env file over process.env', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.env'),
+        'OPENROUTER_API_KEY=from-file\n'
+      );
+      process.env.OPENROUTER_API_KEY = 'from-env';
+
+      const result = readApiKeyValues();
+      expect(result.openrouter).toBe('from-file');
+    });
+
+    it('should skip empty values', () => {
+      fs.writeFileSync(
+        path.join(tmpDir, '.env'),
+        'OPENROUTER_API_KEY=\n'
+      );
+
+      const result = readApiKeyValues();
+      expect(result.openrouter).toBeUndefined();
     });
   });
 
