@@ -2,7 +2,7 @@
 <!-- AUTO-SYNCED from CLAUDE.md - Do not edit directly -->
 <!-- Run: node scripts/sync-agent-docs.js to update -->
 
-<!-- Last updated: 2026-01-26 -->
+<!-- Last updated: 2026-03-03 -->
 
 This file provides guidance to AI agents when working with code in this repository.
 
@@ -95,19 +95,44 @@ CLI parses args (cli.js)
        ↓
 buildContext() extracts from ~/.claude/projects/[project]/[session].jsonl
        ↓
-buildPrompts() creates lean system prompt + user message (context in user msg)
+buildPrompts() creates system prompt + user message
+  Interactive: context in system prompt (hidden from UI)
+  Headless: context in user message (no UI)
        ↓
-createSession() initializes .claude/sidecar_sessions/<taskId>/
+startOpenCodeServer() → createSession() → sendPromptAsync()
        ↓
 [Interactive]                    [Headless]
-Electron window opens            OpenCode async API (promptAsync)
-User converses                   Agent works autonomously
-FOLD clicked                     [SIDECAR_FOLD] marker
+Electron BrowserView opens       OpenCode async API (promptAsync)
+User converses with model        Agent works autonomously
+FOLD clicked →                   Polls for [SIDECAR_FOLD] marker
+  Model generates summary            ↓
+  (SUMMARY_TEMPLATE prompt)     extractSummary() captures output
        ↓                              ↓
-Summary captured to conversation.jsonl
-       ↓
 Summary output to stdout → Claude Code receives in context
 ```
+
+### Fold Mechanism
+
+When the user clicks **Fold** (or presses `Cmd+Shift+F`) in interactive mode:
+
+1. UI shows overlay with spinner ("Generating summary...")
+2. `SUMMARY_TEMPLATE` is sent to the model via OpenCode HTTP API (`prompt_async`)
+3. Electron polls `/session/:id/message` for the model's response
+4. Model generates a structured summary with: Task, Findings, Attempted Approaches, Recommendations, Code Changes, Files Modified, Assumptions, Open Questions
+5. Summary is written to stdout with `[SIDECAR_FOLD]` metadata header
+6. Electron window closes, `start.js` captures stdout and finalizes session
+
+In headless mode, the agent outputs `[SIDECAR_FOLD]` autonomously when done, and `headless.js` extracts everything before the marker.
+
+### Electron BrowserView Architecture
+
+The Electron shell (`electron/main.js`) uses a **BrowserView** to avoid CSS conflicts between the OpenCode SPA and the sidecar toolbar:
+
+- **BrowserView** (top): Loads the OpenCode web UI at `http://localhost:<port>`. Gets its own physical viewport — no CSS interference with the host window.
+- **Main window** (bottom 40px): Renders the sidecar toolbar (branding, task ID, timer, Fold button) via a `data:` URL.
+- On resize, `updateContentBounds()` adjusts the BrowserView to fill `height - 40px`.
+
+This replaced earlier CSS-based approaches (`padding-bottom`, `calc(100dvh - 40px)`) which failed because OpenCode's Tailwind `h-dvh` class resolves to the actual browser viewport and ignores parent element overrides.
 
 ---
 
@@ -142,17 +167,17 @@ sidecar/
 │       ├── path-setup.js        # PATH configuration for OpenCode
 │       └── server-setup.js      # Server port management
 ├── electron/
-│   ├── main.js                  # Electron window (SDK-based, custom UI)
-│   ├── main-legacy.js           # Old CLI-based version (kept for reference)
-│   ├── preload.js               # IPC bridge to renderer
-│   ├── preload-v2.js            # IPC bridge for custom UI
-│   ├── inject.css               # Styling overrides
-│   └── ui/                      # Custom chat UI
+│   ├── main.js                  # BrowserView shell (OpenCode UI + toolbar)
+│   ├── main-legacy.js           # Old custom UI version (kept for reference)
+│   ├── preload.js               # IPC bridge (fold action)
+│   ├── preload-v2.js            # IPC bridge for legacy custom UI
+│   ├── inject.css               # Legacy styling overrides
+│   └── ui/                      # Legacy custom chat UI (unused in v3)
 │       ├── index.html           # Main HTML
 │       ├── renderer.js          # Chat logic + model picker integration
 │       ├── model-picker.js      # Model selection module
 │       └── styles.css           # UI styles
-├── tests/                       # Jest test suite (567 tests, 24 suites)
+├── tests/                       # Jest test suite (501 tests, 17 suites)
 │   ├── cli.test.js
 │   ├── context.test.js
 │   ├── session-manager.test.js
@@ -1069,61 +1094,43 @@ For async, monitor progress via SSE at `/global/event`.
 6. Capture Summary   → Extract text after completion marker
 ```
 
-### Interactive UI: Async-Only Architecture
+### Interactive Mode: BrowserView + OpenCode Native UI
 
-**CRITICAL**: The Electron UI (`renderer.js`) uses **async API only** for all message sending.
+The v3 interactive mode uses OpenCode's native web UI directly via Electron's `BrowserView`, rather than a custom chat UI.
 
-#### Why Async-Only?
+#### Architecture
 
-The sync API (`POST /session/:id/message`) **blocks** until the model finishes responding. This causes failures with interactive tools like `question`:
-
-1. Sync request blocks waiting for model response
-2. Model triggers `question` tool, waiting for user input
-3. User answers → new message needed
-4. **CONFLICT**: Can't send new message while sync request is blocked
-
-#### Implementation Pattern
-
-All messages use `sendToAPIStreaming()` which:
-1. Sends via `prompt_async` (returns immediately)
-2. Monitors response via SSE events (`/global/event`)
-3. SSE handlers update UI in real-time
-
-```javascript
-// ✅ CORRECT - Non-blocking, handles interactive tools
-await sendToAPIStreaming(content, systemPrompt);
-
-// ❌ WRONG - Blocks, breaks question tools
-await sendToAPI(content, systemPrompt);  // Only for fallback
+```
+┌─────────────────────────────────────┐
+│      BrowserView (OpenCode UI)      │  ← Own viewport, no CSS conflicts
+│  - Native chat, tool calls, etc.    │
+│  - Header hidden via rebrandUI()    │
+│  - Context hidden in system prompt  │
+├─────────────────────────────────────┤
+│  Sidecar Toolbar (main window)      │  ← 40px, data: URL
+│  [icon] OpenCode Sidecar | task:ID  │
+│  | timer        [Fold (Cmd+Shift+F)]│
+└─────────────────────────────────────┘
 ```
 
-#### Question Tool Handling
+#### Fold Flow (Interactive)
 
-Question tools are detected in SSE event handlers:
-
-```javascript
-// In handleToolPart() and handleToolStart()
-const isQuestion = toolName?.toLowerCase() === 'question';
-if (isQuestion && part.state?.input && !part.state?.output) {
-  showQuestionUI(callId, part.state.input);
-  return; // Don't track as normal tool
-}
-```
-
-When user answers:
-```javascript
-// handleQuestionResponse() uses streaming, not sync
-await sendToAPIStreaming(answerTextToSend);
-```
+1. `start.js` starts OpenCode server, creates session, sends initial prompt via `prompt_async`
+2. Electron opens with BrowserView pointing to OpenCode UI
+3. User interacts with the model through OpenCode's native interface
+4. User clicks **Fold** → overlay with spinner shown
+5. `SUMMARY_TEMPLATE` sent to model via `POST /session/:id/prompt_async`
+6. Electron polls `GET /session/:id/message` for the model's structured summary
+7. Summary written to stdout → window closes → `start.js` captures output
 
 #### Key Files
 
 | File | Function | Notes |
 |------|----------|-------|
-| `renderer.js:sendToAPIStreaming()` | Async message sending | Primary send function |
-| `renderer.js:handleToolPart()` | SSE tool detection | Detects question tools |
-| `renderer.js:handleQuestionResponse()` | Answer submission | Uses streaming API |
-| `renderer.js:handleSessionIdle()` | Completion handling | Resets UI state |
+| `electron/main.js` | BrowserView shell | Toolbar, fold, summary generation |
+| `electron/preload.js` | IPC bridge | Exposes `sidecar.fold()` to toolbar |
+| `src/sidecar/start.js` | Session orchestration | Server start, Electron spawn, stdout capture |
+| `src/prompt-builder.js` | Summary template | `getSummaryTemplate()` for fold prompt |
 
 ---
 

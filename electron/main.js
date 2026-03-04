@@ -9,8 +9,10 @@
  */
 
 const { app, BrowserWindow, BrowserView, globalShortcut, ipcMain } = require('electron');
+const http = require('http');
 const path = require('path');
 const { logger } = require('../src/utils/logger');
+const { getSummaryTemplate } = require('../src/prompt-builder');
 
 // ============================================================================
 // EPIPE Error Handling
@@ -305,6 +307,112 @@ function navigateToSession(sessionId, retries = 8) {
 }
 
 // ============================================================================
+// Summary Generation via OpenCode API
+// ============================================================================
+
+/**
+ * Make an HTTP request to the OpenCode server.
+ * @param {string} method - HTTP method
+ * @param {string} urlPath - URL path (e.g., '/session/abc/prompt_async')
+ * @param {object} [body] - JSON body to send
+ * @returns {Promise<object>} Parsed JSON response
+ */
+function apiRequest(method, urlPath, body) {
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'localhost',
+      port: OPENCODE_PORT,
+      path: urlPath,
+      method,
+      headers: { 'Content-Type': 'application/json' }
+    };
+
+    const req = http.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch (_e) {
+          resolve({ raw: data });
+        }
+      });
+    });
+
+    req.on('error', reject);
+    if (body) { req.write(JSON.stringify(body)); }
+    req.end();
+  });
+}
+
+/**
+ * Request the model to generate a handoff summary via the OpenCode API.
+ * Sends the SUMMARY_TEMPLATE as a new message, polls for the response.
+ */
+async function requestSummaryFromModel() {
+  if (!OPENCODE_SESSION_ID) { return ''; }
+
+  const summaryPrompt = getSummaryTemplate();
+  logger.info('Requesting fold summary from model', { sessionId: OPENCODE_SESSION_ID });
+
+  // Send summary prompt asynchronously
+  await apiRequest('POST', `/session/${OPENCODE_SESSION_ID}/prompt_async`, {
+    parts: [{ type: 'text', text: summaryPrompt }]
+  });
+
+  // Poll for the model's response (up to 60 seconds)
+  const startTime = Date.now();
+  const timeoutMs = 60000;
+  let lastMessageCount = 0;
+  let stablePolls = 0;
+  let summaryText = '';
+
+  while ((Date.now() - startTime) < timeoutMs) {
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    try {
+      const messages = await apiRequest('GET', `/session/${OPENCODE_SESSION_ID}/message`);
+      const msgArray = Array.isArray(messages) ? messages : [];
+
+      // Look for the latest assistant text content
+      let latestAssistantText = '';
+      let assistantFinished = false;
+
+      for (const msg of msgArray) {
+        if (msg.info?.role === 'assistant') {
+          if (msg.info.time?.completed) { assistantFinished = true; }
+          if (msg.parts) {
+            for (const part of msg.parts) {
+              if (part.type === 'text' && part.text) {
+                latestAssistantText = part.text;
+              }
+            }
+          }
+        }
+      }
+
+      // Check if stable (same message count for 2 polls and assistant finished)
+      if (assistantFinished && msgArray.length === lastMessageCount) {
+        stablePolls++;
+        if (stablePolls >= 2) {
+          summaryText = latestAssistantText;
+          break;
+        }
+      } else {
+        stablePolls = 0;
+      }
+      lastMessageCount = msgArray.length;
+
+    } catch (err) {
+      logger.debug('Summary poll error', { error: err.message });
+    }
+  }
+
+  logger.info('Summary captured', { length: summaryText.length });
+  return summaryText;
+}
+
+// ============================================================================
 // Fold Logic
 // ============================================================================
 
@@ -312,7 +420,56 @@ async function triggerFold() {
   if (hasFolded) { return; }
   hasFolded = true;
 
+  // Show fold progress in toolbar and content overlay
+  if (mainWindow) {
+    mainWindow.webContents.executeJavaScript(`
+      var btn = document.getElementById('fold-btn');
+      if (btn) {
+        btn.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px;">' +
+          '<span style="width:12px;height:12px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin 0.8s linear infinite;display:inline-block;"></span>' +
+          'Generating summary\u2026</span>';
+        btn.disabled = true;
+        btn.style.opacity = '0.85';
+        btn.style.cursor = 'default';
+      }
+      if (!document.getElementById('fold-spin-style')) {
+        var style = document.createElement('style');
+        style.id = 'fold-spin-style';
+        style.textContent = '@keyframes spin { to { transform: rotate(360deg); } }';
+        document.head.appendChild(style);
+      }
+    `).catch(() => {});
+  }
+  if (contentView) {
+    contentView.webContents.executeJavaScript(`
+      (function() {
+        var overlay = document.createElement('div');
+        overlay.id = 'sidecar-fold-overlay';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99999;';
+        overlay.innerHTML =
+          '<div style="width:32px;height:32px;border:3px solid rgba(217,119,87,0.3);border-top-color:#D97757;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:16px;"></div>' +
+          '<div style="color:#E8E0D8;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:15px;font-weight:500;">Generating summary\u2026</div>' +
+          '<div style="color:#7A756F;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:12px;margin-top:6px;">Folding session back to Claude Code</div>';
+        if (!document.getElementById('fold-spin-style')) {
+          var style = document.createElement('style');
+          style.id = 'fold-spin-style';
+          style.textContent = '@keyframes spin { to { transform: rotate(360deg); } }';
+          document.head.appendChild(style);
+        }
+        document.body.appendChild(overlay);
+      })();
+    `).catch(() => {});
+  }
+
   try {
+    // Ask the model to generate a structured summary
+    let summary = '';
+    try {
+      summary = await requestSummaryFromModel();
+    } catch (err) {
+      logger.warn('Failed to get model summary', { error: err.message });
+    }
+
     const output = [
       '[SIDECAR_FOLD]',
       `Model: ${MODEL}`,
@@ -321,7 +478,7 @@ async function triggerFold() {
       `CWD: ${CWD}`,
       `Mode: interactive`,
       '---',
-      'Session summary will be captured here'
+      summary || 'Session ended without summary.'
     ].join('\n');
 
     process.stdout.write(output + '\n');
@@ -329,6 +486,14 @@ async function triggerFold() {
   } catch (err) {
     logger.error('Fold failed', { error: err.message });
     hasFolded = false;
+    return;
+  }
+
+  // Close the window after fold
+  if (mainWindow) {
+    mainWindow.close();
+  } else {
+    app.quit();
   }
 }
 
