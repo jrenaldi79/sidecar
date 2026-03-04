@@ -1,5 +1,5 @@
 # CLAUDE.md
-<!-- Last updated: 2026-03-03 -->
+<!-- Last updated: 2026-03-04 -->
 
 This file provides guidance to Claude Code when working with code in this repository.
 
@@ -42,7 +42,16 @@ node bin/sidecar.js continue <task_id> --briefing "..."
 node bin/sidecar.js read <task_id> [--summary|--conversation]
 sidecar setup                    # Configure default model and aliases
 sidecar setup --add-alias name=model  # Add a custom alias
+sidecar mcp                      # Start MCP server (stdio transport)
 ```
+
+### MCP Server (for Cowork / Claude Desktop)
+```bash
+# Auto-registered during npm install. Manual registration:
+claude mcp add-json sidecar '{"command":"sidecar","args":["mcp"]}' --scope user
+```
+
+MCP tools: `sidecar_start`, `sidecar_status`, `sidecar_read`, `sidecar_list`, `sidecar_resume`, `sidecar_continue`, `sidecar_setup`, `sidecar_guide`
 
 ### OpenCode Agent Types
 
@@ -72,16 +81,16 @@ npm test -- --coverage             # Coverage report
 ┌─────────────────────────────────────────────────────────────┐
 │                       Claude Code                            │
 │                            │                                 │
-│                       sidecar CLI                            │
-│      ┌─────────────────────┴─────────────────────┐          │
-│      │                                           │          │
-│      ▼                                           ▼          │
-│  Interactive Mode                    Headless Mode          │
-│  (Electron + OpenCode)              (OpenCode HTTP API)     │
-│      │                                           │          │
-│      └─────────────────────┬─────────────────────┘          │
-│                            │                                 │
-│               Summary returned to Claude Code                │
+│                  sidecar CLI / MCP Server                    │
+│      ┌──────────────┬────────┴────────────────────┐         │
+│      │              │                             │         │
+│      ▼              ▼                             ▼         │
+│  Interactive    Headless Mode      MCP (sidecar mcp)        │
+│  (Electron)    (OpenCode API)     (stdio transport)         │
+│      │              │              Cowork / Desktop          │
+│      └──────────────┴──────────────┘                        │
+│                     │                                        │
+│        Summary returned to Claude Code                       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -144,6 +153,8 @@ sidecar/
 ├── src/
 │   ├── index.js                 # Main API re-exports (thin module ~82 lines)
 │   ├── cli.js                   # Command-line argument parsing
+│   ├── mcp-server.js            # MCP server (stdio transport, tool handlers)
+│   ├── mcp-tools.js             # MCP tool definitions (Zod schemas)
 │   ├── sidecar/                 # Core sidecar operations (modular)
 │   │   ├── start.js             # startSidecar(), runInteractive(), generateTaskId()
 │   │   ├── resume.js            # resumeSidecar(), checkFileDrift()
@@ -178,7 +189,7 @@ sidecar/
 │       ├── renderer.js          # Chat logic + model picker integration
 │       ├── model-picker.js      # Model selection module
 │       └── styles.css           # UI styles
-├── tests/                       # Jest test suite (501 tests, 17 suites)
+├── tests/                       # Jest test suite (927 tests, 36 suites)
 │   ├── cli.test.js
 │   ├── context.test.js
 │   ├── session-manager.test.js
@@ -187,6 +198,10 @@ sidecar/
 │   ├── headless.test.js
 │   ├── prompt-builder.test.js
 │   ├── e2e.test.js
+│   ├── mcp-tools.test.js
+│   ├── mcp-server.test.js
+│   ├── mcp-integration.test.js
+│   ├── postinstall.test.js
 │   ├── sidecar/                 # Tests for modular sidecar operations
 │   │   ├── start.test.js
 │   │   ├── resume.test.js
@@ -198,7 +213,7 @@ sidecar/
 ├── skill/
 │   └── SKILL.md                 # Claude Code skill integration
 ├── scripts/
-│   ├── postinstall.js           # Auto-install skill to ~/.claude/skills/
+│   ├── postinstall.js           # Auto-install skill + MCP registration
 │   ├── integration-test.sh      # E2E integration tests
 │   └── sync-agent-docs.js       # Sync CLAUDE.md → GEMINI.md, AGENTS.md
 ├── package.json
@@ -230,6 +245,8 @@ sidecar/
 | Module | Purpose | Key Functions |
 |--------|---------|---------------|
 | `index.js` | Re-exports all public APIs | Thin module (~82 lines) |
+| `mcp-server.js` | MCP server (Cowork/Desktop) | `startMcpServer()`, `handlers` (8 tool handlers) |
+| `mcp-tools.js` | MCP tool definitions | `TOOLS` (Zod schemas), `getGuideText()` |
 | `cli.js` | Argument parsing & validation | `parseArgs()`, `validateStartArgs()`, `validateSubagentArgs()` |
 | `context.js` | Context filtering | `filterContext()`, `takeLastNTurns()`, `estimateTokens()` |
 | `session-manager.js` | Session persistence | `createSession()`, `updateSession()`, `saveConversation()`, `saveSummary()` |
@@ -641,7 +658,7 @@ After making significant changes, verify:
 - [ ] **Directory Structure** matches actual `ls -la` output
 - [ ] **Key Modules table** lists all files in `src/`
 - [ ] **Essential Commands** match `package.json` scripts
-- [ ] **Test count** matches `npm test` output (currently 297 tests, 12 suites)
+- [ ] **Test count** matches `npm test` output (currently 927 tests, 36 suites)
 - [ ] **Dependencies table** matches `package.json`
 
 ### Quick Validation Commands

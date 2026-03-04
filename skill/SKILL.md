@@ -16,7 +16,11 @@ sidecar --version
 ### Requirements
 - Node.js 18+
 - API credentials (see Setup below)
-- Electron (installed automatically as dependency)
+- Electron (installed automatically as optional dependency)
+
+### MCP Server (Auto-Registered)
+
+On install, an MCP server is auto-registered for Claude Cowork and Claude Desktop. If you're in an MCP-enabled environment, you can use `sidecar_start`, `sidecar_status`, `sidecar_read`, and other MCP tools directly instead of CLI commands. Call `sidecar_guide` for detailed usage instructions.
 
 ---
 

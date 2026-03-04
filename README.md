@@ -120,17 +120,35 @@ The model name format determines which authentication is used:
 | `sidecar resume <id>` | Reopen a previous sidecar |
 | `sidecar continue <id>` | New sidecar building on previous |
 | `sidecar read <id>` | Output sidecar summary/conversation |
+| `sidecar mcp` | Start MCP server (stdio transport) |
 
-## Claude Code Integration
+## Integration
 
-On install, a **Skill** is automatically added to `~/.claude/skills/sidecar/`. This teaches Claude Code:
+### Claude Code (CLI + Skill)
 
-- When to spawn sidecars
-- How to write effective briefings
-- How to pass session context
-- How to act on sidecar results
+On install, a **Skill** is automatically added to `~/.claude/skills/sidecar/`. This teaches Claude Code when and how to use sidecars. Claude Code will automatically know how to use sidecars after installation.
 
-Claude Code will automatically know how to use sidecars after installation.
+### Claude Cowork / Claude Desktop (MCP)
+
+On install, an **MCP server** is auto-registered in both Claude Code and Claude Desktop configs. This provides sidecar tools directly inside Cowork's sandboxed environment:
+
+| MCP Tool | Description |
+|----------|-------------|
+| `sidecar_start` | Spawn a sidecar (returns task ID immediately) |
+| `sidecar_status` | Poll for completion |
+| `sidecar_read` | Get results (summary, conversation, or metadata) |
+| `sidecar_list` | List sessions |
+| `sidecar_resume` | Reopen a session |
+| `sidecar_continue` | New session building on previous |
+| `sidecar_setup` | Open setup wizard |
+| `sidecar_guide` | Get usage instructions |
+
+MCP tools use the async pattern: `sidecar_start` returns a task ID immediately, then poll with `sidecar_status` and read with `sidecar_read`.
+
+To manually register the MCP server:
+```bash
+claude mcp add-json sidecar '{"command":"sidecar","args":["mcp"]}' --scope user
+```
 
 ## How It Works
 
