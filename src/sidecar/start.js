@@ -82,8 +82,26 @@ function buildMcpConfig(options) {
   return mcpServers;
 }
 
+/** Check if Electron is available (lazy loading guard) */
+function checkElectronAvailable() {
+  try {
+    require.resolve('electron');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Run sidecar in interactive mode (Electron GUI) */
 async function runInteractive(model, systemPrompt, userMessage, taskId, project, options = {}) {
+  if (!checkElectronAvailable()) {
+    logger.error('Electron not installed — interactive mode unavailable');
+    return {
+      summary: '', completed: false, timedOut: false, taskId,
+      error: 'Interactive mode requires electron. Install with: npm install -g claude-sidecar (or use --no-ui for headless mode)'
+    };
+  }
+
   const { agent, isResume, conversation, mcp, reasoning, opencodeSessionId } = options;
   const { createSession, sendPromptAsync } = require('../opencode-client');
 
@@ -311,6 +329,7 @@ module.exports = {
   generateTaskId,
   createSessionMetadata,
   buildMcpConfig,
+  checkElectronAvailable,
   runInteractive,
   startSidecar,
   HEARTBEAT_INTERVAL
