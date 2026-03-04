@@ -55,6 +55,14 @@ function parseArgs(argv) {
         continue;
       }
 
+      // Array accumulation flags
+      if (key === 'exclude-mcp' && next && !next.startsWith('--')) {
+        result['exclude-mcp'] = result['exclude-mcp'] || [];
+        result['exclude-mcp'].push(next);
+        i++;
+        continue;
+      }
+
       // Options with values
       if (next && !next.startsWith('--')) {
         result[key] = parseValue(key, next);
@@ -76,6 +84,7 @@ function parseArgs(argv) {
 function isBooleanFlag(key) {
    const booleanFlags = [
      'no-ui',
+     'no-mcp',
      'setup',
      'all',
      // 'summary', // summary is now an option with a value
@@ -327,6 +336,7 @@ Commands:
   resume      Reopen a previous sidecar
   continue    New sidecar building on previous
   read        Output sidecar summary/conversation
+  abort       Abort a running sidecar session
   subagent    Manage sub-agents within a sidecar
   setup       Configure default model and aliases
     --api-keys               Open API key setup window
@@ -356,6 +366,8 @@ Options for 'start':
                                 - name=url (remote server)
                                 - name=command (local server)
   --mcp-config <path>          Path to opencode.json with MCP config
+  --no-mcp                       Don't inherit MCP servers from parent LLM
+  --exclude-mcp <name>           Exclude specific MCP server (repeatable)
 
 Options for 'list':
   --status <filter>            Filter by status (running, complete)

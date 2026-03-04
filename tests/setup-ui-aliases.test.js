@@ -114,10 +114,12 @@ describe('setup-ui-aliases', () => {
       expect(html).toContain('which LLM to collaborate with');
     });
 
-    it('should have a routing example box', () => {
+    it('should have a routing example box with SVG icons', () => {
       expect(html).toContain('class="routing-example"');
-      expect(html).toContain('--model gemini');
-      expect(html).toContain('routes to');
+      expect(html).toContain('--model');
+      expect(html).toContain('example-step');
+      expect(html).toContain('example-connector');
+      expect(html).toContain('<svg');
     });
 
     it('should NOT have an alias-divider', () => {

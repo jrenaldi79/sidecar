@@ -342,4 +342,107 @@ describe('MCP Server Integration', () => {
       expect(resultB.content[0].text).toBe('Summary for session B');
     });
   });
+
+  describe('sidecar_abort workflow', () => {
+    test('abort running session updates metadata to aborted', async () => {
+      const sessDir = path.join(tmpDir, '.claude', 'sidecar_sessions', 'abort-test');
+      fs.mkdirSync(sessDir, { recursive: true });
+      fs.writeFileSync(path.join(sessDir, 'metadata.json'), JSON.stringify({
+        taskId: 'abort-test', model: 'gemini', status: 'running',
+        briefing: 'Long running task', createdAt: '2026-03-04T00:00:00Z',
+      }));
+
+      const result = await handlers.sidecar_abort({ taskId: 'abort-test' }, tmpDir);
+      const parsed = JSON.parse(result.content[0].text);
+      expect(parsed.status).toBe('aborted');
+      expect(parsed.taskId).toBe('abort-test');
+
+      // Verify metadata file was updated on disk
+      const meta = JSON.parse(fs.readFileSync(path.join(sessDir, 'metadata.json'), 'utf-8'));
+      expect(meta.status).toBe('aborted');
+      expect(meta.abortedAt).toBeDefined();
+    });
+
+    test('abort non-running session returns informational message', async () => {
+      const sessDir = path.join(tmpDir, '.claude', 'sidecar_sessions', 'done-task');
+      fs.mkdirSync(sessDir, { recursive: true });
+      fs.writeFileSync(path.join(sessDir, 'metadata.json'), JSON.stringify({
+        taskId: 'done-task', status: 'complete', createdAt: '2026-03-04T00:00:00Z',
+      }));
+
+      const result = await handlers.sidecar_abort({ taskId: 'done-task' }, tmpDir);
+      expect(result.content[0].text).toContain('not running');
+      expect(result.content[0].text).toContain('complete');
+
+      // Verify metadata was NOT changed
+      const meta = JSON.parse(fs.readFileSync(path.join(sessDir, 'metadata.json'), 'utf-8'));
+      expect(meta.status).toBe('complete');
+    });
+
+    test('abort missing session returns error', async () => {
+      const result = await handlers.sidecar_abort({ taskId: 'nonexistent' }, tmpDir);
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('not found');
+    });
+
+    test('full abort workflow: start running → abort → list shows aborted', async () => {
+      const sessDir = path.join(tmpDir, '.claude', 'sidecar_sessions');
+
+      // Create a running session
+      const runDir = path.join(sessDir, 'workflow-abort');
+      fs.mkdirSync(runDir, { recursive: true });
+      fs.writeFileSync(path.join(runDir, 'metadata.json'), JSON.stringify({
+        taskId: 'workflow-abort', model: 'gemini', status: 'running',
+        briefing: 'Running task to abort', createdAt: '2026-03-04T00:00:00Z',
+      }));
+
+      // Step 1: Verify it shows as running
+      const statusBefore = await handlers.sidecar_status({ taskId: 'workflow-abort' }, tmpDir);
+      expect(JSON.parse(statusBefore.content[0].text).status).toBe('running');
+
+      // Step 2: Abort the session
+      const abortResult = await handlers.sidecar_abort({ taskId: 'workflow-abort' }, tmpDir);
+      expect(JSON.parse(abortResult.content[0].text).status).toBe('aborted');
+
+      // Step 3: Status now shows aborted
+      const statusAfter = await handlers.sidecar_status({ taskId: 'workflow-abort' }, tmpDir);
+      expect(JSON.parse(statusAfter.content[0].text).status).toBe('aborted');
+
+      // Step 4: List with status filter shows aborted session
+      const listResult = await handlers.sidecar_list({ status: 'aborted' }, tmpDir);
+      const sessions = JSON.parse(listResult.content[0].text);
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].id).toBe('workflow-abort');
+      expect(sessions[0].status).toBe('aborted');
+    });
+
+    test('abort does not affect other sessions', async () => {
+      const sessDir = path.join(tmpDir, '.claude', 'sidecar_sessions');
+
+      // Create two running sessions
+      for (const id of ['keep-running', 'to-abort']) {
+        const dir = path.join(sessDir, id);
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, 'metadata.json'), JSON.stringify({
+          taskId: id, model: 'gemini', status: 'running',
+          briefing: `Task ${id}`, createdAt: '2026-03-04T00:00:00Z',
+        }));
+      }
+
+      // Abort only one
+      await handlers.sidecar_abort({ taskId: 'to-abort' }, tmpDir);
+
+      // Verify the other is still running
+      const otherMeta = JSON.parse(fs.readFileSync(
+        path.join(sessDir, 'keep-running', 'metadata.json'), 'utf-8'
+      ));
+      expect(otherMeta.status).toBe('running');
+
+      // List running sessions should only show the non-aborted one
+      const listResult = await handlers.sidecar_list({ status: 'running' }, tmpDir);
+      const running = JSON.parse(listResult.content[0].text);
+      expect(running).toHaveLength(1);
+      expect(running[0].id).toBe('keep-running');
+    });
+  });
 });

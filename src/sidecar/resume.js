@@ -6,7 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const { runInteractive } = require('./start');
+const { runInteractive, buildMcpConfig } = require('./start');
 const {
   SessionPaths,
   finalizeSession,
@@ -87,7 +87,10 @@ function updateSessionStatus(sessionDir, status) {
 
 /** Resume a previous sidecar session - Spec Reference: §4.3, §8.3 */
 async function resumeSidecar(options) {
-  const { taskId, project = process.cwd(), headless = false, timeout = 15 } = options;
+  const {
+    taskId, project = process.cwd(), headless = false, timeout = 15,
+    mcp, mcpConfig, client, noMcp, excludeMcp
+  } = options;
 
   const sessionDir = SessionPaths.sessionDir(project, taskId);
   if (!fs.existsSync(sessionDir)) {
@@ -98,6 +101,7 @@ async function resumeSidecar(options) {
   const metadata = loadSessionMetadata(sessionDir);
   const systemPrompt = loadInitialContext(sessionDir);
 
+  const mcpServers = buildMcpConfig({ mcp, mcpConfig, clientType: client, noMcp, excludeMcp });
   logger.info('Resuming session', { taskId, model: metadata.model, briefing: metadata.briefing });
 
   // Check for file drift
@@ -123,7 +127,7 @@ async function resumeSidecar(options) {
     if (headless) {
       const result = await runHeadless(
         metadata.model, resumePrompt, metadata.briefing || '',
-        taskId, project, timeout * 60 * 1000, effectiveAgent
+        taskId, project, timeout * 60 * 1000, effectiveAgent, { mcp: mcpServers }
       );
       summary = result.summary || '## Sidecar Results: No Output\n\nResumed session completed without summary.';
 
@@ -144,7 +148,8 @@ async function resumeSidecar(options) {
           agent: effectiveAgent,
           isResume: true,
           conversation: existingConversation,
-          opencodeSessionId: metadata.opencodeSessionId
+          opencodeSessionId: metadata.opencodeSessionId,
+          mcp: mcpServers
         }
       );
       summary = result.summary || '';

@@ -5,7 +5,7 @@
 
 const fs = require('fs');
 
-const { generateTaskId, runInteractive } = require('./start');
+const { generateTaskId, runInteractive, buildMcpConfig } = require('./start');
 const {
   SessionPaths,
   saveInitialContext,
@@ -115,7 +115,8 @@ async function continueSidecar(options) {
     contextMaxTokens = 80000,
     headless = false,
     timeout = 15,
-    agent
+    agent,
+    mcp, mcpConfig, client, noMcp, excludeMcp
   } = options;
 
   // Load previous session data
@@ -123,6 +124,7 @@ async function continueSidecar(options) {
     loadPreviousSession(oldTaskId, project);
 
   const model = options.model || oldMetadata.model;
+  const mcpServers = buildMcpConfig({ mcp, mcpConfig, clientType: client, noMcp, excludeMcp });
   logger.info('Continuing from session', { oldTaskId, model });
 
   // Build continuation context
@@ -158,7 +160,7 @@ async function continueSidecar(options) {
     if (headless) {
       const result = await runHeadless(
         model, systemPrompt, userMessage, newTaskId, project,
-        timeout * 60 * 1000, effectiveAgent
+        timeout * 60 * 1000, effectiveAgent, { mcp: mcpServers }
       );
       summary = result.summary ||
         '## Sidecar Results: No Output\n\nContinued session completed without summary.';
@@ -169,7 +171,7 @@ async function continueSidecar(options) {
       logger.info('Launching interactive continue', { taskId: newTaskId, model });
       const result = await runInteractive(
         model, systemPrompt, userMessage, newTaskId, project,
-        { agent: effectiveAgent }
+        { agent: effectiveAgent, mcp: mcpServers }
       );
       summary = result.summary || '';
       if (result.error) { logger.error('Interactive continue error', { taskId: newTaskId, error: result.error }); }

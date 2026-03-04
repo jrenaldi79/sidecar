@@ -176,25 +176,22 @@ function buildWizardCSS() {
     font-size: 10px; color: #5A5550; text-transform: uppercase;
     letter-spacing: 0.5px; margin-bottom: 10px; font-weight: 600;
   }
-  .example-flow {
-    display: flex; align-items: center; gap: 6px; justify-content: center;
-  }
+  .example-flow { display: flex; flex-direction: column; align-items: center; gap: 4px; }
   .example-step {
-    display: flex; align-items: center; gap: 6px;
+    display: flex; align-items: center; gap: 6px; width: 100%;
     background: #2D2B2A; border: 1px solid #3D3A38;
     border-radius: 6px; padding: 6px 10px;
   }
   .example-step svg { flex-shrink: 0; }
-  .example-connector { flex-shrink: 0; display: flex; align-items: center; }
+  .example-connector { display: flex; align-items: center; transform: rotate(90deg); }
   .example-cmd {
-    font-family: 'SF Mono', Menlo, Monaco, monospace; font-size: 11px;
-    color: #A09B96; white-space: nowrap;
+    font-family: 'SF Mono', Menlo, Monaco, monospace; font-size: 12px;
+    color: #A09B96; overflow: hidden; text-overflow: ellipsis;
   }
   .example-cmd strong { color: #D97757; }
   .example-model {
-    font-family: 'SF Mono', Menlo, Monaco, monospace; font-size: 10px;
+    font-family: 'SF Mono', Menlo, Monaco, monospace; font-size: 11px;
     color: #6BBF6B; overflow: hidden; text-overflow: ellipsis;
-    white-space: nowrap; max-width: 260px;
   }
 
   /* Alias editor (Step 3) */

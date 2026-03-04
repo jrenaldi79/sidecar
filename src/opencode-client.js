@@ -236,6 +236,17 @@ async function listSessions(client) {
 }
 
 /**
+ * Abort a running session
+ *
+ * @param {import('@opencode-ai/sdk').OpencodeClient} client - SDK client
+ * @param {string} sessionId - Session ID to abort
+ * @returns {Promise<void>}
+ */
+async function abortSession(client, sessionId) {
+  await client.session.abort({ path: { id: sessionId } });
+}
+
+/**
  * Get session status
  *
  * @param {import('@opencode-ai/sdk').OpencodeClient} client - SDK client
@@ -411,6 +422,7 @@ module.exports = {
   getChildren,
   listSessions,
   getSessionStatus,
+  abortSession,
   checkHealth,
   startServer,
   loadMcpConfig,
