@@ -279,4 +279,29 @@ describe('MCP Tool Definitions', () => {
       expect(() => safeModel.parse('model$(evil)')).toThrow();
     });
   });
+
+  describe('MCP tool schemas include project param', () => {
+    const toolsWithProject = [
+      'sidecar_start', 'sidecar_status', 'sidecar_read',
+      'sidecar_list', 'sidecar_resume', 'sidecar_continue', 'sidecar_abort',
+    ];
+
+    for (const name of toolsWithProject) {
+      test(`${name} has optional project parameter`, () => {
+        const tool = TOOLS.find(t => t.name === name);
+        expect(tool).toBeDefined();
+        expect(tool.inputSchema.project).toBeDefined();
+      });
+    }
+
+    test('sidecar_setup does NOT have project parameter', () => {
+      const tool = TOOLS.find(t => t.name === 'sidecar_setup');
+      expect(tool.inputSchema.project).toBeUndefined();
+    });
+
+    test('sidecar_guide does NOT have project parameter', () => {
+      const tool = TOOLS.find(t => t.name === 'sidecar_guide');
+      expect(tool.inputSchema.project).toBeUndefined();
+    });
+  });
 });

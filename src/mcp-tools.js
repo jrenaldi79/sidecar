@@ -78,6 +78,9 @@ const TOOLS = [
         'Fold summary verbosity. brief: key findings only. normal (default): full ' +
         'structured output. verbose: maximum detail.'
       ),
+      project: z.string().optional().describe(
+        'Optional project directory path. Auto-detected from working directory if omitted.'
+      ),
     },
   },
   {
@@ -89,6 +92,9 @@ const TOOLS = [
     inputSchema: {
       taskId: safeTaskId.describe(
         'The task ID returned by sidecar_start.'
+      ),
+      project: z.string().optional().describe(
+        'Optional project directory path. Auto-detected from working directory if omitted.'
       ),
     },
   },
@@ -104,6 +110,9 @@ const TOOLS = [
           'What to read. summary (default): the fold summary. ' +
           'conversation: full message history. metadata: session info.'
         ),
+      project: z.string().optional().describe(
+        'Optional project directory path. Auto-detected from working directory if omitted.'
+      ),
     },
   },
   {
@@ -114,6 +123,9 @@ const TOOLS = [
     inputSchema: {
       status: z.enum(['all', 'running', 'complete']).optional().describe(
         'Filter by status. Default: show all.'
+      ),
+      project: z.string().optional().describe(
+        'Optional project directory path. Auto-detected from working directory if omitted.'
       ),
     },
   },
@@ -132,6 +144,9 @@ const TOOLS = [
       ),
       timeout: z.number().optional().describe(
         'Headless timeout in minutes. Default: 15. Only applies when noUi is true.'
+      ),
+      project: z.string().optional().describe(
+        'Optional project directory path. Auto-detected from working directory if omitted.'
       ),
     },
   },
@@ -164,6 +179,9 @@ const TOOLS = [
       contextMaxTokens: z.number().optional().describe(
         'Cap on previous session context size in tokens. Default: 80000.'
       ),
+      project: z.string().optional().describe(
+        'Optional project directory path. Auto-detected from working directory if omitted.'
+      ),
     },
   },
   {
@@ -182,6 +200,9 @@ const TOOLS = [
     inputSchema: {
       taskId: safeTaskId.describe(
         'The task ID of the running session to abort.'
+      ),
+      project: z.string().optional().describe(
+        'Optional project directory path. Auto-detected from working directory if omitted.'
       ),
     },
   },
