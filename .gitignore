@@ -40,3 +40,6 @@ opencode.json
 
 # Sidecar session data (user-specific)
 .claude/sidecar_sessions/
+
+# Archived docs (stale/superseded, kept locally for reference)
+docs/archive/

@@ -417,15 +417,15 @@ LOG_LEVEL=debug sidecar start --model gemini --prompt "test" --no-ui
 
 | Doc | Description |
 |-----|-------------|
-| [User Guide](./docs/USER_GUIDE.md) | Non-technical users and Cowork workflows |
-| [Developer Guide](./docs/DEVELOPER_GUIDE.md) | Architecture, integration, contribution |
+| [CLAUDE.md](./CLAUDE.md) | Architecture, modules, integration, development workflow |
 | [SKILL.md](./skill/SKILL.md) | Complete skill reference for Claude Code |
+| [Electron Testing](./docs/electron-testing.md) | Chrome DevTools Protocol patterns for UI testing |
 
 ---
 
 ## Contributing
 
-Contributions are welcome! See the [Developer Guide](./docs/DEVELOPER_GUIDE.md) for architecture details, coding standards, and the development workflow.
+Contributions are welcome! See [CLAUDE.md](./CLAUDE.md) for architecture details, coding standards, and the development workflow.
 
 ```bash
 git clone https://github.com/jrenaldi79/claude-sidecar.git

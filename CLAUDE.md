@@ -584,7 +584,7 @@ The `chat` agent requires user interaction for write/bash permissions and stalls
 
 ## OpenCode SDK & HTTP API Reference
 
-Full documentation in `/docs/`: [opencode-sdk.md](docs/opencode-sdk.md), [opencode-server.md](docs/opencode-server.md), [opencode-integration-guide.md](docs/opencode-integration-guide.md).
+Refer to the [OpenCode documentation](https://opencode.ai/docs/) for SDK and server API details.
 
 **Critical: Model Format** — Models MUST be objects, not strings:
 
@@ -660,14 +660,11 @@ GEMINI.md and AGENTS.md are symlinks to CLAUDE.md -- no sync needed.
 
 ## Related Documentation
 
-- [claude-sidecar-spec-v2.6.md](claude-sidecar-spec-v2.6.md) - Complete specification (2200+ lines)
 - [README.md](README.md) - User-facing documentation
 - [skill/SKILL.md](skill/SKILL.md) - Claude Code skill integration
-- [docs/opencode-sdk.md](docs/opencode-sdk.md) - OpenCode SDK reference
-- [docs/opencode-server.md](docs/opencode-server.md) - OpenCode HTTP API reference
-- [docs/opencode-integration-guide.md](docs/opencode-integration-guide.md) - Integration patterns
 - [docs/electron-testing.md](docs/electron-testing.md) - Electron UI testing (Chrome DevTools Protocol)
 - [docs/jsdoc-setup.md](docs/jsdoc-setup.md) - JSDoc patterns and type declarations
+- [OpenCode docs](https://opencode.ai/docs/) - SDK and server API reference (upstream)
 
 ---
 
