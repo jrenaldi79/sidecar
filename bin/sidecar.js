@@ -14,7 +14,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env'), quiet: true
 
 // Also load API keys from ~/.config/sidecar/.env (override: false = project .env takes precedence)
 const homeDir = process.env.HOME || process.env.USERPROFILE;
-require('dotenv').config({ path: path.join(homeDir, '.config', 'sidecar', '.env'), override: false });
+require('dotenv').config({ path: path.join(homeDir, '.config', 'sidecar', '.env'), override: false, quiet: true });
 
 const { parseArgs, validateStartArgs, getUsage } = require('../src/cli');
 const { validateTaskId, safeSessionDir } = require('../src/utils/validators');
