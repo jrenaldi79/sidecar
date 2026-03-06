@@ -95,7 +95,6 @@ While Claude implements a fix, spin up a sidecar to review the test coverage, au
 ### Prerequisites
 
 - Node.js 18+
-- [OpenCode CLI](https://opencode.ai): `npm install -g opencode-ai`
 
 ### 1. Install
 
@@ -411,7 +410,7 @@ Every fold produces a structured summary:
 
 | Issue | Cause | Solution |
 |-------|-------|---------|
-| `command not found: opencode` | OpenCode not installed | `npm install -g opencode-ai` |
+| `command not found: opencode` | OpenCode binary not found | Reinstall: `npm install -g claude-sidecar` (opencode-ai is bundled) |
 | 401 Unauthorized / auth errors | API key missing or wrong provider prefix | Run `sidecar setup` to configure keys, or verify `openrouter/...` prefix matches your credentials |
 | Headless stalls silently | `Chat` agent in headless mode | Use `--agent build`, not `--agent chat` in headless mode |
 | Session not found | No matching session ID | Run `sidecar list`, or omit `--session-id` to use most recent |

@@ -450,9 +450,9 @@ SIDECAR_MOCK_UPDATE=                    # Mock update state for UI testing: avai
 | `jest` | ^29.0.0 | Testing framework |
 | `eslint` | ^8.0.0 | Code linting |
 
-### Peer Dependencies
+### Bundled Dependencies
 
-- `opencode-ai` (>=1.0.0) - LLM conversation engine
+- `opencode-ai` (>=1.0.0) - LLM conversation engine (installed automatically, no separate install needed)
 
 ### Model Names Reference
 
@@ -493,8 +493,9 @@ Run `sidecar setup --add-alias name=model` to add custom aliases.
 
 ### OpenCode SDK Requirements
 
-- SDK's `createOpencodeServer()` spawns `opencode` CLI internally - CLI must be installed
-- Workaround: Create wrapper script at `node_modules/.bin/opencode` that calls `npx opencode-ai`
+- SDK's `createOpencodeServer()` spawns `opencode` CLI internally
+- `opencode-ai` is a regular dependency — its binary is in `node_modules/.bin/`
+- `src/utils/path-setup.js` adds `node_modules/.bin/` to PATH so the binary is always found
 - SDK is ESM-only; use dynamic `import()` not `require()` in CommonJS projects
 - Jest can't mock dynamic imports without `--experimental-vm-modules` - skip those tests
 
@@ -613,8 +614,8 @@ Full documentation in `/docs/`: [opencode-sdk.md](docs/opencode-sdk.md), [openco
 
 | Issue | Cause | Solution |
 |-------|-------|----------|
-| `command not found: opencode` | OpenCode not installed | `npm install -g opencode-ai` |
-| `spawn opencode ENOENT` | CLI not in PATH | Create wrapper: `echo '#!/bin/bash\nexec npx opencode-ai "$@"' > node_modules/.bin/opencode && chmod +x node_modules/.bin/opencode` |
+| `command not found: opencode` | OpenCode binary not found | Reinstall: `npm install -g claude-sidecar` (opencode-ai is bundled) |
+| `spawn opencode ENOENT` | CLI not in PATH | Verify `path-setup.js` runs before server start; check `node_modules/.bin/opencode` exists |
 | API 400 Bad Request | Model format wrong | Use `{providerID, modelID}` object, not string. See `formatModelForAPI()` |
 | Jest ESM mock fails | Dynamic import | Skip test with `it.skip()` or use `--experimental-vm-modules` |
 | Session resolution fails | No recent session | Pass explicit `--session` flag |
