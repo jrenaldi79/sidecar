@@ -51,6 +51,10 @@ const handlers = {
     if (input.noUi) { args.push('--no-ui'); }
     if (input.thinking) { args.push('--thinking', input.thinking); }
     if (input.timeout) { args.push('--timeout', String(input.timeout)); }
+    if (input.contextTurns)     { args.push('--context-turns', String(input.contextTurns)); }
+    if (input.contextSince)     { args.push('--context-since', input.contextSince); }
+    if (input.contextMaxTokens) { args.push('--context-max-tokens', String(input.contextMaxTokens)); }
+    if (input.summaryLength)    { args.push('--summary-length', input.summaryLength); }
     args.push('--cwd', cwd);
 
     let child;

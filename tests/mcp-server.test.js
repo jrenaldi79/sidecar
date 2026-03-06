@@ -576,3 +576,93 @@ describe('MCP Server Handlers', () => {
     });
   });
 });
+
+describe('sidecar_start context and summary args', () => {
+  it('passes --context-turns to CLI', async () => {
+    let capturedArgs = [];
+    await jest.isolateModulesAsync(async () => {
+      jest.doMock('child_process', () => ({
+        spawn: (_cmd, args, _opts) => {
+          capturedArgs = args;
+          return { pid: 1234, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
+        }
+      }));
+      jest.doMock('fs', () => ({
+        ...jest.requireActual('fs'),
+        mkdirSync: jest.fn(),
+        writeFileSync: jest.fn(),
+        existsSync: jest.fn(() => false)
+      }));
+      const { handlers } = require('../src/mcp-server');
+      await handlers.sidecar_start({ prompt: 'test', contextTurns: 25 }, '/tmp/proj');
+    });
+    expect(capturedArgs).toContain('--context-turns');
+    expect(capturedArgs).toContain('25');
+  });
+
+  it('passes --context-since to CLI', async () => {
+    let capturedArgs = [];
+    await jest.isolateModulesAsync(async () => {
+      jest.doMock('child_process', () => ({
+        spawn: (_cmd, args, _opts) => {
+          capturedArgs = args;
+          return { pid: 1234, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
+        }
+      }));
+      jest.doMock('fs', () => ({
+        ...jest.requireActual('fs'),
+        mkdirSync: jest.fn(),
+        writeFileSync: jest.fn(),
+        existsSync: jest.fn(() => false)
+      }));
+      const { handlers } = require('../src/mcp-server');
+      await handlers.sidecar_start({ prompt: 'test', contextSince: '2h' }, '/tmp/proj');
+    });
+    expect(capturedArgs).toContain('--context-since');
+    expect(capturedArgs).toContain('2h');
+  });
+
+  it('passes --context-max-tokens to CLI', async () => {
+    let capturedArgs = [];
+    await jest.isolateModulesAsync(async () => {
+      jest.doMock('child_process', () => ({
+        spawn: (_cmd, args, _opts) => {
+          capturedArgs = args;
+          return { pid: 1234, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
+        }
+      }));
+      jest.doMock('fs', () => ({
+        ...jest.requireActual('fs'),
+        mkdirSync: jest.fn(),
+        writeFileSync: jest.fn(),
+        existsSync: jest.fn(() => false)
+      }));
+      const { handlers } = require('../src/mcp-server');
+      await handlers.sidecar_start({ prompt: 'test', contextMaxTokens: 40000 }, '/tmp/proj');
+    });
+    expect(capturedArgs).toContain('--context-max-tokens');
+    expect(capturedArgs).toContain('40000');
+  });
+
+  it('passes --summary-length to CLI', async () => {
+    let capturedArgs = [];
+    await jest.isolateModulesAsync(async () => {
+      jest.doMock('child_process', () => ({
+        spawn: (_cmd, args, _opts) => {
+          capturedArgs = args;
+          return { pid: 1234, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
+        }
+      }));
+      jest.doMock('fs', () => ({
+        ...jest.requireActual('fs'),
+        mkdirSync: jest.fn(),
+        writeFileSync: jest.fn(),
+        existsSync: jest.fn(() => false)
+      }));
+      const { handlers } = require('../src/mcp-server');
+      await handlers.sidecar_start({ prompt: 'test', summaryLength: 'verbose' }, '/tmp/proj');
+    });
+    expect(capturedArgs).toContain('--summary-length');
+    expect(capturedArgs).toContain('verbose');
+  });
+});
