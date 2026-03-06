@@ -7,11 +7,28 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { TOOLS, getGuideText } = require('./mcp-tools');
+const os = require('os');
 const { logger } = require('./utils/logger');
 const { safeSessionDir } = require('./utils/validators');
 
-/** @returns {string} Project directory (cwd of MCP client) */
-function getProjectDir() { return process.cwd(); }
+/**
+ * Resolve the project directory with smart fallback.
+ * @param {string} [explicitProject] - Optional explicit project path
+ * @returns {string} Resolved project directory
+ */
+function getProjectDir(explicitProject) {
+  if (explicitProject && fs.existsSync(explicitProject)) {
+    return explicitProject;
+  }
+  const cwd = process.cwd();
+  if (cwd !== '/' && fs.existsSync(cwd)) {
+    return cwd;
+  }
+  if (cwd === '/') {
+    logger.warn('process.cwd() is root (/), falling back to $HOME for session storage');
+  }
+  return os.homedir();
+}
 
 /** Read session metadata from disk, or null if not found */
 function readMetadata(taskId, project) {
@@ -257,4 +274,4 @@ async function startMcpServer() {
   process.stderr.write('[sidecar] MCP server running on stdio\n');
 }
 
-module.exports = { handlers, startMcpServer };
+module.exports = { handlers, startMcpServer, getProjectDir };
