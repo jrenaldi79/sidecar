@@ -1,7 +1,7 @@
 {
   "name": "claude-sidecar",
   "version": "0.3.0",
-  "description": "A parallel AI window for Claude Code — fork conversations to Gemini, GPT, DeepSeek, or any model via OpenRouter, then fold results back",
+  "description": "A parallel AI window for Claude Code. Fork conversations to Gemini, GPT, DeepSeek, or any model via OpenRouter, then fold results back.",
   "keywords": [
     "claude",
     "claude-code",

@@ -2,11 +2,11 @@
 
 # Claude Sidecar
 
-**A parallel AI window that shares your context — talk to any model while your main session keeps working.**
+**A parallel AI window that shares your context. Talk to any model while your main session keeps working.**
 
-![Claude Sidecar — Fork, Work, Fold](./docs/hero.png)
+![Claude Sidecar: Fork, Work, Fold](./docs/hero.png)
 
-Sidecar opens a real UI alongside Claude Code or Cowork, pre-loaded with your conversation context, connected to Gemini 3, GPT-5.4, DeepSeek, or any other model. You interact with the sidecar in parallel — fact-check Claude's work, get a second opinion, explore a tangent — then fold the results back when you're ready.
+Sidecar opens a real UI alongside Claude Code or Cowork, pre-loaded with your conversation context, connected to Gemini 3, GPT-5.4, DeepSeek, or any other model. You interact with the sidecar in parallel (fact-check Claude's work, get a second opinion, explore a tangent) then fold the results back when you're ready.
 
 > **Supported clients:** Claude Code CLI and Claude Cowork are fully tested and supported. Claude Code web and Claude Desktop are experimental.
 
@@ -36,7 +36,6 @@ Sidecar opens a real UI alongside Claude Code or Cowork, pre-loaded with your co
 - [Troubleshooting](#troubleshooting)
 - [Documentation](#documentation)
 - [Contributing](#contributing)
-  - [Autonomous UI Testing via Chrome DevTools Protocol](#autonomous-ui-testing-via-chrome-devtools-protocol)
 - [Built On](#built-on)
 - [License](#license)
 
@@ -46,34 +45,34 @@ Sidecar opens a real UI alongside Claude Code or Cowork, pre-loaded with your co
 
 Sidecar is a **literal second window** that runs alongside your Claude Code or Cowork session. It:
 
-1. **Shares your context** — Your current conversation history is automatically extracted and passed to the sidecar. No copy-pasting, no re-explaining.
-2. **Runs in parallel** — Your main Claude session keeps working while you interact with the sidecar. It's not sequential — it's simultaneous.
-3. **Connects to any model** — Gemini 3 Pro (1M context), GPT-5.4, DeepSeek R1, Grok — whatever's best for the job.
-4. **Folds back cleanly** — When you're done, click FOLD and a structured summary returns to your main context. No noise, just results.
+1. **Shares your context.** Your current conversation history is automatically extracted and passed to the sidecar. No copy-pasting, no re-explaining.
+2. **Runs in parallel.** Your main Claude session keeps working while you interact with the sidecar. It's not sequential, it's simultaneous.
+3. **Connects to any model.** Gemini 3 Pro (1M context), GPT-5.4, DeepSeek R1, Grok: whatever's best for the job.
+4. **Folds back cleanly.** When you're done, click FOLD and a structured summary returns to your main context. No noise, just results.
 
-![What Is Sidecar — Fork and Fold](./docs/what-is-sidecar.png)
+![What Is Sidecar: Fork and Fold](./docs/what-is-sidecar.png)
 
 ---
 
 ## Use Cases
 
 ### Fact-Check Claude's Work
-Claude just proposed an architecture or made a claim? Open a sidecar to a different model and verify it — with full context already loaded.
+Claude just proposed an architecture or made a claim? Open a sidecar to a different model and verify it, with full context already loaded.
 
 ### Get a Second Opinion on a Feature
 Designing something complex? Fork the conversation to Gemini or GPT-5.4 for an independent take. Compare approaches before committing to one.
 
 ### Deep-Dive Without Polluting Context
-Need to explore a rabbit hole — trace a bug, read a huge file, research an API? Do it in the sidecar. Your main session stays clean and focused.
+Need to explore a rabbit hole (trace a bug, read a huge file, research an API)? Do it in the sidecar. Your main session stays clean and focused.
 
 ### Parallel Investigation
-While Claude implements a fix, spin up a sidecar to review the test coverage, audit security implications, or draft documentation — all at the same time.
+While Claude implements a fix, spin up a sidecar to review the test coverage, audit security implications, or draft documentation, all at the same time.
 
 ### Leverage Model Strengths
-- **Gemini 3 Pro** — 1M token context for analyzing entire codebases
-- **GPT-5.4** — Strong at code generation and refactoring
-- **DeepSeek R1** — Cost-effective reasoning at scale
-- **Grok** — Fast iteration and broad knowledge
+- **Gemini 3 Pro**: 1M token context for analyzing entire codebases
+- **GPT-5.4**: Strong at code generation and refactoring
+- **DeepSeek R1**: Cost-effective reasoning at scale
+- **Grok**: Fast iteration and broad knowledge
 
 ---
 
@@ -119,7 +118,7 @@ sidecar setup --add-alias fast=openrouter/google/gemini-3-flash-preview
 ### 3. Verify
 
 ```bash
-sidecar start --model gemini --prompt "Hello — confirm sidecar is working"
+sidecar start --model gemini --prompt "Hello, confirm sidecar is working"
 ```
 
 A window should open alongside your editor with Gemini ready to chat, pre-loaded with your Claude Code context.
@@ -129,16 +128,16 @@ A window should open alongside your editor with Gemini ready to chat, pre-loaded
 ## Quick Start
 
 ```bash
-# Fact-check — open a sidecar to verify Claude's approach
+# Fact-check: open a sidecar to verify Claude's approach
 sidecar start --model gemini --prompt "Fact-check the auth approach Claude just proposed"
 
-# Second opinion — get a different model's take
-sidecar start --model gpt --prompt "Review this feature design — is there a simpler approach?"
+# Second opinion: get a different model's take
+sidecar start --model gpt --prompt "Review this feature design. Is there a simpler approach?"
 
-# Deep dive — investigate without polluting your main context
+# Deep dive: investigate without polluting your main context
 sidecar start --model gemini-pro --prompt "Analyze the entire codebase architecture"
 
-# Headless — autonomous, no UI, summary returns automatically
+# Headless: autonomous, no UI, summary returns automatically
 sidecar start --model gemini --prompt "Generate Jest tests for src/utils/" --no-ui
 
 # Use your configured default model (just omit --model)
@@ -149,13 +148,13 @@ sidecar start --prompt "Security review the payment module"
 
 ## How It Works
 
-1. **Context sharing** — Sidecar reads your Claude Code session from `~/.claude/projects/[project]/[session].jsonl` and passes it to the sidecar model automatically
-2. **Window launch** — An Electron window opens alongside your editor with the sidecar UI (OpenCode-powered)
-3. **Parallel interaction** — You converse with the sidecar model while your main Claude session continues working independently
-4. **Fold** — Click FOLD (or press `Cmd+Shift+F`) to generate a structured summary
-5. **Context return** — The summary flows back into your Claude Code context for Claude to act on
+1. **Context sharing.** Sidecar reads your Claude Code session from `~/.claude/projects/[project]/[session].jsonl` and passes it to the sidecar model automatically.
+2. **Window launch.** An Electron window opens alongside your editor with the sidecar UI (OpenCode-powered).
+3. **Parallel interaction.** You converse with the sidecar model while your main Claude session continues working independently.
+4. **Fold.** Click FOLD (or press `Cmd+Shift+F`) to generate a structured summary.
+5. **Context return.** The summary flows back into your Claude Code context for Claude to act on.
 
-The Electron shell uses a **BrowserView** architecture: the OpenCode web UI loads in a dedicated viewport, while the sidecar toolbar (branding, timer, Fold button) renders in the bottom 40px — no CSS conflicts with the host app.
+The Electron shell uses a **BrowserView** architecture: the OpenCode web UI loads in a dedicated viewport, while the sidecar toolbar (branding, timer, Fold button) renders in the bottom 40px. No CSS conflicts with the host app.
 
 ![Sidecar Architecture](./docs/architecture.png)
 
@@ -171,7 +170,7 @@ The Electron shell uses a **BrowserView** architecture: the OpenCode web UI load
 
 ### Context Passing
 
-Your conversation history is automatically shared with the sidecar — no re-explaining needed. Filter by turns (`--context-turns`) or time window (`--context-since 2h`).
+Your conversation history is automatically shared with the sidecar. No re-explaining needed. Filter by turns (`--context-turns`) or time window (`--context-since 2h`).
 
 ### Adaptive Personality
 
@@ -190,7 +189,7 @@ Sidecar detects its launch context and adapts:
 Sidecar checks the npm registry for updates once every 24 hours (cached, zero-latency background check). When an update is available:
 
 - **CLI:** A notification box appears in your terminal after any command
-- **Electron UI:** A banner appears above the toolbar with a one-click **Update** button — no terminal commands needed
+- **Electron UI:** A banner appears above the toolbar with a one-click **Update** button. No terminal commands needed.
 
 ```bash
 # Or update manually from the CLI
@@ -210,13 +209,13 @@ sidecar continue abc123 --prompt "..." # New session building on previous findin
 
 ### MCP Integration
 
-Full MCP server for Claude Desktop and Cowork. Sidecar tools appear natively inside Cowork's sandboxed environment — no CLI required.
+Full MCP server for Claude Desktop and Cowork. Sidecar tools appear natively inside Cowork's sandboxed environment. No CLI required.
 
 ---
 
 ## Commands
 
-### `sidecar start` — Launch a Sidecar
+### `sidecar start`: Launch a Sidecar
 
 ```bash
 sidecar start --model <model> --prompt "<task>"
@@ -230,16 +229,16 @@ sidecar start --model <model> --prompt "<task>"
 | `--agent` | Agent mode: `Chat`, `Plan`, `Build` | `Chat` |
 | `--timeout` | Headless timeout in minutes | 15 |
 | `--context-turns N` | Max conversation turns to include | 50 |
-| `--context-since` | Time filter: `30m`, `2h`, `1d` | — |
+| `--context-since` | Time filter: `30m`, `2h`, `1d` | |
 | `--context-max-tokens N` | Context size cap | 80000 |
 | `--thinking` | Reasoning effort: `none` `minimal` `low` `medium` `high` `xhigh` | `medium` |
 | `--summary-length` | Output verbosity: `brief` `normal` `verbose` | `normal` |
 | `--session-id` | Explicit Claude Code session ID | Most recent |
-| `--mcp` | Add MCP server: `name=url` or `name=command` | — |
-| `--mcp-config` | Path to `opencode.json` with MCP config | — |
+| `--mcp` | Add MCP server: `name=url` or `name=command` | |
+| `--mcp-config` | Path to `opencode.json` with MCP config | |
 | `--client` | Client context: `code-local` `cowork` (`code-web` experimental) | `code-local` |
 
-### `sidecar list` — Browse Past Sessions
+### `sidecar list`: Browse Past Sessions
 
 ```bash
 sidecar list                    # Current project
@@ -248,7 +247,7 @@ sidecar list --all              # All projects
 sidecar list --json             # JSON output
 ```
 
-### `sidecar resume` — Reopen a Session
+### `sidecar resume`: Reopen a Session
 
 ```bash
 sidecar resume <task_id>
@@ -256,7 +255,7 @@ sidecar resume <task_id>
 
 Reopens the exact OpenCode session with full conversation history preserved.
 
-### `sidecar continue` — Build on Previous Work
+### `sidecar continue`: Build on Previous Work
 
 ```bash
 sidecar continue <task_id> --prompt "Now implement the fix from the analysis"
@@ -264,7 +263,7 @@ sidecar continue <task_id> --prompt "Now implement the fix from the analysis"
 
 Starts a **new** session with the previous session's conversation as read-only background context. Optionally switch models.
 
-### `sidecar read` — Read Session Output
+### `sidecar read`: Read Session Output
 
 ```bash
 sidecar read <task_id>                  # Summary (default)
@@ -272,7 +271,7 @@ sidecar read <task_id> --conversation   # Full conversation
 sidecar read <task_id> --metadata       # Session metadata
 ```
 
-### `sidecar setup` — Configure Sidecar
+### `sidecar setup`: Configure Sidecar
 
 ```bash
 sidecar setup                                           # Full setup wizard (GUI)
@@ -281,13 +280,13 @@ sidecar setup --add-alias fast=openrouter/google/gemini-3-flash-preview
 
 Opens the graphical setup wizard for API keys, default model, model routing, and aliases. See [Getting Started](#2-run-setup) for details.
 
-### `sidecar update` — Update to Latest Version
+### `sidecar update`: Update to Latest Version
 
 ```bash
 sidecar update
 ```
 
-Updates sidecar to the latest npm release. In the Electron UI, click the **Update** button in the banner instead — no terminal needed.
+Updates sidecar to the latest npm release. In the Electron UI, click the **Update** button in the banner instead. No terminal needed.
 
 ---
 
@@ -302,13 +301,13 @@ Three primary modes control what the sidecar can do autonomously:
 | **Build** | Auto-approved | Auto-approved | Implementation tasks, test generation, headless batch work |
 
 ```bash
-# Chat — good for fact-checking and analysis with human-in-the-loop (default)
+# Chat: good for fact-checking and analysis with human-in-the-loop (default)
 sidecar start --model gemini --prompt "Verify Claude's approach to the auth refactor"
 
-# Plan — strict read-only, no changes possible
+# Plan: strict read-only, no changes possible
 sidecar start --model gemini --agent Plan --prompt "Security review of the payment module"
 
-# Build — full autonomy, use when you explicitly want it to write code
+# Build: full autonomy, use when you explicitly want it to write code
 sidecar start --model gemini --agent Build --no-ui \
   --prompt "Generate comprehensive Jest tests for src/utils/"
 ```
@@ -339,7 +338,7 @@ sidecar start --model gemini --agent Build --no-ui \
 | Direct OpenAI | `openai/model` | `openai/gpt-5.4` |
 | Direct Anthropic | `anthropic/model` | `anthropic/claude-opus-4-6` |
 
-The prefix determines which credentials are used. Model names evolve — verify current names:
+The prefix determines which credentials are used. Model names evolve; verify current names:
 
 ```bash
 curl https://openrouter.ai/api/v1/models | jq '.data[].id' | grep -i gemini
@@ -367,7 +366,7 @@ claude mcp add-json sidecar '{"command":"sidecar","args":["mcp"]}' --scope user
 | `sidecar_setup` | Open setup wizard |
 | `sidecar_guide` | Get usage instructions |
 
-**Async pattern:** `sidecar_start` returns a task ID immediately. Poll with `sidecar_status`, then read results with `sidecar_read`. This is non-blocking — the calling agent can do other work while the sidecar runs.
+**Async pattern:** `sidecar_start` returns a task ID immediately. Poll with `sidecar_status`, then read results with `sidecar_read`. This is non-blocking: the calling agent can do other work while the sidecar runs.
 
 ---
 
@@ -401,7 +400,7 @@ Every fold produces a structured summary:
 | 401 Unauthorized / auth errors | API key missing or wrong provider prefix | Run `sidecar setup` to configure keys, or verify `openrouter/...` prefix matches your credentials |
 | Headless stalls silently | `Chat` agent in headless mode | Use `--agent build`, not `--agent chat` in headless mode |
 | Session not found | No matching session ID | Run `sidecar list`, or omit `--session-id` to use most recent |
-| No conversation history found | Project path encoding | Check `ls ~/.claude/projects/` — `/` and `_` are encoded as `-` in path |
+| No conversation history found | Project path encoding | Check `ls ~/.claude/projects/`. `/` and `_` are encoded as `-` in path |
 | Headless timeout | Task too complex for default timeout | Increase with `--timeout 30` |
 | Summary corrupted | Debug output leaking to stdout | Use `LOG_LEVEL=debug` to diagnose |
 | Multiple active sessions | Ambiguous session resolution | Pass `--session-id` explicitly |
@@ -471,16 +470,16 @@ setTimeout(() => { ws.close(); process.exit(0); }, 3000);
 "
 ```
 
-This approach tests real rendering in a real Electron window — not mocked DOM behavior. See [docs/electron-testing.md](docs/electron-testing.md) for the full reference.
+This approach tests real rendering in a real Electron window, not mocked DOM behavior. See [docs/electron-testing.md](docs/electron-testing.md) for the full reference.
 
 ---
 
 ## Built On
 
-Sidecar is a harness built on top of [**OpenCode**](https://opencode.ai) — the open-source AI coding engine. OpenCode provides the conversation runtime, tool execution framework, agent system, and web UI. Sidecar adds context sharing from Claude Code, the Electron shell, fold/summary workflow, session persistence, and multi-client support (CLI, MCP, Cowork). We don't reinvent the wheel — OpenCode handles the hard parts of LLM interaction so Sidecar can focus on the parallel-window workflow.
+Sidecar is a harness built on top of [**OpenCode**](https://opencode.ai), the open-source AI coding engine. OpenCode provides the conversation runtime, tool execution framework, agent system, and web UI. Sidecar adds context sharing from Claude Code, the Electron shell, fold/summary workflow, session persistence, and multi-client support (CLI, MCP, Cowork). We don't reinvent the wheel. OpenCode handles the hard parts of LLM interaction so Sidecar can focus on the parallel-window workflow.
 
 ---
 
 ## License
 
-MIT — [John Renaldi](https://github.com/jrenaldi79)
+MIT. [John Renaldi](https://github.com/jrenaldi79)
