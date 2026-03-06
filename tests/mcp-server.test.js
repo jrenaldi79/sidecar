@@ -10,6 +10,104 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+/**
+ * Tests that verify the args passed to the spawned CLI process.
+ * Uses jest.isolateModulesAsync + jest.doMock to mock child_process per-test.
+ * jest.doMock (unlike jest.mock) is not hoisted, so it can reference outer variables.
+ */
+describe('MCP spawn arg building', () => {
+  test('sidecar_start passes --task-id matching returned taskId', async () => {
+    let capturedArgs;
+    await jest.isolateModulesAsync(async () => {
+      jest.doMock('child_process', () => ({
+        spawn: jest.fn((cmd, args) => {
+          capturedArgs = args;
+          return { pid: 12345, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
+        }),
+      }));
+      const { handlers: h } = require('../src/mcp-server');
+      const result = await h.sidecar_start({ prompt: 'test task', noUi: true }, '/tmp');
+      const { taskId } = JSON.parse(result.content[0].text);
+      const idx = capturedArgs.indexOf('--task-id');
+      expect(idx).toBeGreaterThan(-1);
+      expect(capturedArgs[idx + 1]).toBe(taskId);
+    });
+  });
+
+  test('sidecar_start auto-passes --client cowork', async () => {
+    let capturedArgs;
+    await jest.isolateModulesAsync(async () => {
+      jest.doMock('child_process', () => ({
+        spawn: jest.fn((cmd, args) => {
+          capturedArgs = args;
+          return { pid: 12345, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
+        }),
+      }));
+      const { handlers: h } = require('../src/mcp-server');
+      await h.sidecar_start({ prompt: 'test task', noUi: true }, '/tmp');
+      const idx = capturedArgs.indexOf('--client');
+      expect(idx).toBeGreaterThan(-1);
+      expect(capturedArgs[idx + 1]).toBe('cowork');
+    });
+  });
+
+  test('sidecar_start passes --timeout when provided', async () => {
+    let capturedArgs;
+    await jest.isolateModulesAsync(async () => {
+      jest.doMock('child_process', () => ({
+        spawn: jest.fn((cmd, args) => {
+          capturedArgs = args;
+          return { pid: 12345, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
+        }),
+      }));
+      const { handlers: h } = require('../src/mcp-server');
+      await h.sidecar_start({ prompt: 'test task', noUi: true, timeout: 30 }, '/tmp');
+      const idx = capturedArgs.indexOf('--timeout');
+      expect(idx).toBeGreaterThan(-1);
+      expect(capturedArgs[idx + 1]).toBe('30');
+    });
+  });
+
+  test('sidecar_continue returns a NEW taskId, not the parent taskId', async () => {
+    await jest.isolateModulesAsync(async () => {
+      jest.doMock('child_process', () => ({
+        spawn: jest.fn(() => ({
+          pid: 12345, unref: jest.fn(),
+          stdout: { on: jest.fn() }, stderr: { on: jest.fn() },
+        })),
+      }));
+      const { handlers: h } = require('../src/mcp-server');
+      const parentTaskId = 'parent123';
+      const result = await h.sidecar_continue(
+        { taskId: parentTaskId, prompt: 'follow-up task', noUi: true }, '/tmp'
+      );
+      const { taskId } = JSON.parse(result.content[0].text);
+      expect(taskId).not.toBe(parentTaskId);
+      expect(taskId).toBeTruthy();
+    });
+  });
+
+  test('sidecar_continue passes --task-id matching the new returned taskId', async () => {
+    let capturedArgs;
+    await jest.isolateModulesAsync(async () => {
+      jest.doMock('child_process', () => ({
+        spawn: jest.fn((cmd, args) => {
+          capturedArgs = args;
+          return { pid: 12345, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
+        }),
+      }));
+      const { handlers: h } = require('../src/mcp-server');
+      const result = await h.sidecar_continue(
+        { taskId: 'old-parent', prompt: 'new task', noUi: true }, '/tmp'
+      );
+      const { taskId: newTaskId } = JSON.parse(result.content[0].text);
+      const idx = capturedArgs.indexOf('--task-id');
+      expect(idx).toBeGreaterThan(-1);
+      expect(capturedArgs[idx + 1]).toBe(newTaskId);
+    });
+  });
+});
+
 describe('safeSessionDir (shared validator)', () => {
   const { safeSessionDir, validateTaskId } = require('../src/utils/validators');
 
@@ -376,7 +474,54 @@ describe('MCP Server Handlers', () => {
     });
   });
 
-  describe('sidecar_abort', () => {
+  describe('sidecar_abort PID killing', () => {
+    test('sends SIGTERM to process when PID is stored in metadata', async () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-abort-pid-'));
+      const sessDir = path.join(tmpDir, '.claude', 'sidecar_sessions', 'killme1');
+      fs.mkdirSync(sessDir, { recursive: true });
+      fs.writeFileSync(path.join(sessDir, 'metadata.json'), JSON.stringify({
+        taskId: 'killme1', status: 'running', model: 'gemini',
+        pid: 99999,
+        createdAt: new Date().toISOString(),
+      }));
+
+      const killSpy = jest.spyOn(process, 'kill').mockImplementation(() => {});
+      try {
+        const result = await handlers.sidecar_abort({ taskId: 'killme1' }, tmpDir);
+        expect(result.isError).toBeUndefined();
+        expect(killSpy).toHaveBeenCalledWith(99999, 'SIGTERM');
+      } finally {
+        killSpy.mockRestore();
+        fs.rmSync(tmpDir, { recursive: true });
+      }
+    });
+
+    test('marks aborted even if process already exited (SIGTERM throws ESRCH)', async () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-abort-gone-'));
+      const sessDir = path.join(tmpDir, '.claude', 'sidecar_sessions', 'gone1');
+      fs.mkdirSync(sessDir, { recursive: true });
+      fs.writeFileSync(path.join(sessDir, 'metadata.json'), JSON.stringify({
+        taskId: 'gone1', status: 'running', model: 'gemini',
+        pid: 99999,
+        createdAt: new Date().toISOString(),
+      }));
+
+      const killSpy = jest.spyOn(process, 'kill').mockImplementation(() => {
+        const err = new Error('No such process');
+        err.code = 'ESRCH';
+        throw err;
+      });
+      try {
+        const result = await handlers.sidecar_abort({ taskId: 'gone1' }, tmpDir);
+        expect(result.isError).toBeUndefined();
+        const meta = JSON.parse(fs.readFileSync(path.join(sessDir, 'metadata.json'), 'utf-8'));
+        expect(meta.status).toBe('aborted');
+      } finally {
+        killSpy.mockRestore();
+        fs.rmSync(tmpDir, { recursive: true });
+      }
+    });
+
     test('aborts a running session — status updated to aborted', async () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-test-'));
       const sessDir = path.join(tmpDir, '.claude', 'sidecar_sessions', 'abort1');
@@ -386,6 +531,7 @@ describe('MCP Server Handlers', () => {
         createdAt: new Date().toISOString(),
       }));
 
+      // No PID in metadata — abort should still update status gracefully
       try {
         const result = await handlers.sidecar_abort({ taskId: 'abort1' }, tmpDir);
         expect(result.isError).toBeUndefined();
@@ -393,7 +539,6 @@ describe('MCP Server Handlers', () => {
         expect(parsed.status).toBe('aborted');
         expect(parsed.taskId).toBe('abort1');
 
-        // Verify metadata was updated on disk
         const meta = JSON.parse(fs.readFileSync(path.join(sessDir, 'metadata.json'), 'utf-8'));
         expect(meta.status).toBe('aborted');
         expect(meta.abortedAt).toBeDefined();

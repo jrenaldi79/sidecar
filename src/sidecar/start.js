@@ -296,7 +296,7 @@ async function startSidecar(options) {
   const effectiveProject = cwd || project;
   const effectiveHeadless = noUi !== undefined ? noUi : headless;
   const mcpServers = buildMcpConfig({ mcp, mcpConfig, clientType: client, noMcp, excludeMcp });
-  const taskId = generateTaskId();
+  const taskId = options.taskId || generateTaskId();
   const reasoning = thinking ? { effort: thinking } : undefined;
 
   logger.info('Starting task', { taskId, model, mode: effectiveHeadless ? 'headless' : 'interactive' });

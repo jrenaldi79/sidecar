@@ -141,8 +141,8 @@ async function continueSidecar(options) {
     briefing, fullContext, project, headless, effectiveAgent, 'normal', client
   );
 
-  // Generate new task ID and create session
-  const newTaskId = generateTaskId();
+  // Use provided task ID (from MCP server) or generate a new one
+  const newTaskId = options.newTaskId || generateTaskId();
   logger.info('New continuation task', { newTaskId, oldTaskId });
 
   const sessionDir = createContinueSessionMetadata(newTaskId, project, {

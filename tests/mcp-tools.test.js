@@ -84,6 +84,10 @@ describe('MCP Tool Definitions', () => {
     test('has thinking in input schema', () => {
       expect(startTool.inputSchema).toHaveProperty('thinking');
     });
+
+    test('has timeout in input schema', () => {
+      expect(startTool.inputSchema).toHaveProperty('timeout');
+    });
   });
 
   describe('sidecar_status', () => {
@@ -122,6 +126,11 @@ describe('MCP Tool Definitions', () => {
       const tool = TOOLS.find(t => t.name === 'sidecar_resume');
       expect(tool.inputSchema).toHaveProperty('noUi');
     });
+
+    test('has timeout in input schema', () => {
+      const tool = TOOLS.find(t => t.name === 'sidecar_resume');
+      expect(tool.inputSchema).toHaveProperty('timeout');
+    });
   });
 
   describe('sidecar_continue', () => {
@@ -143,6 +152,11 @@ describe('MCP Tool Definitions', () => {
     test('has noUi in input schema', () => {
       const tool = TOOLS.find(t => t.name === 'sidecar_continue');
       expect(tool.inputSchema).toHaveProperty('noUi');
+    });
+
+    test('has timeout in input schema', () => {
+      const tool = TOOLS.find(t => t.name === 'sidecar_continue');
+      expect(tool.inputSchema).toHaveProperty('timeout');
     });
   });
 

@@ -115,6 +115,7 @@ async function handleStart(args) {
   const agent = args.agent;
 
   await startSidecar({
+    taskId: args['task-id'],
     model: args.model,
     prompt: args.prompt,
     sessionId: args['session-id'],
@@ -210,6 +211,7 @@ async function handleContinue(args) {
 
   await continueSidecar({
     taskId,
+    newTaskId: args['task-id'],
     briefing: args.prompt || args.briefing,
     model: args.model,
     project: args.cwd,

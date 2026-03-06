@@ -61,6 +61,9 @@ const TOOLS = [
       ]).optional().describe(
         'Reasoning effort level. Default: medium.'
       ),
+      timeout: z.number().optional().describe(
+        'Headless timeout in minutes. Default: 15. Only applies when noUi is true.'
+      ),
     },
   },
   {
@@ -113,6 +116,9 @@ const TOOLS = [
       noUi: z.boolean().optional().default(false).describe(
         'Resume in headless mode. Default false (opens Electron window).'
       ),
+      timeout: z.number().optional().describe(
+        'Headless timeout in minutes. Default: 15. Only applies when noUi is true.'
+      ),
     },
   },
   {
@@ -134,6 +140,9 @@ const TOOLS = [
       ),
       noUi: z.boolean().optional().default(false).describe(
         'Run headless. Default false (opens Electron window).'
+      ),
+      timeout: z.number().optional().describe(
+        'Headless timeout in minutes. Default: 15. Only applies when noUi is true.'
       ),
     },
   },

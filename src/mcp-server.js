@@ -42,19 +42,34 @@ function spawnSidecarProcess(args) {
 const handlers = {
   async sidecar_start(input, project) {
     const cwd = project || getProjectDir();
-    const args = ['start', '--prompt', input.prompt];
+    const { generateTaskId } = require('./sidecar/start');
+    const taskId = generateTaskId();
+
+    const args = ['start', '--prompt', input.prompt, '--task-id', taskId, '--client', 'cowork'];
     if (input.model) { args.push('--model', input.model); }
     if (input.agent) { args.push('--agent', input.agent); }
     if (input.noUi) { args.push('--no-ui'); }
     if (input.thinking) { args.push('--thinking', input.thinking); }
+    if (input.timeout) { args.push('--timeout', String(input.timeout)); }
     args.push('--cwd', cwd);
 
-    const { generateTaskId } = require('./sidecar/start');
-    const taskId = generateTaskId();
-
-    try { spawnSidecarProcess(args); } catch (err) {
+    let child;
+    try { child = spawnSidecarProcess(args); } catch (err) {
       return textResult(`Failed to start sidecar: ${err.message}`, true);
     }
+
+    // Save PID so sidecar_abort can kill the process
+    if (child && child.pid) {
+      const sessionDir = path.join(cwd, '.claude', 'sidecar_sessions', taskId);
+      fs.mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
+      const metaPath = path.join(sessionDir, 'metadata.json');
+      if (!fs.existsSync(metaPath)) {
+        fs.writeFileSync(metaPath, JSON.stringify({
+          taskId, status: 'running', pid: child.pid, createdAt: new Date().toISOString(),
+        }, null, 2), { mode: 0o600 });
+      }
+    }
+
     return textResult(JSON.stringify({
       taskId, status: 'running',
       message: 'Sidecar started. Use sidecar_status to check progress, sidecar_read to get results.',
@@ -133,8 +148,9 @@ const handlers = {
 
   async sidecar_resume(input, project) {
     const cwd = project || getProjectDir();
-    const args = ['resume', input.taskId, '--cwd', cwd];
+    const args = ['resume', input.taskId, '--client', 'cowork', '--cwd', cwd];
     if (input.noUi) { args.push('--no-ui'); }
+    if (input.timeout) { args.push('--timeout', String(input.timeout)); }
     try { spawnSidecarProcess(args); } catch (err) {
       return textResult(`Failed to resume: ${err.message}`, true);
     }
@@ -146,14 +162,19 @@ const handlers = {
 
   async sidecar_continue(input, project) {
     const cwd = project || getProjectDir();
-    const args = ['continue', input.taskId, '--prompt', input.prompt, '--cwd', cwd];
+    const { generateTaskId } = require('./sidecar/start');
+    const newTaskId = generateTaskId();
+
+    const args = ['continue', input.taskId, '--prompt', input.prompt,
+      '--task-id', newTaskId, '--client', 'cowork', '--cwd', cwd];
     if (input.model) { args.push('--model', input.model); }
     if (input.noUi) { args.push('--no-ui'); }
+    if (input.timeout) { args.push('--timeout', String(input.timeout)); }
     try { spawnSidecarProcess(args); } catch (err) {
       return textResult(`Failed to continue: ${err.message}`, true);
     }
     return textResult(JSON.stringify({
-      taskId: input.taskId, status: 'running',
+      taskId: newTaskId, status: 'running',
       message: 'Continuation started. Use sidecar_status to check progress.',
     }));
   },
@@ -164,6 +185,18 @@ const handlers = {
     if (!metadata) { return textResult(`Session ${input.taskId} not found.`, true); }
     if (metadata.status !== 'running') {
       return textResult(`Session ${input.taskId} is not running (status: ${metadata.status}).`);
+    }
+
+    // Kill the process if PID is recorded
+    if (metadata.pid) {
+      try {
+        process.kill(metadata.pid, 'SIGTERM');
+      } catch (err) {
+        // ESRCH = process already exited; any other error is unexpected but non-fatal
+        if (err.code !== 'ESRCH') {
+          logger.warn('Failed to kill sidecar process', { pid: metadata.pid, error: err.message });
+        }
+      }
     }
 
     // Update metadata to aborted
