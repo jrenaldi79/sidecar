@@ -58,7 +58,7 @@ function spawnSidecarProcess(args) {
 /** Tool handler implementations */
 const handlers = {
   async sidecar_start(input, project) {
-    const cwd = project || getProjectDir();
+    const cwd = project || getProjectDir(input.project);
     const { generateTaskId } = require('./sidecar/start');
     const taskId = generateTaskId();
 
@@ -98,7 +98,7 @@ const handlers = {
   },
 
   async sidecar_status(input, project) {
-    const cwd = project || getProjectDir();
+    const cwd = project || getProjectDir(input.project);
     const metadata = readMetadata(input.taskId, cwd);
     if (!metadata) { return textResult(`Session ${input.taskId} not found.`, true); }
 
@@ -113,7 +113,7 @@ const handlers = {
   },
 
   async sidecar_read(input, project) {
-    const cwd = project || getProjectDir();
+    const cwd = project || getProjectDir(input.project);
     const sessionDir = safeSessionDir(cwd, input.taskId);
     if (!fs.existsSync(sessionDir)) {
       return textResult(`Session ${input.taskId} not found.`, true);
@@ -137,7 +137,7 @@ const handlers = {
   },
 
   async sidecar_list(input, project) {
-    const cwd = project || getProjectDir();
+    const cwd = project || getProjectDir(input.project);
     const sessionsDir = path.join(cwd, '.claude', 'sidecar_sessions');
     if (!fs.existsSync(sessionsDir)) { return textResult('No sidecar sessions found.'); }
 
@@ -168,7 +168,7 @@ const handlers = {
   },
 
   async sidecar_resume(input, project) {
-    const cwd = project || getProjectDir();
+    const cwd = project || getProjectDir(input.project);
     const args = ['resume', input.taskId, '--client', 'cowork', '--cwd', cwd];
     if (input.noUi) { args.push('--no-ui'); }
     if (input.timeout) { args.push('--timeout', String(input.timeout)); }
@@ -182,7 +182,7 @@ const handlers = {
   },
 
   async sidecar_continue(input, project) {
-    const cwd = project || getProjectDir();
+    const cwd = project || getProjectDir(input.project);
     const { generateTaskId } = require('./sidecar/start');
     const newTaskId = generateTaskId();
 
@@ -203,7 +203,7 @@ const handlers = {
   },
 
   async sidecar_abort(input, project) {
-    const cwd = project || getProjectDir();
+    const cwd = project || getProjectDir(input.project);
     const metadata = readMetadata(input.taskId, cwd);
     if (!metadata) { return textResult(`Session ${input.taskId} not found.`, true); }
     if (metadata.status !== 'running') {
@@ -260,7 +260,7 @@ async function startMcpServer() {
       { description: tool.description, inputSchema: tool.inputSchema },
       async (input) => {
         try {
-          return await handlers[tool.name](input);
+          return await handlers[tool.name](input, getProjectDir(input.project));
         } catch (err) {
           logger.error(`MCP tool error: ${tool.name}`, { error: err.message });
           return textResult(`Error: ${err.message}`, true);
