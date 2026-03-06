@@ -195,7 +195,7 @@ describe('Updater Module', () => {
         expect(info).not.toBeNull();
         expect(info.hasUpdate).toBe(true);
         expect(info.latest).toBe('99.0.0');
-        expect(info.current).toBe('0.3.0');
+        expect(info.current).toBe(require('../package.json').version);
       });
     });
 
