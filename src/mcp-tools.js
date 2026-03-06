@@ -64,6 +64,20 @@ const TOOLS = [
       timeout: z.number().optional().describe(
         'Headless timeout in minutes. Default: 15. Only applies when noUi is true.'
       ),
+      contextTurns: z.number().optional().describe(
+        'Max conversation turns to include from your Claude session. Default: 50.'
+      ),
+      contextSince: z.string().optional().describe(
+        'Time filter for context — include only turns from the last N minutes/hours/days. ' +
+        'Format: 30m, 2h, 1d. Overrides contextTurns when set.'
+      ),
+      contextMaxTokens: z.number().optional().describe(
+        'Cap on context size in tokens. Default: 80000.'
+      ),
+      summaryLength: z.enum(['brief', 'normal', 'verbose']).optional().describe(
+        'Fold summary verbosity. brief: key findings only. normal (default): full ' +
+        'structured output. verbose: maximum detail.'
+      ),
     },
   },
   {

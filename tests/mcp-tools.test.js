@@ -88,6 +88,26 @@ describe('MCP Tool Definitions', () => {
     test('has timeout in input schema', () => {
       expect(startTool.inputSchema).toHaveProperty('timeout');
     });
+
+    it('has contextTurns in input schema', () => {
+      const tool = TOOLS.find(t => t.name === 'sidecar_start');
+      expect(tool.inputSchema.contextTurns).toBeDefined();
+    });
+
+    it('has contextSince in input schema', () => {
+      const tool = TOOLS.find(t => t.name === 'sidecar_start');
+      expect(tool.inputSchema.contextSince).toBeDefined();
+    });
+
+    it('has contextMaxTokens in input schema', () => {
+      const tool = TOOLS.find(t => t.name === 'sidecar_start');
+      expect(tool.inputSchema.contextMaxTokens).toBeDefined();
+    });
+
+    it('has summaryLength in input schema', () => {
+      const tool = TOOLS.find(t => t.name === 'sidecar_start');
+      expect(tool.inputSchema.summaryLength).toBeDefined();
+    });
   });
 
   describe('sidecar_status', () => {
