@@ -1,14 +1,29 @@
 # Electron UI Testing (Chrome DevTools Protocol)
 
-The Electron sidecar window runs with remote debugging enabled on port 9222. This allows programmatic inspection and testing of the UI state via the Chrome DevTools Protocol.
+The Electron sidecar window runs with remote debugging enabled via the Chrome DevTools Protocol. This allows programmatic inspection and testing of the UI state.
 
 ## Prerequisites
 
-The Electron app automatically enables remote debugging when launched. Verify it's accessible:
+### Debug Port Configuration
+
+The default debug port is 9222, but **Chrome browser also uses port 9222**. If Chrome is running, Electron will silently fail to bind. Use `SIDECAR_DEBUG_PORT` to set a different port:
 
 ```bash
-curl -s http://127.0.0.1:9222/json | python3 -m json.tool
+# Use port 9223 to avoid conflicts with Chrome
+SIDECAR_DEBUG_PORT=9223 sidecar start --model gemini --prompt "test"
 ```
+
+Verify it's accessible:
+
+```bash
+# Use the same port you configured (default: 9222, recommended: 9223)
+curl -s http://127.0.0.1:9223/json | python3 -m json.tool
+```
+
+### Known Limitations
+
+- **`contextBridge` does not work with `data:` URLs** — The toolbar is loaded via a `data:` URL in the main window. Electron's `contextBridge.exposeInMainWorld()` silently fails for `data:` origins, so `window.sidecar` is `undefined` in the toolbar. Any toolbar↔main-process communication must use `executeJavaScript()` polling instead of IPC.
+- **Two debug targets per session** — The Electron window creates two pages: the OpenCode content (BrowserView at `http://localhost:<port>`) and the toolbar (`data:text/html`). Filter by URL to target the right one.
 
 ## Testing UI State with Node.js
 
@@ -18,7 +33,7 @@ Use the WebSocket API to execute JavaScript in the Electron renderer and inspect
 // test-electron-ui.js
 const WebSocket = require('ws');
 
-const ws = new WebSocket('ws://127.0.0.1:9222/devtools/page/<PAGE_ID>');
+const ws = new WebSocket('ws://127.0.0.1:9223/devtools/page/<PAGE_ID>');
 
 ws.on('open', () => {
   ws.send(JSON.stringify({
@@ -58,14 +73,14 @@ ws.on('message', (data) => {
 
 **Get page ID first:**
 ```bash
-curl -s http://127.0.0.1:9222/json | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['id'])"
+curl -s http://127.0.0.1:9223/json | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['id'])"
 ```
 
 **Check UI state (inline):**
 ```bash
 node << 'EOF'
 const WebSocket = require('ws');
-const ws = new WebSocket('ws://127.0.0.1:9222/devtools/page/<PAGE_ID>');
+const ws = new WebSocket('ws://127.0.0.1:9223/devtools/page/<PAGE_ID>');
 
 ws.on('open', () => {
   ws.send(JSON.stringify({
@@ -97,7 +112,7 @@ EOF
 ```bash
 node << 'EOF'
 const WebSocket = require('ws');
-const ws = new WebSocket('ws://127.0.0.1:9222/devtools/page/<PAGE_ID>');
+const ws = new WebSocket('ws://127.0.0.1:9223/devtools/page/<PAGE_ID>');
 
 ws.on('open', () => {
   ws.send(JSON.stringify({
@@ -142,7 +157,7 @@ When testing the sidecar UI, verify these elements:
 
 ## Debugging Tips
 
-1. **Get WebSocket URL**: `curl -s http://127.0.0.1:9222/json | jq '.[0].webSocketDebuggerUrl'`
+1. **Get WebSocket URL**: `curl -s http://127.0.0.1:9223/json | jq '.[0].webSocketDebuggerUrl'`
 2. **Enable console capture**: Send `{"method": "Console.enable"}` first
 3. **Screenshot**: Use `Page.captureScreenshot` method
 4. **Timeout**: Always add a timeout to prevent hanging scripts
@@ -153,7 +168,7 @@ The WebSocket approach via Chrome DevTools Protocol is the most efficient way to
 
 **1. Get Page ID and Check UI State (one-liner):**
 ```bash
-PAGE_ID=$(curl -s http://127.0.0.1:9222/json | node -e "const d=require('fs').readFileSync(0,'utf8');const p=JSON.parse(d);console.log(p[0]?.id || 'NO_ID')")
+PAGE_ID=$(curl -s http://127.0.0.1:9223/json | node -e "const d=require('fs').readFileSync(0,'utf8');const p=JSON.parse(d);console.log(p[0]?.id || 'NO_ID')")
 echo "Page ID: $PAGE_ID"
 ```
 
@@ -161,7 +176,7 @@ echo "Page ID: $PAGE_ID"
 ```bash
 node -e "
 const WebSocket = require('ws');
-const ws = new WebSocket('ws://127.0.0.1:9222/devtools/page/$PAGE_ID');
+const ws = new WebSocket('ws://127.0.0.1:9223/devtools/page/$PAGE_ID');
 
 ws.on('open', () => {
   ws.send(JSON.stringify({
@@ -203,7 +218,7 @@ setTimeout(() => { ws.close(); process.exit(0); }, 3000);
 ```bash
 node -e "
 const WebSocket = require('ws');
-const ws = new WebSocket('ws://127.0.0.1:9222/devtools/page/$PAGE_ID');
+const ws = new WebSocket('ws://127.0.0.1:9223/devtools/page/$PAGE_ID');
 
 ws.on('open', () => {
   ws.send(JSON.stringify({
@@ -241,7 +256,7 @@ setTimeout(() => { ws.close(); process.exit(0); }, 3000);
 ```bash
 node -e "
 const WebSocket = require('ws');
-const ws = new WebSocket('ws://127.0.0.1:9222/devtools/page/$PAGE_ID');
+const ws = new WebSocket('ws://127.0.0.1:9223/devtools/page/$PAGE_ID');
 
 ws.on('open', () => {
   ws.send(JSON.stringify({
@@ -298,7 +313,7 @@ SIDECAR_PID=$!
 sleep 5
 
 # Get page ID and test UI
-PAGE_ID=$(curl -s http://127.0.0.1:9222/json | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['id'])")
+PAGE_ID=$(curl -s http://127.0.0.1:9223/json | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['id'])")
 
 # Run UI verification script
 node scripts/verify-ui-state.js "$PAGE_ID"
@@ -333,7 +348,7 @@ screencapture -x /tmp/sidecar-screenshot.png
 
 **Dynamic page ID retrieval (required - ID changes each session):**
 ```bash
-PAGE_ID=$(curl -s http://127.0.0.1:9222/json | node -e "const d=require('fs').readFileSync(0,'utf8');console.log(JSON.parse(d)[0].id)")
+PAGE_ID=$(curl -s http://127.0.0.1:9223/json | node -e "const d=require('fs').readFileSync(0,'utf8');console.log(JSON.parse(d)[0].id)")
 ```
 
 **Click UI elements and inspect state (run from sidecar directory for `ws` module):**
@@ -341,7 +356,7 @@ PAGE_ID=$(curl -s http://127.0.0.1:9222/json | node -e "const d=require('fs').re
 cd /Users/john_renaldi/claude-code-projects/sidecar
 cat << EOF > test-ui.js
 const WebSocket = require('ws');
-const ws = new WebSocket('ws://127.0.0.1:9222/devtools/page/${PAGE_ID}');
+const ws = new WebSocket('ws://127.0.0.1:9223/devtools/page/${PAGE_ID}');
 
 ws.on('open', () => {
   ws.send(JSON.stringify({
@@ -388,3 +403,50 @@ node test-ui.js
 - Page ID changes on each Electron launch - always fetch dynamically
 - Run Node.js scripts from sidecar directory to access `ws` module
 - Add `setTimeout` to prevent hanging on WebSocket errors
+- **Always use `SIDECAR_DEBUG_PORT=9223`** when Chrome is running (Chrome claims 9222)
+
+## Toolbar-Specific Testing
+
+The toolbar is a `data:text/html` page — a separate debug target from the OpenCode content view.
+
+**Find the toolbar page ID:**
+```bash
+TOOLBAR_ID=$(curl -s http://127.0.0.1:9223/json | node -e "
+const d=require('fs').readFileSync(0,'utf8');
+const pages=JSON.parse(d);
+const toolbar = pages.find(p => p.url && p.url.startsWith('data:'));
+console.log(toolbar ? toolbar.id : 'NOT_FOUND');
+")
+echo "Toolbar ID: $TOOLBAR_ID"
+```
+
+**Inspect toolbar state (update banner, buttons, timer):**
+```bash
+cd /Users/john_renaldi/claude-code-projects/sidecar
+node -e "
+const WebSocket = require('ws');
+const ws = new WebSocket('ws://127.0.0.1:9223/devtools/page/$TOOLBAR_ID');
+ws.on('open', () => {
+  ws.send(JSON.stringify({
+    id: 1,
+    method: 'Runtime.evaluate',
+    params: {
+      expression: \`({
+        bannerVisible: document.getElementById('update-banner')?.style?.display === 'flex',
+        bannerText: document.getElementById('update-text')?.textContent,
+        timerText: document.getElementById('timer')?.textContent,
+        foldBtnText: document.getElementById('fold-btn')?.textContent
+      })\`,
+      returnByValue: true
+    }
+  }));
+});
+ws.on('message', (data) => {
+  const msg = JSON.parse(data.toString());
+  if (msg.id === 1) { console.log(JSON.stringify(msg.result?.result?.value, null, 2)); ws.close(); process.exit(0); }
+});
+setTimeout(() => { ws.close(); process.exit(0); }, 3000);
+"
+```
+
+**Note:** `window.sidecar` is `undefined` in the toolbar (see Known Limitations above). The toolbar communicates with the main process via `window.__sidecarUpdateAction` polling, not IPC.

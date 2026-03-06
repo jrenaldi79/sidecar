@@ -352,14 +352,21 @@ Use `src/utils/logger.js` (levels: error/warn/info/debug). Logs go to stderr to 
 
 **Why:** DOM mock tests are ineffective - they test mock behavior, not real rendering. These tests create false confidence and are expensive to maintain.
 
-### UI Testing Approach (Manual + Screenshots)
+### UI Testing Approach (Autonomous Verification Required)
 
-For UI changes, verify via manual testing:
+**MANDATORY: Any UI feature change MUST be visually verified before considering it complete.** Do not rely solely on unit tests for UI work — launch the Electron app, inspect via CDP, and take a screenshot.
 
-1. **Run the app**: `node bin/sidecar.js start --model <model> --briefing "test"`
-2. **Screenshot verification**: Use Chrome DevTools Protocol on port 9222 (see below)
-3. **Manual click-through**: Verify interactions work as expected
-4. **E2E tests**: Use `tests/e2e.test.js` for critical user flows
+For UI changes, follow this autonomous verification process:
+
+1. **Launch the app** with appropriate mock env vars (e.g., `SIDECAR_MOCK_UPDATE=available`)
+2. **Use `SIDECAR_DEBUG_PORT=9223`** to avoid port conflicts with Chrome
+3. **Inspect via Chrome DevTools Protocol**: Connect to `http://127.0.0.1:9223/json`, find the target page, query DOM state via WebSocket
+4. **Take a screenshot**: `screencapture -x /tmp/sidecar-<feature>.png` and visually verify
+5. **Check both targets**: The Electron window has two pages — the OpenCode content (`http://localhost:...`) and the toolbar (`data:text/html`). Test each as needed.
+
+**Key gotcha:** `contextBridge` does not work with `data:` URLs. The toolbar (`data:text/html`) cannot use `window.sidecar` IPC. Use `executeJavaScript()` polling from the main process instead.
+
+See [docs/electron-testing.md](docs/electron-testing.md) for full CDP patterns, toolbar-specific testing, and known limitations.
 
 ### Update Banner Mock Testing
 
@@ -597,6 +604,7 @@ Full documentation in `/docs/`: [opencode-sdk.md](docs/opencode-sdk.md), [openco
 
 - [ ] Run `npm test` - all tests passing
 - [ ] Run `npm run lint` - no lint errors
+- [ ] **If UI changed**: Launch Electron with `SIDECAR_DEBUG_PORT=9223`, inspect via CDP, take screenshot to verify
 - [ ] Update CLAUDE.md if architecture changed
 
 ---
