@@ -1,16 +1,18 @@
 {
   "name": "claude-sidecar",
   "version": "0.3.0",
-  "description": "Multi-model subagent tool for Claude Code - spawn parallel conversations with Gemini, GPT-4, o3, and more",
+  "description": "A parallel AI window for Claude Code — fork conversations to Gemini, GPT, DeepSeek, or any model via OpenRouter, then fold results back",
   "keywords": [
     "claude",
     "claude-code",
-    "ai",
-    "llm",
-    "subagent",
+    "sidecar",
+    "multi-model",
     "opencode",
+    "openrouter",
+    "parallel",
+    "llm",
     "gemini",
-    "gpt-4"
+    "cowork"
   ],
   "author": "John Renaldi",
   "license": "MIT",
