@@ -170,7 +170,7 @@ sidecar start --prompt "Security review the payment module"
 
 The Electron shell uses a **BrowserView** architecture: the OpenCode web UI loads in a dedicated viewport, while the sidecar toolbar (branding, timer, Fold button) renders in the bottom 40px — no CSS conflicts with the host app.
 
-![Sidecar Architecture](./docs/architecture.svg)
+![Sidecar Architecture](./docs/architecture.png)
 
 ---
 
