@@ -368,6 +368,18 @@ For UI changes, follow this autonomous verification process:
 
 See [docs/electron-testing.md](docs/electron-testing.md) for full CDP patterns, toolbar-specific testing, and known limitations.
 
+### Image / Diagram QA (Mandatory Visual Loop)
+
+**When creating or modifying any image (SVG, PNG, diagram, screenshot), you MUST:**
+
+1. Render / convert the image
+2. Read it back visually (use `Read` tool on the PNG) and inspect the output
+3. Check for: text clipping, alignment issues, correct labels, layout balance, readability
+4. Fix any issues found
+5. Re-render and re-inspect — **loop until fully QA'd**
+
+Never commit an image without completing visual verification. GitHub strips `<style>` and `<filter>` from SVGs, so always convert to PNG (use `sharp`) for any image referenced in README or docs.
+
 ### Update Banner Mock Testing
 
 Use `SIDECAR_MOCK_UPDATE` to test update UI states without real npm operations:
