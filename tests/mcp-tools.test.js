@@ -175,14 +175,14 @@ describe('MCP Tool Definitions', () => {
       expect(tool.inputSchema).toHaveProperty('timeout');
     });
 
-    test('has contextTurns in input schema', () => {
+    test('has contextTurns in input schema with correct description', () => {
       const tool = TOOLS.find(t => t.name === 'sidecar_continue');
-      expect(tool.inputSchema).toHaveProperty('contextTurns');
+      expect(tool.inputSchema.contextTurns.description).toContain('Default: 80000 tokens.');
     });
 
-    test('has contextMaxTokens in input schema', () => {
+    test('has contextMaxTokens in input schema with correct description', () => {
       const tool = TOOLS.find(t => t.name === 'sidecar_continue');
-      expect(tool.inputSchema).toHaveProperty('contextMaxTokens');
+      expect(tool.inputSchema.contextMaxTokens.description).toContain('Default: 80000.');
     });
   });
 
