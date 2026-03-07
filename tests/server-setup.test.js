@@ -34,47 +34,47 @@ describe('server-setup', () => {
   });
 
   describe('DEFAULT_PORT', () => {
-    it('should be 4440', () => {
-      expect(DEFAULT_PORT).toBe(4440);
+    it('should be 4096', () => {
+      expect(DEFAULT_PORT).toBe(4096);
     });
   });
 
   describe('getPortPid', () => {
     it('should return PID when lsof finds a process', () => {
       execFileSync.mockReturnValue('12345\n');
-      const pid = getPortPid(4440);
+      const pid = getPortPid(4096);
       expect(pid).toBe(12345);
       expect(execFileSync).toHaveBeenCalledWith(
-        'lsof', ['-ti', ':4440'],
+        'lsof', ['-ti', ':4096'],
         expect.objectContaining({ encoding: 'utf8' })
       );
     });
 
     it('should return null when lsof returns non-numeric output', () => {
       execFileSync.mockReturnValue('not-a-number\n');
-      expect(getPortPid(4440)).toBeNull();
+      expect(getPortPid(4096)).toBeNull();
     });
 
     it('should return null when lsof throws (no process on port)', () => {
       execFileSync.mockImplementation(() => { throw new Error('exit code 1'); });
-      expect(getPortPid(4440)).toBeNull();
+      expect(getPortPid(4096)).toBeNull();
     });
 
     it('should return null for empty lsof output', () => {
       execFileSync.mockReturnValue('');
-      expect(getPortPid(4440)).toBeNull();
+      expect(getPortPid(4096)).toBeNull();
     });
   });
 
   describe('isPortInUse', () => {
     it('should return true when a process is on the port', () => {
       execFileSync.mockReturnValue('9999\n');
-      expect(isPortInUse(4440)).toBe(true);
+      expect(isPortInUse(4096)).toBe(true);
     });
 
     it('should return false when no process is on the port', () => {
       execFileSync.mockImplementation(() => { throw new Error('exit 1'); });
-      expect(isPortInUse(4440)).toBe(false);
+      expect(isPortInUse(4096)).toBe(false);
     });
   });
 
@@ -91,20 +91,20 @@ describe('server-setup', () => {
 
     it('should return true when port is already free', () => {
       execFileSync.mockImplementation(() => { throw new Error('exit 1'); });
-      expect(killPortProcess(4440)).toBe(true);
+      expect(killPortProcess(4096)).toBe(true);
       expect(killSpy).not.toHaveBeenCalled();
     });
 
     it('should kill the process and return true on success', () => {
       execFileSync.mockReturnValue('7777\n');
-      expect(killPortProcess(4440)).toBe(true);
+      expect(killPortProcess(4096)).toBe(true);
       expect(killSpy).toHaveBeenCalledWith(7777, 'SIGTERM');
     });
 
     it('should return false when process.kill throws', () => {
       execFileSync.mockReturnValue('7777\n');
       killSpy.mockImplementation(() => { throw new Error('EPERM'); });
-      expect(killPortProcess(4440)).toBe(false);
+      expect(killPortProcess(4096)).toBe(false);
     });
   });
 
@@ -124,11 +124,11 @@ describe('server-setup', () => {
       expect(ensurePortAvailable()).toBe(true);
     });
 
-    it('should default to port 4440', () => {
+    it('should default to port 4096', () => {
       execFileSync.mockImplementation(() => { throw new Error('exit 1'); });
       ensurePortAvailable();
       expect(execFileSync).toHaveBeenCalledWith(
-        'lsof', ['-ti', ':4440'],
+        'lsof', ['-ti', ':4096'],
         expect.anything()
       );
     });
@@ -154,7 +154,7 @@ describe('server-setup', () => {
         throw new Error('exit 1'); // port is now free
       });
 
-      expect(ensurePortAvailable(4440)).toBe(true);
+      expect(ensurePortAvailable(4096)).toBe(true);
       expect(killSpy).toHaveBeenCalledWith(5555, 'SIGTERM');
     });
 
@@ -162,7 +162,7 @@ describe('server-setup', () => {
       // Port always occupied, kill fails
       execFileSync.mockReturnValue('5555\n');
       killSpy.mockImplementation(() => { throw new Error('EPERM'); });
-      expect(ensurePortAvailable(4440)).toBe(false);
+      expect(ensurePortAvailable(4096)).toBe(false);
     });
   });
 });

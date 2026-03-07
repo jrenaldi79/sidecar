@@ -49,7 +49,11 @@ function textResult(text, isError) {
 function spawnSidecarProcess(args) {
   const sidecarBin = path.join(__dirname, '..', 'bin', 'sidecar.js');
   const child = spawn('node', [sidecarBin, ...args], {
-    cwd: getProjectDir(), stdio: ['ignore', 'pipe', 'pipe'], detached: true,
+    cwd: getProjectDir(),
+    stdio: ['ignore', 'ignore', 'ignore'],
+    detached: true,
+    // Use port 9223 for CDP to avoid conflict with Chrome on 9222
+    env: { ...process.env, SIDECAR_DEBUG_PORT: '9223' },
   });
   child.unref();
   return child;

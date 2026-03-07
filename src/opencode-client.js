@@ -278,7 +278,33 @@ function buildServerOptions(options = {}) {
   // Build config object for SDK
   const config = {};
   if (options.mcp) {
-    config.mcp = options.mcp;
+    // Normalize MCP configs for OpenCode SDK format.
+    // Claude Desktop uses {command: "cmd", args: ["a","b"], env: {...}}
+    // OpenCode expects  {type: "local", enabled: true, command: ["cmd","a","b"], env: {...}}
+    // Key differences:
+    //   1. type: "local" (discriminated union, required)
+    //   2. enabled: true (required boolean)
+    //   3. command: array that includes the binary AND args (merged)
+    const normalized = {};
+    for (const [name, serverConfig] of Object.entries(options.mcp)) {
+      if (serverConfig.command && !serverConfig.type) {
+        // Claude Desktop format → OpenCode format
+        const cmd = typeof serverConfig.command === 'string' ? serverConfig.command : String(serverConfig.command);
+        const args = Array.isArray(serverConfig.args) ? serverConfig.args : [];
+        // Note: OpenCode's "local" schema does NOT support an `env` field.
+        // Environment variables from the Claude Desktop config are intentionally
+        // dropped here. The MCP servers inherit the parent process environment
+        // which is usually sufficient.
+        normalized[name] = {
+          type: 'local',
+          enabled: true,
+          command: [cmd, ...args]
+        };
+      } else {
+        normalized[name] = serverConfig;
+      }
+    }
+    config.mcp = normalized;
   }
   if (options.model) {
     config.model = options.model;
@@ -308,9 +334,16 @@ function buildServerOptions(options = {}) {
 
   const serverOptions = {
     hostname: options.hostname || '127.0.0.1',
-    port: options.port,
-    signal: options.signal
   };
+
+  // Only include port/signal when explicitly set — passing undefined
+  // overrides the SDK's defaults via Object.assign, causing --port=undefined
+  if (options.port !== undefined) {
+    serverOptions.port = options.port;
+  }
+  if (options.signal !== undefined) {
+    serverOptions.signal = options.signal;
+  }
 
   // Only add config if we have settings
   if (Object.keys(config).length > 0) {
@@ -336,8 +369,39 @@ async function startServer(options = {}) {
   const createOpencodeServer = await getCreateOpencodeServer();
   const serverOptions = buildServerOptions(options);
 
-  const server = await createOpencodeServer(serverOptions);
-  const client = await createClient(server.url);
+  const sdkServer = await createOpencodeServer(serverOptions);
+  const client = await createClient(sdkServer.url);
+
+  // Wrap close() to force-kill the Go binary if SIGTERM doesn't work.
+  // The OpenCode Go server can ignore SIGTERM when MCP servers are active,
+  // which keeps Node's event loop alive indefinitely (Bug #4).
+  //
+  // We find the server PID by checking which process is LISTENING on the port
+  // (not just connected to it — lsof -ti returns both listeners and clients).
+  const serverPort = parseInt(new URL(sdkServer.url).port, 10);
+  const server = {
+    url: sdkServer.url,
+    close() {
+      sdkServer.close(); // sends SIGTERM via proc.kill()
+      // Schedule a force-kill fallback if the process doesn't exit.
+      // .unref() ensures this timer doesn't keep Node alive on its own.
+      const fallback = setTimeout(() => {
+        try {
+          const { execFileSync } = require('child_process');
+          // Find PID listening on the server port (not clients connected to it)
+          const result = execFileSync('lsof', ['-ti', `:${serverPort}`, '-sTCP:LISTEN'], {
+            encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']
+          }).trim();
+          const pid = parseInt(result, 10);
+          if (pid && pid !== process.pid) {
+            try { process.kill(pid, 'SIGKILL'); } catch { /* already dead */ }
+            require('./utils/logger').logger.debug('Force-killed OpenCode server', { port: serverPort, pid });
+          }
+        } catch { /* no listener found or process gone */ }
+      }, 2000);
+      fallback.unref();
+    }
+  };
 
   return { client, server };
 }

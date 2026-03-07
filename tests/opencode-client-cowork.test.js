@@ -47,3 +47,25 @@ describe('buildServerOptions client-aware prompt', () => {
     expect(chatAgent.mode).toBe('primary');
   });
 });
+
+describe('buildServerOptions port handling', () => {
+  it('does not include port key when port is not specified', () => {
+    const opts = buildServerOptions({});
+    expect(opts).not.toHaveProperty('port');
+  });
+
+  it('does not include port key when port is undefined', () => {
+    const opts = buildServerOptions({ port: undefined });
+    expect(opts).not.toHaveProperty('port');
+  });
+
+  it('includes port when explicitly set', () => {
+    const opts = buildServerOptions({ port: 8080 });
+    expect(opts.port).toBe(8080);
+  });
+
+  it('does not include signal key when signal is not specified', () => {
+    const opts = buildServerOptions({});
+    expect(opts).not.toHaveProperty('signal');
+  });
+});

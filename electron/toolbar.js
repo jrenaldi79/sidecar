@@ -184,11 +184,14 @@ function buildToolbarHTML(options = {}) {
     s = s % 60;
     document.getElementById('timer').textContent = m + ':' + (s < 10 ? '0' : '') + s;
   }, 1000);
+  // contextBridge doesn't work with data: URLs, so use window action flags
+  // that the main process polls via executeJavaScript (same pattern as update banner).
+  window.__sidecarToolbarAction = null;
   document.getElementById('fold-btn').addEventListener('click', function() {
-    window.sidecar && window.sidecar.fold();
+    window.__sidecarToolbarAction = 'fold';
   });
   document.getElementById('settings-btn').addEventListener('click', function() {
-    window.sidecar && window.sidecar.openSettings();
+    window.__sidecarToolbarAction = 'open-settings';
   });
 
   // Update banner logic (data injected at build time, no IPC needed)

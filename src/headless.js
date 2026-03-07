@@ -89,8 +89,9 @@ async function runHeadless(model, systemPrompt, userMessage, taskId, project, ti
   // Ensure node_modules/.bin is in PATH so SDK can find opencode wrapper
   ensureNodeModulesBinInPath();
 
-  // Ensure port is available (kills stale processes from previous sessions)
-  ensurePortAvailable();
+  // Ensure port is available (kills stale processes from previous sessions).
+  // SDK defaults to port 4096 when no port is specified.
+  ensurePortAvailable(4096);
 
   // Start OpenCode server using SDK (no CLI spawning required)
   logger.debug('Starting OpenCode server via SDK', { model, hasMcp: !!options.mcp });

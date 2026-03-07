@@ -148,7 +148,21 @@ function createSidecarWindow() {
     foldHandler.triggerFold(mainWindow, contentView);
   });
 
-  // Poll toolbar for update button clicks (IPC doesn't work with data: URLs)
+  // Poll toolbar for button clicks (IPC doesn't work with data: URLs).
+  // Fold, settings, and update actions all use window.__sidecar*Action flags.
+  const toolbarPoll = setInterval(() => {
+    if (!mainWindow || mainWindow.isDestroyed()) { clearInterval(toolbarPoll); return; }
+    mainWindow.webContents.executeJavaScript('window.__sidecarToolbarAction').then(action => {
+      if (!action) { return; }
+      mainWindow.webContents.executeJavaScript('window.__sidecarToolbarAction = null');
+      if (action === 'fold') {
+        foldHandler.triggerFold(mainWindow, contentView);
+      } else if (action === 'open-settings') {
+        createSettingsChildWindow();
+      }
+    }).catch(() => {});
+  }, 300);
+
   if (updateInfo) {
     const updatePoll = setInterval(() => {
       if (!mainWindow || mainWindow.isDestroyed()) { clearInterval(updatePoll); return; }
@@ -268,18 +282,44 @@ const SIDECAR_WORDMARK = [
 function rebrandUI() {
   if (!contentView) { return Promise.resolve(); }
   const brandName = getBrandName(CLIENT);
+  // The OpenCode logo may be hidden (display:none/visibility:hidden) by preload.js
+  // or insertCSS before this runs. Use a MutationObserver with a fallback timeout
+  // to catch it whenever React renders it into the DOM.
   return contentView.webContents.executeJavaScript(`
     (function() {
       document.title = '${brandName}';
       var header = document.querySelector('#root > div > header');
       if (header) { header.style.display = 'none'; }
-      var logo = document.querySelector('svg[viewBox="0 0 234 42"]');
-      if (logo) {
+
+      function replaceLogo() {
+        // Match both visible and hidden logos
+        var logo = document.querySelector('svg[viewBox="0 0 234 42"]');
+        if (!logo) { return false; }
         var cls = logo.getAttribute('class') || '';
         var markup = ${JSON.stringify(SIDECAR_WORDMARK)}.replace('CLASS', cls);
         logo.insertAdjacentHTML('afterend', markup);
         logo.remove();
+        return true;
       }
+
+      // Try immediately
+      if (replaceLogo()) { return 'replaced'; }
+
+      // Observe DOM for the logo appearing (React may render it after initial load)
+      return new Promise(function(resolve) {
+        var observer = new MutationObserver(function() {
+          if (replaceLogo()) {
+            observer.disconnect();
+            resolve('replaced-observed');
+          }
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+        // Give up after 5s
+        setTimeout(function() {
+          observer.disconnect();
+          resolve(replaceLogo() ? 'replaced-late' : 'logo-not-found');
+        }, 5000);
+      });
     })();
   `).catch(() => {});
 }
@@ -287,35 +327,40 @@ function rebrandUI() {
 function navigateToSession(sessionId, retries = 8) {
   if (!contentView || retries <= 0) { return; }
 
-  // Use JSON.stringify to safely escape sessionId for JS interpolation
   const safeId = JSON.stringify(sessionId);
   const js = `
     (function() {
       const targetId = ${safeId};
-      const clickables = [...document.querySelectorAll('a, button')];
-      for (const el of clickables) {
-        const text = el.textContent || '';
+
+      // Strategy 1: Find a link whose href contains the session ID (most reliable)
+      const links = [...document.querySelectorAll('a')];
+      for (const el of links) {
         const href = el.href || '';
-        if (href.includes(targetId) || text.includes(targetId)) {
+        if (href.includes(targetId)) {
           el.click();
           return 'clicked session';
         }
       }
-      for (const el of clickables) {
-        const text = el.textContent || '';
-        if (text.includes('sidecar') && !text.includes('Fold')) {
-          el.click();
-          return 'clicked project';
-        }
-      }
-      for (const el of clickables) {
-        const text = el.textContent || '';
+
+      // Strategy 2: Find a link whose href contains 'ses_' (any session link)
+      for (const el of links) {
         const href = el.href || '';
-        if (href.includes('ses_') || text.includes('ses_')) {
+        if (href.includes('ses_')) {
           el.click();
           return 'clicked first session';
         }
       }
+
+      // Strategy 3: Find the project button in the sidebar by aria-label.
+      // Avoid matching the search bar (which also contains the project name).
+      const sidebarProjectBtn = document.querySelector(
+        'button[aria-label="sidecar"], button[aria-label="' + document.title.replace(/\\s+sidecar$/i, '').replace(/ /g, '') + '"]'
+      );
+      if (sidebarProjectBtn) {
+        sidebarProjectBtn.click();
+        return 'clicked project';
+      }
+
       return null;
     })();
   `;
@@ -323,8 +368,8 @@ function navigateToSession(sessionId, retries = 8) {
   setTimeout(() => {
     if (!contentView) { return; }
     contentView.webContents.executeJavaScript(js).then(result => {
+      logger.debug('Session navigation', { result, sessionId, retries });
       if (result) {
-        logger.debug('Session navigation', { result, sessionId, retries });
         if (result === 'clicked project') {
           navigateToSession(sessionId, retries - 1);
         }

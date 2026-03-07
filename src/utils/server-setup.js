@@ -7,7 +7,7 @@
 const { execFileSync } = require('child_process');
 const { logger } = require('./logger');
 
-const DEFAULT_PORT = 4440;
+const DEFAULT_PORT = 4096;
 
 /**
  * Check if a port is in use and get PID

@@ -102,7 +102,15 @@ function buildMcpConfig(options) {
     }
   }
 
-  // Apply exclusions
+  // Always exclude the sidecar itself to prevent recursive spawning.
+  // When launched from Cowork, the discovered MCP list includes "sidecar"
+  // which would cause an infinite spawn loop.
+  if (mcpServers && mcpServers.sidecar) {
+    delete mcpServers.sidecar;
+    logger.debug('Auto-excluded sidecar MCP (recursive spawn prevention)');
+  }
+
+  // Apply explicit exclusions
   if (excludeMcp && Array.isArray(excludeMcp) && mcpServers) {
     for (const name of excludeMcp) {
       if (mcpServers[name]) {
@@ -110,10 +118,11 @@ function buildMcpConfig(options) {
         logger.debug('Excluded MCP server', { name });
       }
     }
-    // Return null if all servers were excluded
-    if (Object.keys(mcpServers).length === 0) {
-      mcpServers = null;
-    }
+  }
+
+  // Return null if all servers were excluded
+  if (mcpServers && Object.keys(mcpServers).length === 0) {
+    mcpServers = null;
   }
 
   return mcpServers;
