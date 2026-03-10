@@ -105,6 +105,29 @@ describe('Null Alias Defense', () => {
       expect(() => addAlias('', 'openrouter/test/model')).toThrow(/invalid.*alias/i);
     });
 
+    it('should reject literal string "null" as alias name', () => {
+      const { addAlias } = loadSetup();
+      expect(() => addAlias('null', 'openrouter/test/model')).toThrow(/invalid.*alias/i);
+    });
+
+    it('should reject whitespace-only alias name', () => {
+      const { addAlias } = loadSetup();
+      expect(() => addAlias('   ', 'openrouter/test/model')).toThrow(/invalid.*alias/i);
+    });
+
+    it('should reject whitespace-only model string', () => {
+      const { addAlias } = loadSetup();
+      expect(() => addAlias('test', '   ')).toThrow(/invalid.*model/i);
+    });
+
+    it('should trim whitespace from name and model', () => {
+      writeConfig({ aliases: {} });
+      const { addAlias } = loadSetup();
+      addAlias('  mymodel  ', '  openrouter/test/model-v1  ');
+      const saved = readConfig();
+      expect(saved.aliases.mymodel).toBe('openrouter/test/model-v1');
+    });
+
     it('should still accept valid alias additions', () => {
       writeConfig({ aliases: {} });
       const { addAlias } = loadSetup();
@@ -126,9 +149,7 @@ describe('Null Alias Defense', () => {
       const result = config.resolveModel('gemini');
 
       // Should resolve from DEFAULT_ALIASES
-      expect(result).toBeTruthy();
-      expect(typeof result).toBe('string');
-      expect(result).toContain('/');
+      expect(result).toBe(config.getDefaultAliases().gemini);
     });
 
     it('should throw clear error for null alias with no default available', () => {
@@ -149,9 +170,7 @@ describe('Null Alias Defense', () => {
       const config = loadConfig();
       const result = config.resolveModel(undefined);
 
-      expect(result).toBeTruthy();
-      expect(typeof result).toBe('string');
-      expect(result).toContain('/');
+      expect(result).toBe(config.getDefaultAliases()['gemini-pro']);
     });
 
     it('should warn to stderr when auto-repairing', () => {

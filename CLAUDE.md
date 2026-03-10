@@ -219,6 +219,11 @@ sidecar/
 │       └── styles.css           # UI styles
 ├── tests/                       # Jest test suite (run npm test for current count)
 │   ├── cli.test.js
+│   ├── config-fallback.test.js
+│   ├── config-hash.test.js
+│   ├── config-misc.test.js
+│   ├── config-null-alias.test.js
+│   ├── config-resolve.test.js
 │   ├── context.test.js
 │   ├── session-manager.test.js
 │   ├── conflict.test.js
@@ -333,7 +338,7 @@ sidecar/
 | `utils/logger.js` | Structured logging | `logger.info()`, `logger.warn()`, `logger.error()`, `logger.debug()` |
 | `prompts/cowork-agent-prompt.js` | Cowork agent prompt | `buildCoworkAgentPrompt()` — replaces SE-focused OpenCode base prompt when `client === 'cowork'` |
 | `utils/model-fetcher.js` | Fetch model lists from provider APIs | `fetchModelsFromProvider()`, `fetchAllModels()`, `groupModelsByFamily()` |
-| `utils/model-validator.js` | Validate direct-API fallback models | `validateDirectModel()`, `filterRelevantModels()` |
+| `utils/model-validator.js` | Validate direct-API fallback models | `validateDirectModel()`, `filterRelevantModels()`, `normalizeModelId()` |
 | `utils/updater.js` | Update check & execute | `initUpdateCheck()`, `getUpdateInfo()`, `notifyUpdate()`, `performUpdate()` |
 
 ### Shared Session Utilities (`src/sidecar/session-utils.js`)
@@ -457,6 +462,11 @@ Use `src/utils/logger.js` (levels: error/warn/info/debug). Logs go to stderr to 
 | `mcp-repomix-e2e.integration.test.js` | MCP E2E (real LLM + repomix) | Real discovery → headless sidecar → repomix tool call |
 | `auth-sync.test.js` | Auth sync | Matching keys no-op, conflict resolution, bidirectional sync |
 | `opencode-client-cowork.test.js` | OpenCode client config | Client-aware prompt, systemPrompt, port handling, provider model sync |
+| `config-fallback.test.js` | Config fallback | Direct API fallback with persisted keys |
+| `config-hash.test.js` | Config hashing | Config hashing, alias table, change detection |
+| `config-misc.test.js` | Config misc | Effective aliases, formatting, tryResolveModel, buildProviderModels |
+| `config-null-alias.test.js` | Config null alias | Null alias protection and auto-repair |
+| `config-resolve.test.js` | Config resolution | Model resolution, default aliases, direct API fallback, detectFallback |
 | `model-validator.test.js` | Model validator | Validation, filtering, interactive prompting, headless errors |
 | `model-fetcher.test.js` | Model fetcher | Provider API fetching, normalization, grouping, error handling |
 | `updater.test.js` | Update checker | Mock states, performUpdate spawn, CLI integration |

@@ -126,3 +126,64 @@ describe('applyDirectApiFallback with persisted keys', () => {
     expect(result).toBe('openrouter/google/gemini-3-flash');
   });
 });
+
+describe('applyDirectApiFallback un-mocked integration', () => {
+  let tempDir;
+  let tempEnvDir;
+  let originalEnv;
+
+  beforeEach(() => {
+    originalEnv = { ...process.env };
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-fallback-int-'));
+    tempEnvDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-env-int-'));
+
+    // Clear all relevant env vars
+    delete process.env.OPENROUTER_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.DEEPSEEK_API_KEY;
+
+    process.env.SIDECAR_CONFIG_DIR = tempDir;
+    process.env.SIDECAR_ENV_DIR = tempEnvDir;
+
+    // Write a config with aliases
+    fs.writeFileSync(
+      path.join(tempDir, 'config.json'),
+      JSON.stringify({
+        default: 'gemini',
+        aliases: { gemini: 'openrouter/google/gemini-3-flash' },
+      })
+    );
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    fs.rmSync(tempEnvDir, { recursive: true, force: true });
+  });
+
+  it('should fallback to direct API using real .env file with persisted key', () => {
+    // Write a real .env file with a Google API key (no openrouter key)
+    fs.writeFileSync(
+      path.join(tempEnvDir, '.env'),
+      'GEMINI_API_KEY=real-google-key-from-env-file\n'
+    );
+
+    // Reset modules and unmock api-key-store so the real implementation runs
+    jest.resetModules();
+    jest.unmock('../src/utils/api-key-store');
+    jest.mock('../src/utils/logger', () => ({
+      logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+    }));
+    const config = require('../src/utils/config');
+
+    const spy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const result = config.resolveModel('gemini');
+    spy.mockRestore();
+
+    // Real loadEnvEntries() -> resolveKeyValue() chain should detect
+    // the persisted google key and strip the openrouter/ prefix
+    expect(result).toBe('google/gemini-3-flash');
+  });
+});

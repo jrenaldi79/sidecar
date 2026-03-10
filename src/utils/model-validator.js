@@ -70,11 +70,11 @@ async function validateDirectModel(resolvedModel, alias, options = {}) {
   const relevant = filterRelevantModels(models, alias);
 
   if (options.headless || !process.stdin.isTTY) {
-    const list = relevant.slice(0, 10).map(m => `  ${m.id}`).join('\n');
+    const list = relevant.slice(0, 10).map(m => `  ${normalizeModelId(provider, m.id)}`).join('\n');
     throw new Error(
       `Model '${modelId}' not found on ${provider} API.\n` +
       `Available models:\n${list}\n` +
-      `Fix with: sidecar setup --add-alias ${alias}=${relevant[0]?.id || 'provider/model'}`
+      `Fix with: sidecar setup --add-alias ${alias}=${relevant[0] ? normalizeModelId(provider, relevant[0].id) : 'provider/model'}`
     );
   }
 

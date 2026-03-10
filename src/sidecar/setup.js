@@ -31,7 +31,9 @@ const MODEL_CHOICES = [
  * @param {string} modelString - Full model identifier
  */
 function addAlias(name, modelString) {
-  if (!name || typeof name !== 'string') {
+  if (typeof name === 'string') { name = name.trim(); }
+  if (typeof modelString === 'string') { modelString = modelString.trim(); }
+  if (!name || typeof name !== 'string' || name === 'null') {
     throw new Error(`Invalid alias name: '${name}'. Alias name must be a non-empty string.`);
   }
   if (!modelString || typeof modelString !== 'string' || modelString === 'null') {
