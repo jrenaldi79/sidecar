@@ -35,7 +35,7 @@ npm run lint                 # Run ESLint
 
 ### CLI Usage
 ```bash
-node bin/sidecar.js start --model <model> --prompt "<task>" [--agent <agent>]
+node bin/sidecar.js start --model <model> --prompt "<task>" [--agent <agent>] [--validate-model]
 node bin/sidecar.js list [--status <filter>] [--all]
 node bin/sidecar.js resume <task_id>
 node bin/sidecar.js continue <task_id> --briefing "..."
@@ -202,6 +202,8 @@ sidecar/
 │       ├── config.js            # Config loading, alias resolution, provider model sync
 │       ├── validators.js        # CLI input validation helpers
 │       ├── logger.js            # Structured logging
+│       ├── model-fetcher.js      # Fetch model lists from provider APIs
+│       ├── model-validator.js   # Validate fallback models exist on provider API
 │       ├── path-setup.js        # PATH configuration for OpenCode
 │       └── server-setup.js      # Server port management
 ├── electron/
@@ -230,6 +232,8 @@ sidecar/
 │   ├── postinstall.test.js
 │   ├── auth-sync.test.js
 │   ├── opencode-client-cowork.test.js
+│   ├── model-validator.test.js
+│   ├── model-fetcher.test.js
 │   ├── sidecar/                 # Tests for modular sidecar operations
 │   │   ├── start.test.js
 │   │   ├── resume.test.js
@@ -328,6 +332,8 @@ sidecar/
 | `utils/validators.js` | CLI input validation | `validateBriefingContent()`, `validateProjectPath()`, `validateApiKey()` |
 | `utils/logger.js` | Structured logging | `logger.info()`, `logger.warn()`, `logger.error()`, `logger.debug()` |
 | `prompts/cowork-agent-prompt.js` | Cowork agent prompt | `buildCoworkAgentPrompt()` — replaces SE-focused OpenCode base prompt when `client === 'cowork'` |
+| `utils/model-fetcher.js` | Fetch model lists from provider APIs | `fetchModelsFromProvider()`, `fetchAllModels()`, `groupModelsByFamily()` |
+| `utils/model-validator.js` | Validate direct-API fallback models | `validateDirectModel()`, `filterRelevantModels()` |
 | `utils/updater.js` | Update check & execute | `initUpdateCheck()`, `getUpdateInfo()`, `notifyUpdate()`, `performUpdate()` |
 
 ### Shared Session Utilities (`src/sidecar/session-utils.js`)
@@ -451,6 +457,8 @@ Use `src/utils/logger.js` (levels: error/warn/info/debug). Logs go to stderr to 
 | `mcp-repomix-e2e.integration.test.js` | MCP E2E (real LLM + repomix) | Real discovery → headless sidecar → repomix tool call |
 | `auth-sync.test.js` | Auth sync | Matching keys no-op, conflict resolution, bidirectional sync |
 | `opencode-client-cowork.test.js` | OpenCode client config | Client-aware prompt, systemPrompt, port handling, provider model sync |
+| `model-validator.test.js` | Model validator | Validation, filtering, interactive prompting, headless errors |
+| `model-fetcher.test.js` | Model fetcher | Provider API fetching, normalization, grouping, error handling |
 | `updater.test.js` | Update checker | Mock states, performUpdate spawn, CLI integration |
 | `evals/tests/transcript_parser.test.js` | Stream-json parsing | Tool call extraction, token usage, error capture |
 | `evals/tests/evaluator.test.js` | Eval criteria | Programmatic checks (7 types), LLM-as-judge prompt/response |

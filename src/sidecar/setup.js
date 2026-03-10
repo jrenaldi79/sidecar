@@ -31,6 +31,15 @@ const MODEL_CHOICES = [
  * @param {string} modelString - Full model identifier
  */
 function addAlias(name, modelString) {
+  if (!name || typeof name !== 'string') {
+    throw new Error(`Invalid alias name: '${name}'. Alias name must be a non-empty string.`);
+  }
+  if (!modelString || typeof modelString !== 'string' || modelString === 'null') {
+    throw new Error(
+      `Invalid model value for alias '${name}': '${modelString}'. ` +
+      'Model must be a non-empty string (e.g., openrouter/google/gemini-3.1-pro-preview).'
+    );
+  }
   const cfg = loadConfig() || { aliases: {} };
   if (!cfg.aliases) {
     cfg.aliases = {};

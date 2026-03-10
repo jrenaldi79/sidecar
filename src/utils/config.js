@@ -9,7 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { PROVIDER_ENV_MAP } = require('./api-key-store');
+const { PROVIDER_ENV_MAP, readApiKeyValues } = require('./api-key-store');
 const { logger } = require('./logger');
 
 /** Default model alias map — short names to full OpenRouter model identifiers */
@@ -71,8 +71,21 @@ function loadConfig() {
   }
 }
 
-/** Save config data to disk, creating the directory if needed */
+/** Save config data to disk, creating the directory if needed. Strips invalid aliases. */
 function saveConfig(configData) {
+  if (configData && configData.aliases) {
+    const cleaned = {};
+    for (const [key, value] of Object.entries(configData.aliases)) {
+      if (key === 'null' || !value || typeof value !== 'string' || value === 'null') {
+        process.stderr.write(
+          `Notice: Removing invalid alias '${key}' (value: ${JSON.stringify(value)}) from config.\n`
+        );
+        continue;
+      }
+      cleaned[key] = value;
+    }
+    configData.aliases = cleaned;
+  }
   const configDir = getConfigDir();
   fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
   const configPath = getConfigPath();
@@ -86,15 +99,20 @@ function getDefaultAliases() {
 
 /** Strip openrouter/ prefix when direct provider API key is available but OPENROUTER_API_KEY is not */
 function applyDirectApiFallback(model) {
-  if (!model.startsWith('openrouter/') || process.env.OPENROUTER_API_KEY) {
+  if (!model.startsWith('openrouter/')) {
+    return model;
+  }
+  const persistedKeys = readApiKeyValues();
+  if (process.env.OPENROUTER_API_KEY || persistedKeys.openrouter) {
     return model;
   }
   const direct = model.slice('openrouter/'.length);
-  const envVar = PROVIDER_ENV_MAP[direct.split('/')[0]];
-  if (envVar && process.env[envVar]) {
+  const provider = direct.split('/')[0];
+  const envVar = PROVIDER_ENV_MAP[provider];
+  if (envVar && (process.env[envVar] || persistedKeys[provider])) {
     logger.warn({ msg: 'Using direct provider API (OPENROUTER_API_KEY not set)', original: model, resolved: direct });
     process.stderr.write(
-      `Notice: Using direct ${direct.split('/')[0]} API (OPENROUTER_API_KEY not set). ` +
+      `Notice: Using direct ${provider} API (OPENROUTER_API_KEY not set). ` +
       'Use --validate-model to verify model availability.\n'
     );
     return direct;
@@ -130,7 +148,11 @@ function resolveModel(modelArg) {
 
     // Try to resolve as alias (user config + defaults)
     if (effectiveAliases[modelArg] !== undefined) {
-      return applyDirectApiFallback(effectiveAliases[modelArg]);
+      const resolved = effectiveAliases[modelArg];
+      if (!resolved || resolved === 'null') {
+        return autoRepairAlias(modelArg, config);
+      }
+      return applyDirectApiFallback(resolved);
     }
 
     // Unknown alias
@@ -155,12 +177,42 @@ function resolveModel(modelArg) {
 
   // Default is an alias - resolve via user config + defaults
   if (effectiveAliases[defaultValue] !== undefined) {
-    return applyDirectApiFallback(effectiveAliases[defaultValue]);
+    const resolved = effectiveAliases[defaultValue];
+    if (!resolved || resolved === 'null') {
+      return autoRepairAlias(defaultValue, config);
+    }
+    return applyDirectApiFallback(resolved);
   }
 
   // Default alias not found anywhere
   throw new Error(
     `Default alias '${defaultValue}' not found in aliases. Run 'sidecar setup' to fix configuration.`
+  );
+}
+
+/**
+ * Auto-repair a null alias by falling back to DEFAULT_ALIASES.
+ * Updates config on disk and warns to stderr.
+ * @param {string} alias - The alias name with null value
+ * @param {object|null} config - Current config object
+ * @returns {string} Repaired model string
+ * @throws {Error} If no default exists for this alias
+ */
+function autoRepairAlias(alias, config) {
+  const defaultModel = DEFAULT_ALIASES[alias];
+  if (defaultModel) {
+    process.stderr.write(
+      `Notice: Auto-repaired null alias '${alias}' -> '${defaultModel}'\n`
+    );
+    if (config && config.aliases) {
+      config.aliases[alias] = defaultModel;
+      saveConfig(config);
+    }
+    return applyDirectApiFallback(defaultModel);
+  }
+  throw new Error(
+    `Alias '${alias}' is configured but has no model value. ` +
+    `Fix with: sidecar setup --add-alias ${alias}=provider/model`
   );
 }
 

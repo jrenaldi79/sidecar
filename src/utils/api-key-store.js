@@ -101,10 +101,10 @@ function resolveKeyValue(fileEntries, envVar) {
 
 /**
  * Read API key availability from .env file and process.env
- * @returns {{openrouter: boolean, google: boolean, openai: boolean, anthropic: boolean}}
+ * @returns {{openrouter: boolean, google: boolean, openai: boolean, anthropic: boolean, deepseek: boolean}}
  */
 function readApiKeys() {
-  const result = { openrouter: false, google: false, openai: false, anthropic: false };
+  const result = { openrouter: false, google: false, openai: false, anthropic: false, deepseek: false };
   const entries = loadEnvEntries();
   for (const [provider, envVar] of Object.entries(PROVIDER_ENV_MAP)) {
     if (resolveKeyValue(entries, envVar)) { result[provider] = true; }
@@ -114,10 +114,10 @@ function readApiKeys() {
 
 /**
  * Read API key hints (masked prefixes) for UI display
- * @returns {{openrouter: string|false, google: string|false, openai: string|false, anthropic: string|false}}
+ * @returns {{openrouter: string|false, google: string|false, openai: string|false, anthropic: string|false, deepseek: string|false}}
  */
 function readApiKeyHints() {
-  const result = { openrouter: false, google: false, openai: false, anthropic: false };
+  const result = { openrouter: false, google: false, openai: false, anthropic: false, deepseek: false };
   const entries = loadEnvEntries();
   for (const [provider, envVar] of Object.entries(PROVIDER_ENV_MAP)) {
     const key = resolveKeyValue(entries, envVar);

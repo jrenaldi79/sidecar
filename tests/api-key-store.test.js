@@ -39,6 +39,7 @@ describe('api-key-store', () => {
     delete process.env.GEMINI_API_KEY;
     delete process.env.OPENAI_API_KEY;
     delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.DEEPSEEK_API_KEY;
   });
 
   afterEach(() => {
@@ -52,6 +53,7 @@ describe('api-key-store', () => {
       expect(PROVIDER_ENV_MAP.google).toBe('GEMINI_API_KEY');
       expect(PROVIDER_ENV_MAP.openai).toBe('OPENAI_API_KEY');
       expect(PROVIDER_ENV_MAP.anthropic).toBe('ANTHROPIC_API_KEY');
+      expect(PROVIDER_ENV_MAP.deepseek).toBe('DEEPSEEK_API_KEY');
     });
 
     it('should have exactly 5 providers', () => {
@@ -80,7 +82,8 @@ describe('api-key-store', () => {
         openrouter: false,
         google: false,
         openai: false,
-        anthropic: false
+        anthropic: false,
+        deepseek: false
       });
     });
 
@@ -125,7 +128,8 @@ describe('api-key-store', () => {
         openrouter: false,
         google: false,
         openai: false,
-        anthropic: false
+        anthropic: false,
+        deepseek: false
       });
     });
 
@@ -138,6 +142,13 @@ describe('api-key-store', () => {
       const result = readApiKeys();
       expect(result.openrouter).toBe(true);
       expect(result.google).toBe(false);
+    });
+
+    it('should detect deepseek key from process.env', () => {
+      process.env.DEEPSEEK_API_KEY = 'sk-deepseek-test-key';
+
+      const result = readApiKeys();
+      expect(result.deepseek).toBe(true);
     });
 
     it('should ignore keys with empty values', () => {
@@ -227,6 +238,15 @@ describe('api-key-store', () => {
       saveApiKey('google', 'AIza-test');
       const content = fs.readFileSync(path.join(tmpDir, '.env'), 'utf-8');
       expect(content).toContain('GEMINI_API_KEY=AIza-test');
+    });
+
+    it('should save deepseek key with correct env var name', () => {
+      const result = saveApiKey('deepseek', 'sk-deepseek-test-456');
+      expect(result).toEqual({ success: true });
+
+      const content = fs.readFileSync(path.join(tmpDir, '.env'), 'utf-8');
+      expect(content).toContain('DEEPSEEK_API_KEY=sk-deepseek-test-456');
+      expect(process.env.DEEPSEEK_API_KEY).toBe('sk-deepseek-test-456');
     });
   });
 
@@ -374,6 +394,30 @@ describe('api-key-store', () => {
       expect(result).toEqual({ valid: false, error: 'Invalid API key (401)' });
     });
 
+    it('should validate deepseek key using correct endpoint', async () => {
+      let capturedUrl;
+      let capturedHeaders;
+      const mockResponse = {
+        statusCode: 200,
+        on: jest.fn((event, cb) => {
+          if (event === 'data') { cb('{}'); }
+          if (event === 'end') { cb(); }
+          return mockResponse;
+        })
+      };
+      https.get.mockImplementation((url, opts, cb) => {
+        capturedUrl = url;
+        capturedHeaders = opts.headers;
+        cb(mockResponse);
+        return { on: jest.fn() };
+      });
+
+      const result = await validateApiKey('deepseek', 'sk-deepseek-valid');
+      expect(result).toEqual({ valid: true });
+      expect(capturedUrl).toBe('https://api.deepseek.com/models');
+      expect(capturedHeaders.Authorization).toBe('Bearer sk-deepseek-valid');
+    });
+
     it('should use query param auth for google provider', async () => {
       let capturedUrl;
       const mockResponse = {
@@ -402,6 +446,7 @@ describe('api-key-store', () => {
       expect(VALIDATION_ENDPOINTS.openai).toBeDefined();
       expect(VALIDATION_ENDPOINTS.anthropic).toBeDefined();
       expect(VALIDATION_ENDPOINTS.google).toBeDefined();
+      expect(VALIDATION_ENDPOINTS.deepseek).toBeDefined();
     });
 
     it('should have url and authHeader for each endpoint', () => {
@@ -426,6 +471,12 @@ describe('api-key-store', () => {
       const headers = VALIDATION_ENDPOINTS.google.authHeader('test-key');
       expect(Object.keys(headers)).toHaveLength(0);
     });
+
+    it('should have correct deepseek endpoint properties', () => {
+      expect(VALIDATION_ENDPOINTS.deepseek.url).toBe('https://api.deepseek.com/models');
+      const headers = VALIDATION_ENDPOINTS.deepseek.authHeader('test-key');
+      expect(headers.Authorization).toBe('Bearer test-key');
+    });
   });
 
   describe('readApiKeyHints', () => {
@@ -435,6 +486,7 @@ describe('api-key-store', () => {
       expect(result.google).toBe(false);
       expect(result.openai).toBe(false);
       expect(result.anthropic).toBe(false);
+      expect(result.deepseek).toBe(false);
     });
 
     it('should return masked key hints from .env file', () => {
@@ -467,6 +519,15 @@ describe('api-key-store', () => {
 
       const result = readApiKeyHints();
       expect(result.google).toBe('short');
+    });
+
+    it('should return hint for deepseek key', () => {
+      process.env.DEEPSEEK_API_KEY = 'sk-deepseek-abcdefghij';
+
+      const result = readApiKeyHints();
+      expect(result.deepseek).toBeTruthy();
+      expect(result.deepseek.startsWith('sk-deeps')).toBe(true);
+      expect(result.deepseek).toContain('\u2022');
     });
 
     it('should mask keys with exactly 8 chars (no bullets)', () => {

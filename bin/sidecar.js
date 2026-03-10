@@ -116,15 +116,15 @@ async function main() {
 }
 
 /**
- * Handle 'sidecar start' command
- * Spec Reference: §4.1
+ * Resolve model from args: resolve alias or config default.
+ * Returns { model, alias } or calls process.exit(1) on error.
  */
-async function handleStart(args) {
-  // Resolve model alias or use config default before validation
-  const { resolveModel, detectFallback, loadConfig } = require('../src/utils/config');
+function resolveModelFromArgs(args) {
+  const { resolveModel, loadConfig } = require('../src/utils/config');
   const rawAlias = args.model;
+  let model;
   try {
-    args.model = resolveModel(args.model);
+    model = resolveModel(args.model);
   } catch (err) {
     console.error(err.message);
     process.exit(1);
@@ -138,35 +138,48 @@ async function handleStart(args) {
       alias = cfg.default;
     }
   }
+  return { model, alias };
+}
 
-  // Validate direct-API fallback models exist on the provider (opt-in via --validate-model)
-  if (args['validate-model'] && alias && detectFallback(alias, args.model)) {
-    const { validateDirectModel } = require('../src/utils/model-validator');
-    try {
-      args.model = await validateDirectModel(args.model, alias, {
-        headless: args['no-ui'] || !process.stdin.isTTY
-      });
-    } catch (err) {
-      console.error(err.message);
-      process.exit(1);
-    }
+/**
+ * Validate direct-API fallback models exist on the provider (opt-in via --validate-model).
+ * Returns the (possibly corrected) model string.
+ */
+async function validateFallbackModel(args, alias) {
+  const { detectFallback } = require('../src/utils/config');
+  if (!args['validate-model'] || !alias || !detectFallback(alias, args.model)) {
+    return args.model;
   }
+  const { validateDirectModel } = require('../src/utils/model-validator');
+  try {
+    return await validateDirectModel(args.model, alias, {
+      headless: args['no-ui'] || !process.stdin.isTTY
+    });
+  } catch (err) {
+    console.error(err.message);
+    process.exit(1);
+  }
+}
+
+/**
+ * Handle 'sidecar start' command
+ * Spec Reference: §4.1
+ */
+async function handleStart(args) {
+  const { model, alias } = resolveModelFromArgs(args);
+  args.model = model;
+  args.model = await validateFallbackModel(args, alias);
 
   // Normalize agent: --agent takes precedence, otherwise use --mode
-  // (Must happen before validation so --mode alias is also validated)
   args.agent = args.agent || args.mode;
 
-  // Validate required arguments (model is now resolved)
   const validation = validateStartArgs(args);
   if (!validation.valid) {
     console.error(validation.error);
     process.exit(1);
   }
 
-  // Lazy load to avoid circular dependencies and improve startup time
   const { startSidecar } = require('../src/index');
-
-  const agent = args.agent;
 
   await startSidecar({
     taskId: args['task-id'],
@@ -179,7 +192,7 @@ async function handleStart(args) {
     contextMaxTokens: args['context-max-tokens'],
     noUi: args['no-ui'],
     timeout: args.timeout,
-    agent,
+    agent: args.agent,
     mcp: args.mcp,
     mcpConfig: args['mcp-config'],
     thinking: args.thinking,
