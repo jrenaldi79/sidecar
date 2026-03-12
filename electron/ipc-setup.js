@@ -116,6 +116,33 @@ function registerSetupHandlers(ipcMain, getMainWindow) {
     return { status, hints, imported: imported.map(e => e.provider) };
   });
 
+  ipcMain.handle('sidecar:get-custom-providers', () => {
+    const { getCustomProviders } = require('../src/utils/config');
+    return getCustomProviders();
+  });
+
+  ipcMain.handle('sidecar:save-custom-provider', (_event, id, provider) => {
+    try {
+      const { saveCustomProvider } = require('../src/utils/config');
+      saveCustomProvider(id, provider);
+      return { success: true };
+    } catch (err) {
+      logger.error('save-custom-provider handler error', { error: err.message });
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('sidecar:remove-custom-provider', (_event, id) => {
+    try {
+      const { removeCustomProvider } = require('../src/utils/config');
+      removeCustomProvider(id);
+      return { success: true };
+    } catch (err) {
+      logger.error('remove-custom-provider handler error', { error: err.message });
+      return { success: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('sidecar:fetch-models', async () => {
     try {
       const { readApiKeyValues } = require('../src/utils/api-key-store');

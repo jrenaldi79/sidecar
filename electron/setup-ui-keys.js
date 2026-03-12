@@ -12,7 +12,7 @@ const PROVIDERS = [
     id: 'openrouter',
     name: 'OpenRouter',
     description: 'Access all models (Gemini, GPT, Claude, etc.) with one key',
-    placeholder: 'sk-or-v1-...',
+    placeholder: 'your-openrouter-key',
     helpUrl: 'https://openrouter.ai/keys',
     helpLabel: 'openrouter.ai/keys',
     recommended: true
@@ -69,6 +69,28 @@ function buildKeysStepHTML(providers) {
 
     <div class="provider-list" id="provider-list">
       ${providerCards}
+    </div>
+
+    <div id="custom-providers-list"></div>
+
+    <button class="provider-btn add-custom-btn" id="add-custom-btn" type="button">
+      <span class="provider-name">+ Add Custom Provider</span>
+      <span class="provider-desc">Self-hosted LLMs, proxy servers, or alternative providers</span>
+    </button>
+
+    <div class="custom-provider-form" id="custom-provider-form" style="display:none">
+      <label class="field-label">Provider ID <input id="cp-id" type="text" placeholder="e.g. ollama" autocomplete="off"></label>
+      <label class="field-label">Display Name <input id="cp-name" type="text" placeholder="e.g. Ollama (Local)" autocomplete="off"></label>
+      <label class="field-label">Base URL <input id="cp-url" type="text" placeholder="e.g. http://localhost:11434/v1" autocomplete="off"></label>
+      <label class="field-label">Auth Type
+        <select id="cp-auth"><option value="bearer">Bearer Token</option><option value="x-api-key">x-api-key</option><option value="none">None</option></select>
+      </label>
+      <label class="field-label">Env Variable <input id="cp-env" type="text" placeholder="e.g. OLLAMA_API_KEY (auto-generated)" autocomplete="off"></label>
+      <div class="input-row">
+        <button class="test-btn" id="cp-save-btn" type="button">Add Provider</button>
+        <button class="remove-btn" id="cp-cancel-btn" type="button">Cancel</button>
+      </div>
+      <span id="cp-status-msg"></span>
     </div>
 
     <div class="key-section" id="key-section">

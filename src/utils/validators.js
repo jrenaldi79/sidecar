@@ -242,7 +242,16 @@ function validateApiKey(model) {
   }
 
   const provider = model.split('/')[0].toLowerCase();
-  const providerInfo = PROVIDER_KEY_MAP[provider];
+  let providerInfo = PROVIDER_KEY_MAP[provider];
+
+  // Check custom providers if not in built-in map
+  if (!providerInfo) {
+    const { getCustomProviders } = require('./config');
+    const custom = getCustomProviders();
+    if (custom[provider]) {
+      providerInfo = { key: custom[provider].envVar, name: custom[provider].name };
+    }
+  }
 
   if (!providerInfo) {
     return { valid: true };

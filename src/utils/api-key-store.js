@@ -15,6 +15,22 @@ const PROVIDER_ENV_MAP = {
   deepseek: 'DEEPSEEK_API_KEY'
 };
 
+/**
+ * Get the full provider→envVar map (built-in + custom providers)
+ * @returns {object} Merged map of providerId → envVar name
+ */
+function getFullProviderEnvMap() {
+  const { getCustomProviders } = require('./config');
+  const custom = getCustomProviders();
+  const merged = { ...PROVIDER_ENV_MAP };
+  for (const [id, cp] of Object.entries(custom)) {
+    if (!merged[id] && cp.envVar) {
+      merged[id] = cp.envVar;
+    }
+  }
+  return merged;
+}
+
 /** Legacy key names that have been renamed (old -> new) */
 const LEGACY_KEY_NAMES = {
   'GEMINI_API_KEY': 'GOOGLE_GENERATIVE_AI_API_KEY'
@@ -101,12 +117,14 @@ function resolveKeyValue(fileEntries, envVar) {
 
 /**
  * Read API key availability from .env file and process.env
- * @returns {{openrouter: boolean, google: boolean, openai: boolean, anthropic: boolean, deepseek: boolean}}
+ * @returns {object} Map of providerId → boolean (includes custom providers)
  */
 function readApiKeys() {
-  const result = { openrouter: false, google: false, openai: false, anthropic: false, deepseek: false };
+  const fullMap = getFullProviderEnvMap();
+  const result = {};
+  for (const provider of Object.keys(fullMap)) { result[provider] = false; }
   const entries = loadEnvEntries();
-  for (const [provider, envVar] of Object.entries(PROVIDER_ENV_MAP)) {
+  for (const [provider, envVar] of Object.entries(fullMap)) {
     if (resolveKeyValue(entries, envVar)) { result[provider] = true; }
   }
   return result;
@@ -114,12 +132,14 @@ function readApiKeys() {
 
 /**
  * Read API key hints (masked prefixes) for UI display
- * @returns {{openrouter: string|false, google: string|false, openai: string|false, anthropic: string|false, deepseek: string|false}}
+ * @returns {object} Map of providerId → masked string or false
  */
 function readApiKeyHints() {
-  const result = { openrouter: false, google: false, openai: false, anthropic: false, deepseek: false };
+  const fullMap = getFullProviderEnvMap();
+  const result = {};
+  for (const provider of Object.keys(fullMap)) { result[provider] = false; }
   const entries = loadEnvEntries();
-  for (const [provider, envVar] of Object.entries(PROVIDER_ENV_MAP)) {
+  for (const [provider, envVar] of Object.entries(fullMap)) {
     const key = resolveKeyValue(entries, envVar);
     if (key) {
       const visible = key.slice(0, 8);
@@ -137,7 +157,7 @@ function readApiKeyHints() {
 function readApiKeyValues() {
   const result = {};
   const entries = loadEnvEntries();
-  for (const [provider, envVar] of Object.entries(PROVIDER_ENV_MAP)) {
+  for (const [provider, envVar] of Object.entries(getFullProviderEnvMap())) {
     const value = resolveKeyValue(entries, envVar);
     if (value) { result[provider] = value; }
   }
@@ -146,7 +166,8 @@ function readApiKeyValues() {
 
 /** Save an API key for a provider to the .env file */
 function saveApiKey(provider, key) {
-  const envVar = PROVIDER_ENV_MAP[provider];
+  const fullMap = getFullProviderEnvMap();
+  const envVar = fullMap[provider];
   if (!envVar) {
     return { success: false, error: `Unknown provider: ${provider}` };
   }
@@ -196,7 +217,8 @@ function saveApiKey(provider, key) {
 
 /** Remove an API key for a provider from the .env file */
 function removeApiKey(provider) {
-  const envVar = PROVIDER_ENV_MAP[provider];
+  const fullMap = getFullProviderEnvMap();
+  const envVar = fullMap[provider];
   if (!envVar) {
     return { success: false, error: `Unknown provider: ${provider}` };
   }
@@ -240,6 +262,7 @@ module.exports = {
   removeApiKey,
   validateApiKey,
   validateOpenRouterKey,
+  getFullProviderEnvMap,
   PROVIDER_ENV_MAP,
   LEGACY_KEY_NAMES,
   VALIDATION_ENDPOINTS

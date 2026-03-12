@@ -109,7 +109,84 @@ function buildKeysScript() {
       removeBtn.style.display = 'none'; updateNextState();
     } catch (_e) { statusMsg.textContent = 'Failed to remove'; statusMsg.className = 'status-invalid'; }
     removeBtn.disabled = false;
-  });`;
+  });
+
+  // Custom provider form logic
+  var cpForm = document.getElementById('custom-provider-form');
+  var cpStatusMsg = document.getElementById('cp-status-msg');
+  document.getElementById('add-custom-btn').addEventListener('click', function() {
+    cpForm.style.display = cpForm.style.display === 'none' ? '' : 'none';
+  });
+  document.getElementById('cp-cancel-btn').addEventListener('click', function() {
+    cpForm.style.display = 'none'; cpStatusMsg.textContent = '';
+  });
+  document.getElementById('cp-save-btn').addEventListener('click', async function() {
+    var cpId = document.getElementById('cp-id').value.trim().toLowerCase();
+    var cpName = document.getElementById('cp-name').value.trim();
+    var cpUrl = document.getElementById('cp-url').value.trim();
+    var cpAuth = document.getElementById('cp-auth').value;
+    var cpEnv = document.getElementById('cp-env').value.trim() || (cpId.toUpperCase() + '_API_KEY');
+    if (!cpId || !cpName || !cpUrl) {
+      cpStatusMsg.textContent = 'ID, Name, and Base URL are required';
+      cpStatusMsg.className = 'status-invalid'; return;
+    }
+    try {
+      await window.sidecarSetup.invoke('sidecar:save-custom-provider', cpId, { name: cpName, baseUrl: cpUrl, authType: cpAuth, envVar: cpEnv });
+      var newProv = { id: cpId, name: cpName, description: cpUrl, placeholder: '', custom: true };
+      providers.push(newProv);
+      addCustomProviderCard(newProv);
+      cpForm.style.display = 'none'; cpStatusMsg.textContent = '';
+      document.getElementById('cp-id').value = '';
+      document.getElementById('cp-name').value = '';
+      document.getElementById('cp-url').value = '';
+      document.getElementById('cp-env').value = '';
+    } catch (e) {
+      cpStatusMsg.textContent = e.message || 'Failed to save'; cpStatusMsg.className = 'status-invalid';
+    }
+  });
+
+  function addCustomProviderCard(prov) {
+    var list = document.getElementById('custom-providers-list');
+    var btn = document.createElement('button');
+    btn.className = 'provider-btn'; btn.setAttribute('data-provider', prov.id);
+    btn.innerHTML = '<span class="provider-name">' + prov.name + ' <span class="badge">Custom</span></span>' +
+      '<span class="provider-desc">' + prov.description + '</span>' +
+      '<span class="provider-check" id="check-' + prov.id + '"></span>';
+    btn.addEventListener('click', function() {
+      selectedProvider = prov;
+      document.querySelectorAll('.provider-btn').forEach(function(b) { b.classList.remove('selected'); });
+      btn.classList.add('selected');
+      keySection.classList.add('visible');
+      keyLabel.textContent = prov.name + ' API Key';
+      keyInput.placeholder = prov.placeholder || '';
+      if (keyHints[prov.id]) {
+        keyInput.value = keyHints[prov.id]; keyInput.type = 'text'; keyValid = false;
+        setInputState('valid'); statusMsg.textContent = 'Key configured \\u2714'; statusMsg.className = 'status-valid';
+        removeBtn.style.display = '';
+      } else {
+        keyInput.value = ''; keyInput.type = 'password'; keyValid = false; setInputState(null);
+        statusMsg.textContent = ''; statusMsg.className = ''; removeBtn.style.display = 'none';
+      }
+      eyeBtn.classList.remove('active'); keyInput.focus();
+      helpLink.textContent = '';
+    });
+    list.appendChild(btn);
+  }
+
+  // Load existing custom providers on init
+  (async function() {
+    try {
+      var custom = await window.sidecarSetup.invoke('sidecar:get-custom-providers');
+      if (custom) {
+        Object.keys(custom).forEach(function(id) {
+          var cp = custom[id];
+          var prov = { id: id, name: cp.name, description: cp.baseUrl, placeholder: '', custom: true };
+          providers.push(prov);
+          addCustomProviderCard(prov);
+        });
+      }
+    } catch (_e) {}
+  })();`;
 }
 
 module.exports = { buildKeysScript };

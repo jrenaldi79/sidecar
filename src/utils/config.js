@@ -52,6 +52,9 @@ function getConfigPath() {
   return path.join(getConfigDir(), 'config.json');
 }
 
+/** Built-in provider IDs that cannot be overridden by custom providers */
+const BUILTIN_PROVIDERS = ['openrouter', 'google', 'openai', 'anthropic', 'deepseek'];
+
 /** @returns {object|null} Parsed config data, or null if missing/invalid */
 function loadConfig() {
   const configPath = getConfigPath();
@@ -251,6 +254,50 @@ function tryResolveModel(modelArg) {
   }
 }
 
+/**
+ * Get custom providers from config.json
+ * @returns {object} Map of providerId → {name, baseUrl, authType, envVar}
+ */
+function getCustomProviders() {
+  const config = loadConfig();
+  return (config && config.customProviders) || {};
+}
+
+/**
+ * Save a custom provider definition to config.json
+ * @param {string} id - Provider ID (e.g. 'ollama')
+ * @param {{name: string, baseUrl: string, authType: string, envVar: string}} provider
+ * @throws {Error} If id collides with a built-in provider
+ */
+function saveCustomProvider(id, provider) {
+  if (BUILTIN_PROVIDERS.includes(id.toLowerCase())) {
+    throw new Error(`Cannot override built-in provider '${id}'.`);
+  }
+  if (!id || !provider.name || !provider.baseUrl) {
+    throw new Error('Provider id, name, and baseUrl are required.');
+  }
+  const config = loadConfig() || { aliases: {} };
+  if (!config.customProviders) { config.customProviders = {}; }
+  config.customProviders[id.toLowerCase()] = {
+    name: provider.name,
+    baseUrl: provider.baseUrl.replace(/\/+$/, ''),
+    authType: provider.authType || 'bearer',
+    envVar: provider.envVar || `${id.toUpperCase()}_API_KEY`
+  };
+  saveConfig(config);
+}
+
+/**
+ * Remove a custom provider from config.json
+ * @param {string} id - Provider ID to remove
+ */
+function removeCustomProvider(id) {
+  const config = loadConfig();
+  if (!config || !config.customProviders) { return; }
+  delete config.customProviders[id.toLowerCase()];
+  saveConfig(config);
+}
+
 /** Build OpenCode provider.models config from sidecar aliases.
  * @returns {object} e.g. { openrouter: { models: { "x-ai/grok-4.1-fast": {}, ... } } } */
 function buildProviderModels() {
@@ -269,6 +316,17 @@ function buildProviderModels() {
       providers[providerID] = { models: {} };
     }
     providers[providerID].models[modelID] = {};
+  }
+
+  // Merge custom providers with their baseUrl
+  const custom = getCustomProviders();
+  for (const [id, cp] of Object.entries(custom)) {
+    if (!providers[id]) {
+      providers[id] = { models: {} };
+    }
+    if (cp.baseUrl) {
+      providers[id].baseUrl = cp.baseUrl;
+    }
   }
 
   return providers;
@@ -296,4 +354,8 @@ module.exports = {
   formatAliasNames,
   tryResolveModel,
   buildProviderModels,
+  getCustomProviders,
+  saveCustomProvider,
+  removeCustomProvider,
+  BUILTIN_PROVIDERS,
 };

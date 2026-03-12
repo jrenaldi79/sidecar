@@ -10,7 +10,7 @@
 
 const path = require('path');
 const readline = require('readline');
-const { loadConfig, saveConfig, getDefaultAliases, getConfigDir } = require('../utils/config');
+const { loadConfig, saveConfig, getDefaultAliases, getConfigDir, saveCustomProvider } = require('../utils/config');
 const { logger } = require('../utils/logger');
 
 /**
@@ -195,9 +195,39 @@ async function runReadlineSetup() {
     console.log('');
     console.log(`Default model set to: ${chosen}`);
     console.log(`Config created with ${aliasCount} aliases.`);
+
+    // Offer to add a custom provider
+    const addCustom = await askQuestion(rl, 'Add a custom API provider? (y/N): ');
+    if (addCustom.toLowerCase() === 'y') {
+      await runCustomProviderSetup(rl);
+    }
+
     console.log(`Config path: ${path.join(getConfigDir(), 'config.json')}`);
   } finally {
     rl.close();
+  }
+}
+
+/**
+ * Interactive custom provider setup via readline
+ * @param {readline.Interface} rl - Readline interface
+ */
+async function runCustomProviderSetup(rl) {
+  console.log('');
+  console.log('--- Custom Provider Setup ---');
+  const id = await askQuestion(rl, 'Provider ID (e.g. ollama, together): ');
+  if (!id.trim()) { console.log('Skipped.'); return; }
+  const name = await askQuestion(rl, 'Display name: ');
+  const baseUrl = await askQuestion(rl, 'Base URL (e.g. http://localhost:11434/v1): ');
+  if (!baseUrl.trim()) { console.log('Base URL required. Skipped.'); return; }
+  const authType = await askQuestion(rl, 'Auth type (bearer/x-api-key/none) [bearer]: ') || 'bearer';
+  const envVar = await askQuestion(rl, `Env variable [${id.trim().toUpperCase()}_API_KEY]: `) ||
+    `${id.trim().toUpperCase()}_API_KEY`;
+  try {
+    saveCustomProvider(id.trim(), { name: name.trim() || id.trim(), baseUrl: baseUrl.trim(), authType, envVar });
+    console.log(`Custom provider '${id.trim()}' saved.`);
+  } catch (err) {
+    console.log(`Error: ${err.message}`);
   }
 }
 
@@ -253,5 +283,6 @@ module.exports = {
   runInteractiveSetup,
   runReadlineSetup,
   runApiKeySetup,
+  runCustomProviderSetup,
   MODEL_CHOICES,
 };

@@ -5,7 +5,7 @@
  * extracted from config.js to keep it under the 300-line limit.
  */
 
-const { PROVIDER_ENV_MAP, readApiKeyValues } = require('./api-key-store');
+const { readApiKeyValues, getFullProviderEnvMap } = require('./api-key-store');
 const { logger } = require('./logger');
 
 /**
@@ -24,7 +24,8 @@ function applyDirectApiFallback(model) {
   }
   const direct = model.slice('openrouter/'.length);
   const provider = direct.split('/')[0];
-  const envVar = PROVIDER_ENV_MAP[provider];
+  const fullMap = getFullProviderEnvMap();
+  const envVar = fullMap[provider];
   if (envVar && (process.env[envVar] || persistedKeys[provider])) {
     logger.warn({ msg: 'Using direct provider API (OPENROUTER_API_KEY not set)', original: model, resolved: direct });
     process.stderr.write(

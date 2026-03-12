@@ -5,15 +5,17 @@
  * and persisted keys from api-key-store.
  */
 
+const MOCK_PROVIDER_ENV_MAP = {
+  openrouter: 'OPENROUTER_API_KEY',
+  google: 'GOOGLE_GENERATIVE_AI_API_KEY',
+  openai: 'OPENAI_API_KEY',
+  anthropic: 'ANTHROPIC_API_KEY',
+  deepseek: 'DEEPSEEK_API_KEY',
+};
 jest.mock('../src/utils/api-key-store', () => ({
-  PROVIDER_ENV_MAP: {
-    openrouter: 'OPENROUTER_API_KEY',
-    google: 'GOOGLE_GENERATIVE_AI_API_KEY',
-    openai: 'OPENAI_API_KEY',
-    anthropic: 'ANTHROPIC_API_KEY',
-    deepseek: 'DEEPSEEK_API_KEY',
-  },
+  PROVIDER_ENV_MAP: MOCK_PROVIDER_ENV_MAP,
   readApiKeyValues: jest.fn(),
+  getFullProviderEnvMap: jest.fn(() => ({ ...MOCK_PROVIDER_ENV_MAP })),
 }));
 jest.mock('../src/utils/logger', () => ({
   logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
@@ -55,14 +57,9 @@ describe('applyDirectApiFallback with persisted keys', () => {
     // Re-require config to pick up env changes
     jest.resetModules();
     jest.mock('../src/utils/api-key-store', () => ({
-      PROVIDER_ENV_MAP: {
-        openrouter: 'OPENROUTER_API_KEY',
-        google: 'GOOGLE_GENERATIVE_AI_API_KEY',
-        openai: 'OPENAI_API_KEY',
-        anthropic: 'ANTHROPIC_API_KEY',
-        deepseek: 'DEEPSEEK_API_KEY',
-      },
+      PROVIDER_ENV_MAP: MOCK_PROVIDER_ENV_MAP,
       readApiKeyValues: jest.fn(),
+      getFullProviderEnvMap: jest.fn(() => ({ ...MOCK_PROVIDER_ENV_MAP })),
     }));
     jest.mock('../src/utils/logger', () => ({
       logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
