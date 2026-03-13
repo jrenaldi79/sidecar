@@ -204,7 +204,7 @@ function collectModules(dirPath, rows, relPrefix = '') {
     rows.push({
       module: modulePath,
       purpose: desc || '',
-      exports: exps.map(e => `\`${e}()\``).join(', '),
+      exports: exps.map(e => `\`${e}\``).join(', '),
     });
   }
 

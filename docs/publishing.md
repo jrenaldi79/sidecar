@@ -14,7 +14,7 @@ The `.github/workflows/publish.yml` workflow triggers on `v*` tags and publishes
 
 ## Publishing Setup
 
-- **Trusted Publisher**: Configured on npm for `jrenaldi79/sidecar` + `publish.yml` (OIDC-based, no manual token management)
-- **NPM_TOKEN**: Granular access token stored as GitHub secret (bypass 2FA enabled, scoped to `claude-sidecar`)
+- **Trusted Publisher**: Configured on npm for `jrenaldi79/sidecar` + `publish.yml` (OIDC-based provenance attestation)
+- **NPM_TOKEN**: Granular automation token stored as GitHub secret (scoped to `claude-sidecar`, required for `npm publish`)
 - **OIDC provenance**: `--provenance` flag adds Sigstore attestation (requires `id-token: write` permission)
 - **Trusted publisher config**: https://www.npmjs.com/package/claude-sidecar/access (Settings tab)

@@ -34,7 +34,7 @@ describe('MCP spawn arg building', () => {
     });
   });
 
-  test('sidecar_start auto-passes --client cowork', async () => {
+  test('sidecar_start passes --client cowork only when coworkProcess is set', async () => {
     let capturedArgs;
     await jest.isolateModulesAsync(async () => {
       jest.doMock('child_process', () => ({
@@ -44,7 +44,22 @@ describe('MCP spawn arg building', () => {
         }),
       }));
       const { handlers: h } = require('../src/mcp-server');
+
+      // Without coworkProcess: no --client flag
       await h.sidecar_start({ prompt: 'test task', noUi: true, model: 'google/gemini-test' }, '/tmp');
+      expect(capturedArgs.indexOf('--client')).toBe(-1);
+    });
+
+    // With coworkProcess: --client cowork is passed
+    await jest.isolateModulesAsync(async () => {
+      jest.doMock('child_process', () => ({
+        spawn: jest.fn((cmd, args) => {
+          capturedArgs = args;
+          return { pid: 12345, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
+        }),
+      }));
+      const { handlers: h } = require('../src/mcp-server');
+      await h.sidecar_start({ prompt: 'test', noUi: true, model: 'google/gemini-test', coworkProcess: 'my-vm' }, '/tmp');
       const idx = capturedArgs.indexOf('--client');
       expect(idx).toBeGreaterThan(-1);
       expect(capturedArgs[idx + 1]).toBe('cowork');

@@ -73,8 +73,20 @@ function validateThinkingLevel(thinking, model) {
 
   const supportedLevels = getSupportedThinkingLevels(model);
   if (!supportedLevels.includes(thinking)) {
-    // Map to nearest supported level
-    const fallback = thinking === 'minimal' ? 'low' : 'medium';
+    // Map to nearest supported level — prefer highest available for high/xhigh requests
+    const levelOrder = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'];
+    const requestedIndex = levelOrder.indexOf(thinking);
+    let fallback = 'medium';
+    if (thinking === 'minimal') {
+      fallback = 'low';
+    } else if (requestedIndex > levelOrder.indexOf('medium')) {
+      for (let i = requestedIndex; i >= 0; i--) {
+        if (supportedLevels.includes(levelOrder[i])) {
+          fallback = levelOrder[i];
+          break;
+        }
+      }
+    }
     return {
       valid: true,
       warning: `Warning: Model '${model}' does not support thinking level '${thinking}'. Using '${fallback}' instead.`,

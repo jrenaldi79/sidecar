@@ -146,8 +146,12 @@ function readProgress(sessionDir) {
     ? computeLastActivity(convStat.mtime)
     : 'never';
 
-  // Read progress.json for lifecycle stage info
+  // Read progress.json for lifecycle stage info and stall detection
   let stage;
+  let lastActivityMs = null;
+  if (convStat) {
+    lastActivityMs = Date.now() - convStat.mtime.getTime();
+  }
 
   if (fs.existsSync(progressPath)) {
     try {
@@ -170,35 +174,21 @@ function readProgress(sessionDir) {
         messages = progress.messagesReceived;
       }
 
-      // Use progress updatedAt for lastActivity if more recent
+      // Use progress updatedAt for lastActivity/lastActivityMs if more recent
       if (progress.updatedAt) {
         const progressTime = new Date(progress.updatedAt);
-        if (!convStat || progressTime > convStat.mtime) {
-          lastActivity = computeLastActivity(progressTime);
+        if (!isNaN(progressTime.getTime())) {
+          if (!convStat || progressTime > convStat.mtime) {
+            lastActivity = computeLastActivity(progressTime);
+          }
+          const progressMs = Date.now() - progressTime.getTime();
+          if (lastActivityMs === null || progressMs < lastActivityMs) {
+            lastActivityMs = progressMs;
+          }
         }
       }
     } catch {
       // Ignore malformed progress file
-    }
-  }
-
-  // Compute raw lastActivityMs for stall detection
-  let lastActivityMs = null;
-  if (convStat) {
-    lastActivityMs = Date.now() - convStat.mtime.getTime();
-  }
-  // Use progress.json updatedAt if more recent
-  if (fs.existsSync(progressPath)) {
-    try {
-      const progress = JSON.parse(fs.readFileSync(progressPath, 'utf-8'));
-      if (progress.updatedAt) {
-        const progressMs = Date.now() - new Date(progress.updatedAt).getTime();
-        if (lastActivityMs === null || progressMs < lastActivityMs) {
-          lastActivityMs = progressMs;
-        }
-      }
-    } catch {
-      // Ignore — already handled above
     }
   }
 

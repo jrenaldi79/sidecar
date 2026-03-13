@@ -40,10 +40,14 @@ function registerSetupHandlers(ipcMain, getMainWindow) {
       const { removeApiKey } = require('../src/utils/api-key-store');
       const { removeFromAuthJson } = require('../src/utils/auth-json');
       const result = removeApiKey(provider);
-      // Always clean auth.json too — prevents auto-import from re-adding the key
+      // Clean auth.json when present — prevents auto-import from re-adding the key
       if (result.alsoInAuthJson) {
-        removeFromAuthJson(provider);
-        result.alsoInAuthJson = false;
+        try {
+          removeFromAuthJson(provider);
+          result.alsoInAuthJson = false;
+        } catch (authErr) {
+          logger.warn('Failed to remove from auth.json', { provider, error: authErr.message });
+        }
       }
       return result;
     } catch (err) {
@@ -99,21 +103,32 @@ function registerSetupHandlers(ipcMain, getMainWindow) {
   });
 
   ipcMain.handle('sidecar:get-api-keys', () => {
-    const { readApiKeys, readApiKeyHints, saveApiKey } = require('../src/utils/api-key-store');
-    const { importFromAuthJson } = require('../src/utils/auth-json');
-    const status = readApiKeys();
-    const hints = readApiKeyHints();
+    try {
+      const { readApiKeys, readApiKeyHints, saveApiKey } = require('../src/utils/api-key-store');
+      const { importFromAuthJson } = require('../src/utils/auth-json');
+      const status = readApiKeys();
+      const hints = readApiKeyHints();
 
-    // Auto-import keys from auth.json that sidecar doesn't have yet
-    const { imported } = importFromAuthJson(status);
-    for (const entry of imported) {
-      saveApiKey(entry.provider, entry.key);
-      status[entry.provider] = true;
-      const visible = entry.key.slice(0, 8);
-      hints[entry.provider] = visible + '\u2022'.repeat(Math.max(0, Math.min(entry.key.length - 8, 12)));
+      // Auto-import keys from auth.json that sidecar doesn't have yet
+      const { imported } = importFromAuthJson(status);
+      const successfullyImported = [];
+      for (const entry of imported) {
+        const result = saveApiKey(entry.provider, entry.key);
+        if (result.success) {
+          status[entry.provider] = true;
+          const visible = entry.key.slice(0, 8);
+          hints[entry.provider] = visible + '\u2022'.repeat(Math.max(0, Math.min(entry.key.length - 8, 12)));
+          successfullyImported.push(entry.provider);
+        } else {
+          logger.warn('Failed to import key from auth.json', { provider: entry.provider, error: result.error });
+        }
+      }
+
+      return { status, hints, imported: successfullyImported };
+    } catch (err) {
+      logger.error('get-api-keys handler error', { error: err.message });
+      return { status: {}, hints: {}, imported: [], error: err.message };
     }
-
-    return { status, hints, imported: imported.map(e => e.provider) };
   });
 
   ipcMain.handle('sidecar:fetch-models', async () => {

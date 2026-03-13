@@ -41,6 +41,12 @@ jobs:
         run: |
           # Find previous tag
           PREV_TAG=$(git tag --sort=-version:refname | grep -v "^${TAG_NAME}$" | head -1)
+
+          if [ -z "$PREV_TAG" ]; then
+            echo "No previous tag found. Skipping Claude-generated release notes."
+            exit 0
+          fi
+
           echo "Generating notes for ${PREV_TAG}..${TAG_NAME}"
 
           # Build context: commit log + diff stat + actual diff (truncated)
@@ -90,7 +96,7 @@ jobs:
                 role: "user",
                 content: ("Here are the commits from " + $prev_tag + " to " + $tag + ":\n\n" + $commits + "\n\nDiff stat:\n" + $diffstat + "\n\nActual diff (truncated):\n" + $diff + "\n\nChangelog link: https://github.com/" + $repo + "/compare/" + $prev_tag + "..." + $tag + "\n\n" + $prompt)
               }]
-            }' | curl -s https://api.anthropic.com/v1/messages \
+            }' | curl -s --connect-timeout 10 --max-time 60 https://api.anthropic.com/v1/messages \
               -H "content-type: application/json" \
               -H "x-api-key: ${ANTHROPIC_API_KEY}" \
               -H "anthropic-version: 2023-06-01" \

@@ -189,11 +189,12 @@ describe('setup-ui-model', () => {
         const configuredKeys = { google: true };
         const html = buildModelStepHTML(MODEL_CHOICES, undefined, configuredKeys);
         const geminiToggle = html.match(/route-toggle[^>]*data-alias="gemini"[^>]*>(.*?)<\/span>/s);
-        if (geminiToggle) {
-          const pills = geminiToggle[1];
-          // google pill should be active, openrouter pill should not
-          expect(pills).toMatch(/data-provider="google"[^>]*>Google AI<\/button>/);
-        }
+        expect(geminiToggle).not.toBeNull();
+        const pills = geminiToggle[1];
+        // google pill should be active
+        expect(pills).toMatch(/route-pill active[^>]*data-provider="google"/);
+        // openrouter pill should NOT be active
+        expect(pills).not.toMatch(/route-pill active[^>]*data-provider="openrouter"/);
       });
     });
   });

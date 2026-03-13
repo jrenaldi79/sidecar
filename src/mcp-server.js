@@ -78,7 +78,8 @@ const handlers = {
     const { generateTaskId } = require('./sidecar/start');
     const taskId = generateTaskId();
 
-    const args = ['start', '--prompt', input.prompt, '--task-id', taskId, '--client', 'cowork'];
+    const args = ['start', '--prompt', input.prompt, '--task-id', taskId];
+    if (input.coworkProcess) { args.push('--client', 'cowork'); }
     if (input.model) { args.push('--model', input.model); }
     const agent = (input.noUi && (!input.agent || input.agent.toLowerCase() === 'chat'))
       ? 'build' : input.agent;
@@ -244,8 +245,8 @@ const handlers = {
   async sidecar_resume(input, project) {
     const cwd = project || getProjectDir(input.project);
     const sessionDir = safeSessionDir(cwd, input.taskId);
-    const args = ['resume', input.taskId, '--client', 'cowork', '--cwd', cwd];
-    if (input.noUi) { args.push('--no-ui', '--agent', 'build'); }
+    const args = ['resume', input.taskId, '--cwd', cwd];
+    if (input.noUi) { args.push('--no-ui'); }
     if (input.timeout) { args.push('--timeout', String(input.timeout)); }
     try { spawnSidecarProcess(args, sessionDir); } catch (err) {
       return textResult(`Failed to resume: ${err.message}`, true);
@@ -270,9 +271,12 @@ const handlers = {
     const sessionDir = path.join(cwd, '.claude', 'sidecar_sessions', newTaskId);
 
     const args = ['continue', input.taskId, '--prompt', input.prompt,
-      '--task-id', newTaskId, '--client', 'cowork', '--cwd', cwd];
+      '--task-id', newTaskId, '--cwd', cwd];
     if (input.model) { args.push('--model', input.model); }
-    if (input.noUi) { args.push('--no-ui', '--agent', 'build'); }
+    const continueAgent = (input.noUi && (!input.agent || input.agent.toLowerCase() === 'chat'))
+      ? 'build' : input.agent;
+    if (continueAgent) { args.push('--agent', continueAgent); }
+    if (input.noUi) { args.push('--no-ui'); }
     if (input.timeout) { args.push('--timeout', String(input.timeout)); }
     if (input.contextTurns)     { args.push('--context-turns', String(input.contextTurns)); }
     if (input.contextMaxTokens) { args.push('--context-max-tokens', String(input.contextMaxTokens)); }

@@ -63,7 +63,7 @@ describe('Model Validator — normalize', () => {
     });
 
     it('should handle nested model ids (provider/org/model)', () => {
-      expect(normalizeModelId('openai', 'openai/gpt-4o')).toBe('openai/gpt-4o');
+      expect(normalizeModelId('openai', 'openai/org-name/gpt-4o')).toBe('openai/org-name/gpt-4o');
     });
 
     it('should prepend provider for bare model name', () => {

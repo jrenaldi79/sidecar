@@ -54,8 +54,8 @@ describe('setup-window', () => {
 
     expect(spawn).toHaveBeenCalled();
     const spawnArgs = spawn.mock.calls[0];
-    expect(spawnArgs[1][0]).toContain('--remote-debugging-port=');
-    expect(spawnArgs[1][1]).toContain('main.js');
+    // Remote debugging is opt-in; without SIDECAR_DEBUG_PORT, only main.js is passed
+    expect(spawnArgs[1][0]).toContain('main.js');
 
     const env = spawnArgs[2].env;
     expect(env.SIDECAR_MODE).toBe('setup');

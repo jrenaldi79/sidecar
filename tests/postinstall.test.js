@@ -2,6 +2,116 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+const { mergeHooks } = require('../scripts/postinstall');
+
+describe('mergeHooks', () => {
+  function makeHooksConfig(commands) {
+    const hooks = {};
+    for (const [event, cmd] of Object.entries(commands)) {
+      hooks[event] = [{ matcher: 'Bash', hooks: [{ type: 'command', command: cmd }] }];
+    }
+    return { hooks };
+  }
+
+  test('registers hooks into empty settings', () => {
+    const settings = {};
+    const config = makeHooksConfig({ PreToolUse: '/path/to/pre-bash.sh' });
+    const count = mergeHooks(settings, config);
+    expect(count).toBe(1);
+    expect(settings.hooks.PreToolUse).toHaveLength(1);
+    expect(settings.hooks.PreToolUse[0].hooks[0].command).toBe('/path/to/pre-bash.sh');
+  });
+
+  test('skips registration when exact hook already exists', () => {
+    const settings = {
+      hooks: {
+        PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: '/path/to/pre-bash.sh' }] }],
+      },
+    };
+    const config = makeHooksConfig({ PreToolUse: '/path/to/pre-bash.sh' });
+    const count = mergeHooks(settings, config);
+    expect(count).toBe(0);
+    expect(settings.hooks.PreToolUse).toHaveLength(1);
+  });
+
+  test('replaces old sidecar hook on upgrade (different path, same basename)', () => {
+    const settings = {
+      hooks: {
+        PreToolUse: [{
+          matcher: 'Bash',
+          hooks: [{ type: 'command', command: '/old/claude-sidecar/hooks/pre-bash.sh' }],
+        }],
+      },
+    };
+    const config = makeHooksConfig({ PreToolUse: '/new/claude-sidecar/hooks/pre-bash.sh' });
+    const count = mergeHooks(settings, config);
+    expect(count).toBe(1);
+    expect(settings.hooks.PreToolUse).toHaveLength(1);
+    expect(settings.hooks.PreToolUse[0].hooks[0].command).toBe('/new/claude-sidecar/hooks/pre-bash.sh');
+  });
+
+  test('preserves user hooks with same basename but non-sidecar path', () => {
+    const settings = {
+      hooks: {
+        PreToolUse: [{
+          matcher: 'Bash',
+          hooks: [{ type: 'command', command: '/home/user/my-hooks/pre-bash.sh' }],
+        }],
+      },
+    };
+    const config = makeHooksConfig({ PreToolUse: '/lib/claude-sidecar/hooks/pre-bash.sh' });
+    const count = mergeHooks(settings, config);
+    expect(count).toBe(1);
+    // Both user hook and sidecar hook should be present
+    expect(settings.hooks.PreToolUse).toHaveLength(2);
+  });
+
+  test('returns 0 when hooksConfig has no hooks', () => {
+    const settings = {};
+    const count = mergeHooks(settings, { hooks: {} });
+    expect(count).toBe(0);
+  });
+
+  test('replaces hook when command matches but matcher changed (upgrade)', () => {
+    const settings = {
+      hooks: {
+        PostToolUse: [{
+          matcher: 'Edit|Write',
+          hooks: [{ type: 'command', command: '/path/claude-sidecar/hooks/post-tool-use.sh' }],
+        }],
+      },
+    };
+    const config = {
+      hooks: {
+        PostToolUse: [{
+          matcher: 'Edit|Write|Bash|MultiEdit',
+          hooks: [{ type: 'command', command: '/path/claude-sidecar/hooks/post-tool-use.sh' }],
+        }],
+      },
+    };
+    const count = mergeHooks(settings, config);
+    expect(count).toBe(1);
+    expect(settings.hooks.PostToolUse).toHaveLength(1);
+    expect(settings.hooks.PostToolUse[0].matcher).toBe('Edit|Write|Bash|MultiEdit');
+  });
+
+  test('handles malformed hook entries without command property', () => {
+    const settings = {
+      hooks: {
+        PreToolUse: [
+          { matcher: 'Bash', hooks: [{ type: 'command' }] },
+        ],
+      },
+    };
+    const config = makeHooksConfig({ PreToolUse: '/path/claude-sidecar/hooks/pre-bash.sh' });
+    // Should not throw
+    const count = mergeHooks(settings, config);
+    expect(count).toBe(1);
+    // Malformed entry preserved, new hook appended
+    expect(settings.hooks.PreToolUse).toHaveLength(2);
+  });
+});
+
 describe('Postinstall MCP registration', () => {
   test('addMcpToConfigFile creates config file if it does not exist', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'postinstall-test-'));

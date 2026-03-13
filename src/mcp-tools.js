@@ -100,7 +100,9 @@ function getTools() {
       ),
       parentSession: z.string().optional().describe(
         'Claude Code session UUID for exact context matching. ' +
-        'Prevents ambiguity when multiple sessions are active in the same project.'
+        'Strongly recommended when includeContext is true — prevents the sidecar from ' +
+        'picking up the wrong session when multiple are active. ' +
+        'Hook-triggered skills receive this in the additionalContext payload.'
       ),
       windowPosition: z.enum(['right', 'left', 'center']).optional()
         .default('right').describe(
@@ -202,6 +204,10 @@ function getTools() {
       ),
       model: safeModel.optional().describe(
         `Override model — short alias (${aliasNames}) or full provider/model ID. Defaults to the original session's model.`
+      ),
+      agent: z.enum(['Chat', 'Plan', 'Build']).optional().describe(
+        'Agent mode override. Chat: reads auto, writes ask. Plan: read-only. ' +
+        'Build: full auto. Defaults to Build in headless mode, Chat in interactive.'
       ),
       noUi: z.boolean().optional().default(false).describe(
         'Run headless. Default false (opens Electron window).'
@@ -315,9 +321,14 @@ ${aliasRows}
 Or use full IDs in provider/model format (e.g., openrouter/provider/model-id).
 Run sidecar_setup to configure defaults and add custom aliases.
 
-## Session Matching
-Cowork: pass coworkProcess (extract from CWD: /sessions/<name>/).
-Claude Code CLI: pass parentSession with your session UUID.
+## Session Matching (Important for Context Accuracy)
+**Always pass parentSession** when you know your Claude Code session UUID — this prevents
+the sidecar from picking up the wrong session's context when multiple sessions are active.
+Without it, sidecar falls back to the most recently modified session file, which may be wrong.
+
+- Cowork: pass coworkProcess (extract from CWD: /sessions/<name>/).
+- Claude Code CLI: pass parentSession with your session UUID.
+- Hook-triggered skills: the hook's additionalContext includes the session ID — pass it through.
 
 ## Context Control (includeContext)
 
@@ -326,9 +337,10 @@ By default, sidecar includes your parent conversation history as context. Set \`
 ### MUST Include Context (Red Flags)
 - Task references prior conversation ("the code we discussed", "that bug", "the approach you suggested")
 - Fact checking or second opinions on recent work
-- Code review of changes made in this session
+- Code review of changes made in this session (reviewer needs to know WHY changes were made)
 - "Does this look right?" or validation requests
 - Continuing a debugging thread
+- Auto-skills (review, security, unblock, bmad) — these always need conversation context
 - Any task where the sidecar needs to understand what happened before
 
 ### Safe to Skip Context

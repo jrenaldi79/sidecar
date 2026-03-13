@@ -33,7 +33,9 @@
     "src/",
     "electron/",
     "skill/",
-    "scripts/postinstall.js"
+    "hooks/",
+    "scripts/postinstall.js",
+    "scripts/preuninstall.js"
   ],
   "scripts": {
     "start": "node --experimental-top-level-await --experimental-vm-modules bin/sidecar.js",
@@ -44,6 +46,8 @@
     "posttest": "git rev-parse HEAD > .test-passed 2>/dev/null || true",
     "lint": "eslint src/",
     "postinstall": "node scripts/postinstall.js",
+    "preuninstall": "node scripts/preuninstall.js",
+    "uninstall": "node scripts/preuninstall.js",
     "test:thinking": "node scripts/benchmark-thinking.js",
     "test:thinking:quick": "MODELS=gemini node scripts/benchmark-thinking.js",
     "refresh-models": "node scripts/refresh-model-capabilities.js",

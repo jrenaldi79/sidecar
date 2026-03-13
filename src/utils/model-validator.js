@@ -89,15 +89,16 @@ async function validateDirectModel(resolvedModel, alias, options = {}) {
  */
 function filterRelevantModels(models, alias) {
   const term = (ALIAS_SEARCH_TERMS[alias] || alias).toLowerCase();
+  const validModels = models.filter(m => typeof m.id === 'string' && m.id.trim() !== '');
 
-  let filtered = models.filter(m =>
+  let filtered = validModels.filter(m =>
     m.id.toLowerCase().includes(term) ||
-    m.name.toLowerCase().includes(term)
+    (m.name || '').toLowerCase().includes(term)
   );
 
-  if (filtered.length === 0) { filtered = models; }
+  if (filtered.length === 0) { filtered = validModels; }
 
-  filtered.sort((a, b) => a.name.localeCompare(b.name));
+  filtered.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   return filtered.slice(0, 15);
 }
 

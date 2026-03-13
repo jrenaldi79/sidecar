@@ -1,0 +1,38 @@
+{
+  "description": "Sidecar activity monitoring hooks for auto-skill triggers",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__HOOKS_DIR__/pre-bash.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|Bash|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__HOOKS_DIR__/post-tool-use.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash|Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "__HOOKS_DIR__/post-failure.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

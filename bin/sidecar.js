@@ -21,7 +21,7 @@ if (process.env.GEMINI_API_KEY && !process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
 const { parseArgs, validateStartArgs, getUsage } = require('../src/cli');
 const { validateTaskId } = require('../src/utils/validators');
 const { resolveModelFromArgs, validateFallbackModel } = require('../src/utils/start-helpers');
-const { handleSetup, handleAbort, handleUpdate, handleMcp } = require('../src/cli-handlers');
+const { handleSetup, handleAbort, handleUpdate, handleMcp, handleAutoSkills } = require('../src/cli-handlers');
 
 const VERSION = require('../package.json').version;
 
@@ -102,6 +102,9 @@ async function main() {
         break;
       case 'update':
         await handleUpdate();
+        break;
+      case 'auto-skills':
+        await handleAutoSkills(args);
         break;
       default:
         console.error(`Unknown command: ${command}`);

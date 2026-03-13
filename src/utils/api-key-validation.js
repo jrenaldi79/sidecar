@@ -60,6 +60,8 @@ function validateApiKey(provider, key) {
         if (provider === 'anthropic') {
           if (res.statusCode === 401) {
             resolve({ valid: false, error: 'Invalid API key (401)' });
+          } else if (res.statusCode >= 500 || res.statusCode === 429) {
+            resolve({ valid: false, error: `Server error (${res.statusCode})` });
           } else {
             resolve({ valid: true });
           }
@@ -75,14 +77,18 @@ function validateApiKey(provider, key) {
         }
       });
     });
+    req.setTimeout(10000, () => {
+      req.destroy();
+      resolve({ valid: false, error: 'Request timed out' });
+    });
     req.on('error', (err) => {
       resolve({ valid: false, error: err.message });
     });
   });
 }
 
-// Backwards compat alias
-const validateOpenRouterKey = validateApiKey;
+// Backwards compat alias — wraps the new function with the old single-arg signature
+const validateOpenRouterKey = (key) => validateApiKey('openrouter', key);
 
 module.exports = {
   validateApiKey,

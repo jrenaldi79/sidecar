@@ -47,7 +47,16 @@ describe('Null Alias Defense', () => {
   });
 
   afterEach(() => {
-    process.env = originalEnv;
+    // Restore deleted keys
+    for (const key of Object.keys(originalEnv)) {
+      process.env[key] = originalEnv[key];
+    }
+    // Remove keys that were added during test
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) {
+        delete process.env[key];
+      }
+    }
     stderrSpy.mockRestore();
     fs.rmSync(tempDir, { recursive: true, force: true });
   });

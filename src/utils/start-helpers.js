@@ -5,6 +5,8 @@
  * to keep the CLI entry point under the 300-line limit.
  */
 
+const { logger } = require('./logger');
+
 /**
  * Resolve model from args: resolve alias or config default.
  * Returns { model, alias } or calls process.exit(1) on error.
@@ -18,7 +20,7 @@ function resolveModelFromArgs(args) {
   try {
     model = resolveModel(args.model);
   } catch (err) {
-    console.error(err.message);
+    logger.error(err.message);
     process.exit(1);
   }
 
@@ -51,7 +53,7 @@ async function validateFallbackModel(args, alias) {
       headless: args['no-ui'] || !process.stdin.isTTY
     });
   } catch (err) {
-    console.error(err.message);
+    logger.error(err.message);
     process.exit(1);
   }
 }

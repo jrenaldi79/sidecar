@@ -47,7 +47,7 @@ module.exports = {
     {
       // CLI output files use console.log for user-facing output (not logging)
       // These display results to the user, not debug info
-      files: ['src/sidecar/read.js', 'src/sidecar/session-utils.js'],
+      files: ['src/sidecar/read.js', 'src/sidecar/session-utils.js', 'src/cli-handlers.js'],
       rules: {
         'no-console': 'off'
       }
