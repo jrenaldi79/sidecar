@@ -158,7 +158,13 @@ sidecar/
 │   │   ├── chat-styles.js       # CSS string constant
 │   │   ├── chat-script.js       # JS string constant
 │   │   ├── icons.js             # Tool and file extension icon registry
-│   │   └── logos.js             # Model logo SVG registry
+│   │   ├── logos.js             # Model logo SVG registry
+│   │   ├── tool-output.js       # Tool output dispatcher (routes by tool name)
+│   │   ├── utils.js             # escapeHtml + shared SVG constants
+│   │   ├── highlight.js         # Syntax highlighting (highlightCode, formatBashCommand)
+│   │   └── tools/               # Per-tool HTML formatters
+│   │       ├── generic.js       # Fallback formatter (formatGenericOutput)
+│   │       └── bash.js          # Bash formatter (formatBashOutput)
 │   ├── prompts/                 # Prompt modules
 │   │   └── cowork-agent-prompt.js
 │   └── utils/                   # Helpers (see src/utils/ for full list)
@@ -197,11 +203,13 @@ sidecar/
 │   ├── validate-docs.js         # CLAUDE.md drift detection
 │   ├── postinstall.js           # Auto-install skill + MCP registration
 │   ├── integration-test.sh      # E2E integration tests
-│   └── sync-agent-docs.js       # Sync CLAUDE.md → GEMINI.md, AGENTS.md
+│   └── test-tools.sh            # Tooling smoke tests
 ├── .husky/
 │   ├── pre-commit               # lint-staged + secrets + file size + doc drift
 │   └── pre-push                 # Full test suite (cached by SHA) + npm audit
 ├── docs/
+│   ├── opencode.md              # OpenCode SDK + integration reference
+│   ├── testing.md               # Comprehensive testing guide
 │   ├── scaffolding/             # Portable enforcement kit (copy to new projects)
 │   └── plans/                   # Design and implementation plans
 ├── package.json
@@ -476,16 +484,17 @@ GEMINI.md and AGENTS.md are symlinks to CLAUDE.md -- no sync needed.
 
 ---
 
-## Related Documentation
+## Documentation Index
 
 - [README.md](README.md) - User-facing documentation
-- [skill/SKILL.md](skill/SKILL.md) - Claude Code skill integration
 - [docs/testing.md](docs/testing.md) - Comprehensive testing guide (all tiers, CDP, cross-platform)
 - [docs/opencode.md](docs/opencode.md) - OpenCode SDK + integration reference
 - [docs/electron-testing.md](docs/electron-testing.md) - Manual CDP WebSocket recipes and debugging
 - [docs/jsdoc-setup.md](docs/jsdoc-setup.md) - JSDoc patterns and type declarations
 - [evals/README.md](evals/README.md) - Agentic eval system (end-to-end LLM interaction testing)
+- [skill/SKILL.md](skill/SKILL.md) - Claude Code skill integration
 - [OpenCode docs](https://opencode.ai/docs/) - SDK and server API reference (upstream)
+- [Husky docs](https://typicode.github.io/husky/) - Git hooks and config reference
 
 ---
 
