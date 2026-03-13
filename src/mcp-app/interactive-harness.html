@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sidecar Interactive Harness</title>
+<link rel="stylesheet" href="./styles.css">
+<script>
+  if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  }
+</script>
+</head>
+<body>
+<div id="sidecar-app">
+  <div id="sidecar-header">
+    <div class="header-brand">
+      <div class="status-dot" id="status-dot"></div>
+      <span class="brand-name">Sidecar</span>
+    </div>
+    <span id="model-badge"></span>
+    <div class="header-meta">
+      <span id="timer">0:00</span>
+    </div>
+  </div>
+
+  <div id="messages-container"></div>
+
+  <div id="sidecar-toolbar">
+    <input type="text" id="chat-input" placeholder="Send a message..." autocomplete="off">
+    <button id="send-btn">&uarr;</button>
+  </div>
+</div>
+<script type="module" src="./interactive-harness.js"></script>
+</body>
+</html>
