@@ -49,7 +49,7 @@ describe('getElectronPath', () => {
     expect(result).not.toContain('node_modules/.bin/electron');
 
     // Should be the actual Electron binary path (what require('electron') returns)
-    expect(result).toContain('Electron');
+    expect(result.toLowerCase()).toContain('electron');
   });
 
   it('returns null when electron is not installed', () => {
