@@ -162,6 +162,7 @@ sidecar/
 │   │   ├── tool-output.js       # Tool output dispatcher (routes by tool name)
 │   │   ├── utils.js             # escapeHtml + shared SVG constants
 │   │   ├── highlight.js         # Syntax highlighting (highlightCode, formatBashCommand)
+│   │   ├── markdown.js          # Markdown renderer (renderMarkdown, marked + highlightCode)
 │   │   └── tools/               # Per-tool HTML formatters
 │   │       ├── generic.js       # Fallback formatter (formatGenericOutput)
 │   │       └── bash.js          # Bash formatter (formatBashOutput)
