@@ -178,7 +178,7 @@ function validateStartArgs(args) {
 
   // Validate --client (if provided)
   if (args.client) {
-    const validClients = ['code-local', 'code-web', 'cowork'];
+    const validClients = ['code-local', 'code-web', 'cowork', 'mcp-app'];
     if (!validClients.includes(args.client)) {
       return { valid: false, error: `Error: --client must be one of: ${validClients.join(', ')}` };
     }
@@ -299,7 +299,7 @@ Options for 'start':
   --no-ui                      Run without GUI (autonomous mode)
   --no-context                   Skip parent conversation history context
   --timeout <minutes>          Headless timeout (default: 15)
-  --client <type>              Client type: code-local, code-web, cowork
+  --client <type>              Client type: code-local, code-web, cowork, mcp-app
   --session-dir <path>         Explicit session data directory
   --setup                      Force open configuration
   --fold-shortcut <key>        Customize fold shortcut

@@ -119,21 +119,17 @@ describe('MCP App integration lifecycle', () => {
 
     // Required structural elements
     expect(html).toContain('<!DOCTYPE html>');
-    expect(html).toContain('id="opencode-frame"');
-    expect(html).toContain('id="sidecar-toolbar"');
-    expect(html).toContain('id="fold-btn"');
-    expect(html).toContain('id="chat-input"');
+    expect(html).toContain('messages-container');
+    expect(html).toContain('sidecar-toolbar');
+    expect(html).toContain('fold-btn');
+    expect(html).toContain('chat-input');
 
-    // Required App.callTool integrations
-    expect(html).toContain('App.callTool');
+    // Required ext-apps callServerTool integrations (minified names)
     expect(html).toContain('sidecar_app_send');
     expect(html).toContain('sidecar_app_messages');
     expect(html).toContain('sidecar_app_fold');
 
-    // Required App.updateContext for fold
-    expect(html).toContain('App.updateContext');
-
-    // Required postMessage init listener
-    expect(html).toContain('sidecar-init');
+    // Required ext-apps updateModelContext for fold
+    expect(html).toContain('updateModelContext');
   });
 });

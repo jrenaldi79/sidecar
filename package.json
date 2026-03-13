@@ -33,7 +33,8 @@
     "src/",
     "electron/",
     "skill/",
-    "scripts/postinstall.js"
+    "scripts/postinstall.js",
+    "dist/"
   ],
   "scripts": {
     "start": "node --experimental-top-level-await --experimental-vm-modules bin/sidecar.js",
@@ -48,10 +49,12 @@
     "models:info": "node scripts/refresh-model-capabilities.js --info",
     "models:check": "node scripts/refresh-model-capabilities.js --check",
     "generate-icon": "node scripts/generate-icon.js",
+    "build:ui": "npx vite build --config vite.config.mcp-app.mjs",
     "validate-docs": "node scripts/validate-docs.js --full",
     "prepare": "husky"
   },
   "dependencies": {
+    "@modelcontextprotocol/ext-apps": "^1.2.2",
     "@modelcontextprotocol/sdk": "^1.27.0",
     "@opencode-ai/sdk": "^1.1.36",
     "dotenv": "^17.2.3",
@@ -72,6 +75,8 @@
     "mocha": "^11.7.5",
     "puppeteer": "^24.36.0",
     "sharp": "^0.33.5",
+    "vite": "^7.3.1",
+    "vite-plugin-singlefile": "^2.3.0",
     "ws": "^8.19.0"
   },
   "engines": {

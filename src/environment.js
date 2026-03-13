@@ -14,7 +14,7 @@ const { logger } = require('./utils/logger');
  * Valid client types for the --client flag
  * @type {string[]}
  */
-const VALID_CLIENTS = ['code-local', 'code-web', 'cowork'];
+const VALID_CLIENTS = ['code-local', 'code-web', 'cowork', 'mcp-app'];
 
 /**
  * Infer the client type from args and platform
@@ -119,7 +119,7 @@ function getSessionRoot(args, platform) {
     throw new Error('--session-dir is required when --client is code-web');
   }
 
-  if (client === 'cowork') {
+  if (client === 'cowork' || client === 'mcp-app') {
     const sessionRoot = getCoworkRoot(platform);
     logger.debug('Resolved cowork session root', { platform, sessionRoot });
     return sessionRoot;

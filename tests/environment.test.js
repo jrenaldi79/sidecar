@@ -20,8 +20,8 @@ const {
 describe('Environment Detection', () => {
 
   describe('VALID_CLIENTS', () => {
-    it('should export the three valid client types', () => {
-      expect(VALID_CLIENTS).toEqual(['code-local', 'code-web', 'cowork']);
+    it('should export the valid client types', () => {
+      expect(VALID_CLIENTS).toEqual(['code-local', 'code-web', 'cowork', 'mcp-app']);
     });
   });
 

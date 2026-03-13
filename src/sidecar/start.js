@@ -19,6 +19,7 @@ const {
 const { runInteractive, checkElectronAvailable } = require('./interactive');
 const { buildPrompts } = require('../prompt-builder');
 const { runHeadless } = require('../headless');
+const { runMcpAppServer } = require('./mcp-app-server');
 const { logger } = require('../utils/logger');
 const { loadMcpConfig, parseMcpSpec } = require('../opencode-client');
 const { mapAgentToOpenCode } = require('../utils/agent-mapping');
@@ -190,7 +191,15 @@ async function startSidecar(options) {
   let result;
 
   try {
-    if (effectiveHeadless) {
+    if (client === 'mcp-app') {
+      logger.info('Launching MCP App server mode', { taskId, model });
+      result = await runMcpAppServer(
+        model, systemPrompt, userMessage, taskId, effectiveProject,
+        { mcp: mcpServers, reasoning, agent, client }
+      );
+      summary = result.summary || '';
+      if (result.error) { logger.error('MCP App error', { taskId, error: result.error }); }
+    } else if (effectiveHeadless) {
       result = await runHeadless(
         model, systemPrompt, userMessage, taskId, effectiveProject,
         timeout * 60 * 1000, agent || 'build', { mcp: mcpServers, summaryLength, reasoning, port: opencodePort }

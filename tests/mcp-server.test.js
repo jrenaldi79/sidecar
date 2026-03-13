@@ -34,7 +34,7 @@ describe('MCP spawn arg building', () => {
     });
   });
 
-  test('sidecar_start auto-passes --client cowork', async () => {
+  test('sidecar_start auto-passes --client mcp-app', async () => {
     let capturedArgs;
     await jest.isolateModulesAsync(async () => {
       jest.doMock('child_process', () => ({
@@ -47,7 +47,7 @@ describe('MCP spawn arg building', () => {
       await h.sidecar_start({ prompt: 'test task', noUi: true, model: 'google/gemini-test' }, '/tmp');
       const idx = capturedArgs.indexOf('--client');
       expect(idx).toBeGreaterThan(-1);
-      expect(capturedArgs[idx + 1]).toBe('cowork');
+      expect(capturedArgs[idx + 1]).toBe('mcp-app');
     });
   });
 
@@ -770,14 +770,10 @@ describe('MCP Server Handlers', () => {
       expect(typeof handlers.sidecar_start).toBe('function');
     });
 
-    test('returns interactive mode message when noUi is false', async () => {
-      let _capturedArgs;
+    test('returns interactive mode result when noUi is false', async () => {
       await jest.isolateModulesAsync(async () => {
         jest.doMock('child_process', () => ({
-          spawn: jest.fn((_cmd, args) => {
-            _capturedArgs = args;
-            return { pid: 12345, unref: jest.fn() };
-          }),
+          spawn: jest.fn(() => ({ pid: 12345, unref: jest.fn() })),
         }));
         const { handlers: h } = require('../src/mcp-server');
         const result = await h.sidecar_start({ prompt: 'analyze auth', noUi: false, model: 'google/gemini-test' }, '/tmp');
@@ -785,17 +781,15 @@ describe('MCP Server Handlers', () => {
         expect(parsed.mode).toBe('interactive');
         expect(parsed.message).toContain('Do NOT poll');
         expect(parsed.message).toContain('clicked Fold');
+        // _meta.ui is now on the tool definition via registerAppTool, not on the result
+        expect(result._meta).toBeUndefined();
       });
     });
 
     test('returns headless mode message with at-least-30s guidance when noUi is true', async () => {
-      let _capturedArgs;
       await jest.isolateModulesAsync(async () => {
         jest.doMock('child_process', () => ({
-          spawn: jest.fn((_cmd, args) => {
-            _capturedArgs = args;
-            return { pid: 12345, unref: jest.fn() };
-          }),
+          spawn: jest.fn(() => ({ pid: 12345, unref: jest.fn() })),
         }));
         const { handlers: h } = require('../src/mcp-server');
         const result = await h.sidecar_start({ prompt: 'implement feature', noUi: true, model: 'google/gemini-test' }, '/tmp');

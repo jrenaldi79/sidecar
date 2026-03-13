@@ -1,6 +1,6 @@
 /**
  * Tests for MCP App UI resource registration and port/session metadata storage.
- * Covers Task 6 (resource registration) and Task 7 (port/session in metadata).
+ * Covers registerAppResource with RESOURCE_MIME_TYPE from ext-apps SDK.
  */
 
 const fs = require('fs');
@@ -8,22 +8,31 @@ const path = require('path');
 const os = require('os');
 
 describe('MCP App resource registration', () => {
-  test('startMcpServer registers ui://sidecar/chat resource', async () => {
+  test('startMcpServer registers ui://sidecar/chat resource via registerAppResource', async () => {
     let registeredResources = [];
+    let registeredAppTools = [];
 
     await jest.isolateModulesAsync(async () => {
       jest.doMock('@modelcontextprotocol/sdk/server/mcp.js', () => ({
         McpServer: class {
           constructor() {}
           registerTool() {}
-          resource(name, uri, metadata, callback) {
-            registeredResources.push({ name, uri, metadata, callback });
-          }
           async connect() {}
         },
       }));
       jest.doMock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
         StdioServerTransport: class {},
+      }));
+
+      // Mock the ext-apps dynamic import
+      jest.doMock('@modelcontextprotocol/ext-apps/server', () => ({
+        registerAppTool(server, name, config, handler) {
+          registeredAppTools.push({ name, config, handler });
+        },
+        registerAppResource(server, name, uri, metadata, callback) {
+          registeredResources.push({ name, uri, metadata, callback });
+        },
+        RESOURCE_MIME_TYPE: 'application/vnd.mcp.app+html',
       }));
 
       const { startMcpServer } = require('../../src/mcp-server');
@@ -32,8 +41,7 @@ describe('MCP App resource registration', () => {
 
     const chatResource = registeredResources.find(r => r.uri === 'ui://sidecar/chat');
     expect(chatResource).toBeDefined();
-    expect(chatResource.name).toBe('chat');
-    expect(chatResource.metadata.mimeType).toBe('text/html');
+    expect(chatResource.metadata.mimeType).toBe('application/vnd.mcp.app+html');
   });
 
   test('ui://sidecar/chat resource returns valid HTML', async () => {
@@ -44,14 +52,18 @@ describe('MCP App resource registration', () => {
         McpServer: class {
           constructor() {}
           registerTool() {}
-          resource(name, uri, metadata, callback) {
-            registeredResources.push({ name, uri, metadata, callback });
-          }
           async connect() {}
         },
       }));
       jest.doMock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
         StdioServerTransport: class {},
+      }));
+      jest.doMock('@modelcontextprotocol/ext-apps/server', () => ({
+        registerAppTool() {},
+        registerAppResource(server, name, uri, metadata, callback) {
+          registeredResources.push({ name, uri, metadata, callback });
+        },
+        RESOURCE_MIME_TYPE: 'application/vnd.mcp.app+html',
       }));
 
       const { startMcpServer } = require('../../src/mcp-server');
@@ -62,9 +74,40 @@ describe('MCP App resource registration', () => {
     const result = await chatResource.callback();
     expect(result.contents).toHaveLength(1);
     expect(result.contents[0].uri).toBe('ui://sidecar/chat');
-    expect(result.contents[0].mimeType).toBe('text/html');
+    expect(result.contents[0].mimeType).toBe('application/vnd.mcp.app+html');
     expect(result.contents[0].text).toContain('<!DOCTYPE html>');
     expect(result.contents[0].text).toContain('sidecar-toolbar');
+  });
+
+  test('sidecar_start is registered via registerAppTool with _meta.ui', async () => {
+    let registeredAppTools = [];
+
+    await jest.isolateModulesAsync(async () => {
+      jest.doMock('@modelcontextprotocol/sdk/server/mcp.js', () => ({
+        McpServer: class {
+          constructor() {}
+          registerTool() {}
+          async connect() {}
+        },
+      }));
+      jest.doMock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
+        StdioServerTransport: class {},
+      }));
+      jest.doMock('@modelcontextprotocol/ext-apps/server', () => ({
+        registerAppTool(server, name, config, handler) {
+          registeredAppTools.push({ name, config, handler });
+        },
+        registerAppResource() {},
+        RESOURCE_MIME_TYPE: 'application/vnd.mcp.app+html',
+      }));
+
+      const { startMcpServer } = require('../../src/mcp-server');
+      await startMcpServer();
+    });
+
+    const startTool = registeredAppTools.find(t => t.name === 'sidecar_start');
+    expect(startTool).toBeDefined();
+    expect(startTool.config._meta.ui.resourceUri).toBe('ui://sidecar/chat');
   });
 });
 

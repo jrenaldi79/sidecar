@@ -12,56 +12,51 @@ describe('buildChatResource', () => {
     expect(html).toContain('</html>');
   });
 
-  test('contains opencode iframe placeholder', () => {
-    expect(html).toContain('id="opencode-frame"');
+  test('contains messages container', () => {
+    expect(html).toContain('messages-container');
   });
 
   test('contains toolbar with fold button', () => {
-    expect(html).toContain('id="sidecar-toolbar"');
+    expect(html).toContain('sidecar-toolbar');
     expect(html).toContain('Fold');
   });
 
   test('contains chat input and send button', () => {
-    expect(html).toContain('id="chat-input"');
-    expect(html).toContain('id="send-btn"');
+    expect(html).toContain('chat-input');
+    expect(html).toContain('send-btn');
   });
 
   test('contains fold button with orange styling', () => {
-    expect(html).toContain('#D97757');
-    expect(html).toContain('id="fold-btn"');
+    expect(html.toLowerCase()).toContain('#d97757');
+    expect(html).toContain('fold-btn');
   });
 
   test('contains sidecar branding', () => {
     expect(html).toContain('Sidecar');
   });
 
-  test('contains App.callTool usage for fold', () => {
+  test('contains sidecar_app_fold tool reference', () => {
     expect(html).toContain('sidecar_app_fold');
   });
 
-  test('contains App.callTool usage for send', () => {
+  test('contains sidecar_app_send tool reference', () => {
     expect(html).toContain('sidecar_app_send');
   });
 
-  test('contains App.updateContext for fold summary', () => {
-    expect(html).toContain('updateContext');
+  test('contains updateModelContext for fold summary', () => {
+    expect(html).toContain('updateModelContext');
   });
 
   test('contains timer element', () => {
-    expect(html).toContain('id="timer"');
+    expect(html).toContain('timer');
   });
 
   test('contains model badge element', () => {
-    expect(html).toContain('id="model-badge"');
-  });
-
-  test('contains CSS injection for OpenCode header hiding', () => {
-    expect(html).toContain('header');
-    expect(html).toContain('display: none');
+    expect(html).toContain('model-badge');
   });
 
   test('contains fold overlay', () => {
-    expect(html).toContain('id="fold-overlay"');
+    expect(html).toContain('fold-overlay');
     expect(html).toContain('Generating summary');
   });
 });

@@ -46,7 +46,6 @@ function computeNextPoll() {
   };
 }
 
-const HEADLESS_START_REMINDER = '<system-reminder>Every sidecar_status call costs context window tokens. Unnecessary polls burn your budget without making the task finish faster. Be disciplined: wait at least 30s between status checks. Do other useful work while waiting.</system-reminder>';
 const HEADLESS_STATUS_REMINDER = '<system-reminder>This sidecar is still running. Each poll costs context tokens for zero benefit. Be disciplined: wait at least 30s before checking again. Do other useful work while waiting.</system-reminder>';
 
 /** Spawn a sidecar CLI process (fire-and-forget) */
@@ -80,12 +79,15 @@ const handlers = {
     const { generateTaskId } = require('./sidecar/start');
     const taskId = generateTaskId();
 
-    const args = ['start', '--prompt', input.prompt, '--task-id', taskId, '--client', 'cowork'];
+    // Use mcp-app client so the OpenCode server stays alive for tool-based communication.
+    // The inline MCP App UI communicates via sidecar_app_send / sidecar_app_messages / sidecar_app_fold.
+    const args = ['start', '--prompt', input.prompt, '--task-id', taskId, '--client', 'mcp-app'];
     if (input.model) { args.push('--model', input.model); }
-    const agent = (input.noUi && (!input.agent || input.agent.toLowerCase() === 'chat'))
-      ? 'build' : input.agent;
+    // In MCP App mode, never pass --no-ui since the inline UI handles interaction.
+    // Default to 'build' agent since MCP App has no Electron approval UI for tool calls.
+    // 'chat' agent would hang waiting for permission that can never be granted.
+    const agent = input.agent || 'build';
     if (agent) { args.push('--agent', agent); }
-    if (input.noUi) { args.push('--no-ui'); }
     if (input.thinking) { args.push('--thinking', input.thinking); }
     if (input.timeout) { args.push('--timeout', String(input.timeout)); }
     if (input.contextTurns)     { args.push('--context-turns', String(input.contextTurns)); }
@@ -115,19 +117,15 @@ const handlers = {
       }
     }
 
-    const isHeadless = !!input.noUi;
-    const mode = isHeadless ? 'headless' : 'interactive';
-    const message = isHeadless
-      ? 'Sidecar started in headless mode. Use sidecar_status to check progress, but be disciplined: each poll burns context tokens. Wait at least 30s between checks.'
-      : 'Sidecar opened in interactive mode. Do NOT poll for status. ' +
-        "Tell the user: 'Let me know when you're done with the sidecar and have clicked Fold.' " +
-        'Then wait for the user to tell you. Use sidecar_read to get results once they confirm.';
+    // MCP App mode is always interactive - the inline UI handles the session
+    const mode = 'interactive';
+    const message = 'Sidecar opened in interactive mode. Do NOT poll for status. ' +
+      "Tell the user: 'Let me know when you're done with the sidecar and have clicked Fold.' " +
+      'Then wait for the user to tell you. Use sidecar_read to get results once they confirm.';
 
     const body = JSON.stringify({ taskId, status: 'running', mode, message });
-    if (isHeadless) {
-      return { content: [{ type: 'text', text: body }, { type: 'text', text: HEADLESS_START_REMINDER }] };
-    }
-    return textResult(body);
+    // _meta.ui is on the tool definition via registerAppTool, not on the result.
+    return { content: [{ type: 'text', text: body }] };
   },
 
   async sidecar_status(input, project) {
@@ -337,16 +335,70 @@ const handlers = {
     if (!metadata.opencodePort || !metadata.opencodeSessionId) {
       return textResult('Session missing OpenCode port/session info.', true);
     }
+
+    // Fingerprint: count total parts across all messages.
+    // OpenCode updates messages in-place (parts grow), so message count
+    // alone misses content changes within existing messages.
+    function fingerprint(msgs) {
+      let parts = 0;
+      for (const m of msgs) {
+        const p = m.parts || m.content;
+        parts += Array.isArray(p) ? p.length : 1;
+      }
+      return `${msgs.length}:${parts}`;
+    }
+
     try {
-      const messages = await apiRequest('GET',
-        `/session/${metadata.opencodeSessionId}/message`,
-        metadata.opencodePort
-      );
-      const msgArray = Array.isArray(messages) ? messages : [];
-      const offset = input.cursor ? Number(input.cursor) : 0;
-      const newMessages = msgArray.slice(offset);
-      const cursor = String(msgArray.length);
-      return textResult(JSON.stringify({ messages: newMessages, cursor, status: metadata.status }));
+      const lastFp = input.cursor || '0:0';
+      const MAX_WAIT = 8000;
+      const POLL_STEP = 400;
+      let msgArray;
+      const deadline = Date.now() + MAX_WAIT;
+
+      while (Date.now() < deadline) {
+        const messages = await apiRequest('GET',
+          `/session/${metadata.opencodeSessionId}/message`,
+          metadata.opencodePort
+        );
+        msgArray = Array.isArray(messages) ? messages : [];
+        const fp = fingerprint(msgArray);
+        const meta = readMetadata(input.taskId, cwd);
+        // Return immediately when: content changed, first request, or session ended
+        if (fp !== lastFp || lastFp === '0:0' ||
+            meta?.status === 'completed' || meta?.status === 'error') {
+          break;
+        }
+        await new Promise(r => setTimeout(r, POLL_STEP));
+      }
+
+      if (!msgArray) {
+        const messages = await apiRequest('GET',
+          `/session/${metadata.opencodeSessionId}/message`,
+          metadata.opencodePort
+        );
+        msgArray = Array.isArray(messages) ? messages : [];
+      }
+
+      const cursor = fingerprint(msgArray);
+      const MAX_PART_LEN = 2000;
+      const trimmed = msgArray.map(msg => {
+        const parts = msg.parts || msg.content;
+        if (!Array.isArray(parts)) { return msg; }
+        return {
+          ...msg,
+          parts: parts.map(p => {
+            if (p.type === 'tool' && p.state?.output && p.state.output.length > MAX_PART_LEN) {
+              return { ...p, state: { ...p.state, output: p.state.output.slice(0, MAX_PART_LEN) + '\n...(truncated)' } };
+            }
+            if (p.type === 'text' && p.text && p.text.length > MAX_PART_LEN) {
+              return { ...p, text: p.text.slice(0, MAX_PART_LEN) + '\n...(truncated)' };
+            }
+            return p;
+          }),
+        };
+      });
+      const currentMeta = readMetadata(input.taskId, cwd);
+      return textResult(JSON.stringify({ messages: trimmed, cursor, status: currentMeta?.status || metadata.status }));
     } catch (err) {
       return textResult(`Failed to get messages: ${err.message}`, true);
     }
@@ -383,26 +435,43 @@ const handlers = {
 async function startMcpServer() {
   const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
   const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
+  const { registerAppTool, registerAppResource, RESOURCE_MIME_TYPE } =
+    require('@modelcontextprotocol/ext-apps/server');
   const server = new McpServer({ name: 'sidecar', version: require('../package.json').version });
 
-  // Register MCP App UI resource (ui://sidecar/chat)
-  server.resource('chat', 'ui://sidecar/chat', { mimeType: 'text/html' }, async () => ({
-    contents: [{ uri: 'ui://sidecar/chat', mimeType: 'text/html', text: buildChatResource() }],
+  const resourceUri = 'ui://sidecar/chat';
+
+  // Register MCP App UI resource with proper ext-apps MIME type
+  registerAppResource(server, resourceUri, resourceUri, { mimeType: RESOURCE_MIME_TYPE }, async () => ({
+    contents: [{ uri: resourceUri, mimeType: RESOURCE_MIME_TYPE, text: buildChatResource() }],
   }));
 
+  const toolHandler = (tool) => async (input) => {
+    try {
+      return await handlers[tool.name](input, getProjectDir(input.project));
+    } catch (err) {
+      logger.error(`MCP tool error: ${tool.name}`, { error: err.message });
+      return textResult(`Error: ${err.message}`, true);
+    }
+  };
+
   for (const tool of getTools()) {
-    server.registerTool(
-      tool.name,
-      { description: tool.description, inputSchema: tool.inputSchema, annotations: tool.annotations },
-      async (input) => {
-        try {
-          return await handlers[tool.name](input, getProjectDir(input.project));
-        } catch (err) {
-          logger.error(`MCP tool error: ${tool.name}`, { error: err.message });
-          return textResult(`Error: ${err.message}`, true);
-        }
-      }
-    );
+    if (tool.name === 'sidecar_start') {
+      // Register sidecar_start with ext-apps so _meta.ui is on the tool definition
+      registerAppTool(server, tool.name, {
+        title: 'Start Sidecar',
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+        annotations: tool.annotations,
+        _meta: { ui: { resourceUri } },
+      }, toolHandler(tool));
+    } else {
+      server.registerTool(
+        tool.name,
+        { description: tool.description, inputSchema: tool.inputSchema, annotations: tool.annotations },
+        toolHandler(tool),
+      );
+    }
   }
   const transport = new StdioServerTransport();
   await server.connect(transport);

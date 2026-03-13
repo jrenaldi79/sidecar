@@ -342,8 +342,8 @@ function buildServerOptions(options = {}) {
     }
   };
 
-  // When launched from Cowork, replace the SE-focused base prompt with a general-purpose one
-  if (options.client === 'cowork') {
+  // When launched from Cowork or MCP App, replace the SE-focused base prompt with a general-purpose one
+  if (options.client === 'cowork' || options.client === 'mcp-app') {
     const { buildCoworkAgentPrompt } = require('./prompts/cowork-agent-prompt');
     chatAgent.prompt = buildCoworkAgentPrompt();
   }
