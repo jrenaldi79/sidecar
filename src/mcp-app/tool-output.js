@@ -2,13 +2,17 @@ const { formatGenericOutput } = require('./tools/generic');
 const { formatBashOutput } = require('./tools/bash');
 const { formatEditDiff } = require('./tools/edit');
 const { formatFileOutput } = require('./tools/read');
+const { formatWriteOutput } = require('./tools/write');
+const { formatGrepOutput } = require('./tools/grep');
+const { formatGlobOutput } = require('./tools/glob');
+const { formatQuestionOutput } = require('./tools/question');
+const { formatListOutput } = require('./tools/list');
+const { formatTodoOutput } = require('./tools/todo');
+const { formatWebfetchOutput } = require('./tools/webfetch');
+const { formatTaskOutput } = require('./tools/task');
 
 /**
  * Routes a tool call to the appropriate HTML formatter.
- *
- * Formatters for specific tools (bash, edit, write, read, glob, grep, etc.)
- * will be wired in by subsequent tasks. Until then all routing falls through
- * to the generic formatter so the dispatcher is already structurally complete.
  *
  * @param {string} toolName - Name of the tool (case-insensitive).
  * @param {object} input - Tool input parameters.
@@ -19,18 +23,17 @@ function formatToolOutput(toolName, input, output) {
   const name = toolName.toLowerCase();
   const outputStr = output !== null && output !== undefined ? String(output) : '';
 
-  // Individual formatters will replace these stubs as they are implemented.
   if (name === 'edit') { return formatEditDiff(input); }
-  if (name === 'write') { return formatGenericOutput(input, outputStr); }
+  if (name === 'write') { return formatWriteOutput(input, outputStr); }
   if (name === 'bash') { return formatBashOutput(input, outputStr); }
   if (name === 'read') { return formatFileOutput(input, outputStr); }
-  if (name === 'glob') { return formatGenericOutput(input, outputStr); }
-  if (name === 'grep') { return formatGenericOutput(input, outputStr); }
-  if (name === 'question' || name === 'askuserquestion') { return formatGenericOutput(input, outputStr); }
-  if (name === 'list' || name === 'ls') { return formatGenericOutput(input, outputStr); }
-  if (name === 'task') { return formatGenericOutput(input, outputStr); }
-  if (name === 'webfetch') { return formatGenericOutput(input, outputStr); }
-  if (name === 'todowrite' || name === 'todoread') { return formatGenericOutput(input, outputStr); }
+  if (name === 'glob') { return formatGlobOutput(input, outputStr); }
+  if (name === 'grep') { return formatGrepOutput(input, outputStr); }
+  if (name === 'question' || name === 'askuserquestion') { return formatQuestionOutput(input, outputStr); }
+  if (name === 'list' || name === 'ls') { return formatListOutput(input, outputStr); }
+  if (name === 'task') { return formatTaskOutput(input, outputStr); }
+  if (name === 'webfetch') { return formatWebfetchOutput(input, outputStr); }
+  if (name === 'todowrite' || name === 'todoread') { return formatTodoOutput(input, outputStr); }
 
   return formatGenericOutput(input, outputStr);
 }
