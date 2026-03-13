@@ -6,7 +6,7 @@
 const path = require('path');
 const { spawn } = require('child_process');
 
-const { startOpenCodeServer } = require('./session-utils');
+const { startOpenCodeServer, writeSessionInfo } = require('./session-utils');
 const { createSession, sendPromptAsync } = require('../opencode-client');
 const { mapAgentToOpenCode } = require('../utils/agent-mapping');
 const { logger } = require('../utils/logger');
@@ -149,6 +149,10 @@ async function runInteractive(model, systemPrompt, userMessage, taskId, project,
   }
 
   const serverPort = new URL(server.url).port;
+
+  // Write port + session ID to metadata so MCP App tools can access them
+  const sessDir = path.join(project, '.claude', 'sidecar_sessions', taskId);
+  writeSessionInfo(sessDir, serverPort, sessionId);
 
   return new Promise((resolve, _reject) => {
     const electronPath = getElectronPath();

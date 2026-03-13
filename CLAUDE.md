@@ -52,7 +52,19 @@ sidecar update                       # Update to latest version
 claude mcp add-json sidecar '{"command":"npx","args":["-y","claude-sidecar@latest","mcp"]}' --scope user
 ```
 
-MCP tools: `sidecar_start`, `sidecar_status`, `sidecar_read`, `sidecar_list`, `sidecar_resume`, `sidecar_continue`, `sidecar_setup`, `sidecar_guide`, `sidecar_abort`
+MCP tools: `sidecar_start`, `sidecar_status`, `sidecar_read`, `sidecar_list`, `sidecar_resume`, `sidecar_continue`, `sidecar_setup`, `sidecar_guide`, `sidecar_abort`, `sidecar_app_send`, `sidecar_app_messages`, `sidecar_app_fold`
+
+### MCP App (Claude Desktop inline UI)
+
+When running in Claude Desktop with MCP Apps support, `sidecar_start` declares `_meta.ui.resourceUri` pointing to `ui://sidecar/chat`. The host renders the chat UI in a sandboxed iframe. Three additional tools handle iframe ↔ server communication:
+
+| Tool | Purpose |
+|------|---------|
+| `sidecar_app_send` | Send a message to the running OpenCode session |
+| `sidecar_app_messages` | Poll for new messages (cursor-based pagination) |
+| `sidecar_app_fold` | Generate summary, finalize session, return for `context/update` |
+
+The iframe embeds OpenCode's web UI in an inner iframe and provides a toolbar with branding, timer, chat input, and Fold button. Non-MCP-App clients ignore the `_meta.ui` metadata.
 
 Session statuses: `running`, `complete`, `aborted`, `crashed`, `error`
 
@@ -194,6 +206,11 @@ sidecar/
 │   ├── drift.js                 # Context drift calculation
 │   ├── session.js               # Session file resolution
 │   ├── jsonl-parser.js          # JSONL parsing & formatting
+│   ├── mcp-app/                 # MCP App (Claude Desktop inline UI)
+│   │   ├── chat-resource.js     # buildChatResource() — HTML for ui://sidecar/chat
+│   │   ├── chat-styles.js       # CSS string constant for chat resource
+│   │   ├── chat-script.js       # JS string constant for chat resource
+│   │   └── logos.js             # Model logo SVG registry
 │   ├── prompts/                 # Prompt modules
 │   │   └── cowork-agent-prompt.js  # Cowork client agent prompt (replaces SE base)
 │   └── utils/                   # Utility modules
@@ -204,6 +221,7 @@ sidecar/
 │       ├── logger.js            # Structured logging
 │       ├── model-fetcher.js      # Fetch model lists from provider APIs
 │       ├── model-validator.js   # Validate fallback models exist on provider API
+│       ├── opencode-api.js      # OpenCode HTTP API helpers (apiRequest, requestSummaryFromModel)
 │       ├── path-setup.js        # PATH configuration for OpenCode
 │       └── server-setup.js      # Server port management
 ├── electron/
@@ -239,6 +257,12 @@ sidecar/
 │   ├── opencode-client-cowork.test.js
 │   ├── model-validator.test.js
 │   ├── model-fetcher.test.js
+│   ├── mcp-app/                 # MCP App tests
+│   │   ├── logos.test.js         # Logo registry tests
+│   │   ├── chat-resource.test.js # Chat HTML resource tests
+│   │   ├── app-tools.test.js     # App tool handler tests
+│   │   ├── app-integration.test.js # Full MCP App lifecycle tests
+│   │   └── resource-registration.test.js # UI resource + writeSessionInfo tests
 │   ├── sidecar/                 # Tests for modular sidecar operations
 │   │   ├── start.test.js
 │   │   ├── resume.test.js
@@ -319,8 +343,12 @@ sidecar/
 | Module | Purpose | Key Functions |
 |--------|---------|---------------|
 | `index.js` | Re-exports all public APIs | Thin module (~82 lines) |
-| `mcp-server.js` | MCP server (Cowork/Desktop) | `startMcpServer()`, `handlers` (8 tool handlers) |
-| `mcp-tools.js` | MCP tool definitions | `TOOLS` (Zod schemas), `getGuideText()` |
+| `mcp-server.js` | MCP server (Cowork/Desktop) | `startMcpServer()`, `handlers` (11 tool handlers), `ui://sidecar/chat` resource |
+| `mcp-tools.js` | MCP tool definitions | `TOOLS` (12 tools, Zod schemas), `getGuideText()` |
+| `mcp-app/chat-resource.js` | MCP App HTML resource | `buildChatResource()` — inline HTML for `ui://sidecar/chat` |
+| `mcp-app/chat-styles.js` | MCP App CSS | `CHAT_STYLES` constant |
+| `mcp-app/chat-script.js` | MCP App JS | `CHAT_SCRIPT` constant (App.callTool, App.updateContext) |
+| `mcp-app/logos.js` | Model logo SVG registry | `getModelLogo()`, `getModelColor()`, `matchProvider()` |
 | `cli.js` | Argument parsing & validation | `parseArgs()`, `validateStartArgs()`, `validateSubagentArgs()` |
 | `context.js` | Context filtering | `filterContext()`, `takeLastNTurns()`, `estimateTokens()` |
 | `session-manager.js` | Session persistence | `createSession()`, `updateSession()`, `saveConversation()`, `saveSummary()` |
@@ -337,6 +365,7 @@ sidecar/
 | `utils/validators.js` | CLI input validation | `validateBriefingContent()`, `validateProjectPath()`, `validateApiKey()` |
 | `utils/logger.js` | Structured logging | `logger.info()`, `logger.warn()`, `logger.error()`, `logger.debug()` |
 | `prompts/cowork-agent-prompt.js` | Cowork agent prompt | `buildCoworkAgentPrompt()` — replaces SE-focused OpenCode base prompt when `client === 'cowork'` |
+| `utils/opencode-api.js` | OpenCode HTTP API helpers | `apiRequest()`, `requestSummaryFromModel()` |
 | `utils/model-fetcher.js` | Fetch model lists from provider APIs | `fetchModelsFromProvider()`, `fetchAllModels()`, `groupModelsByFamily()` |
 | `utils/model-validator.js` | Validate direct-API fallback models | `validateDirectModel()`, `filterRelevantModels()`, `normalizeModelId()` |
 | `utils/updater.js` | Update check & execute | `initUpdateCheck()`, `getUpdateInfo()`, `notifyUpdate()`, `performUpdate()` |
@@ -457,6 +486,11 @@ Use `src/utils/logger.js` (levels: error/warn/info/debug). Logs go to stderr to 
 | `sidecar/session-utils.test.js` | Shared utilities | Session paths, finalization, heartbeat |
 | `sidecar/progress.test.js` | Progress reader | Message counts, latest activity, last activity |
 | `sidecar/exit-handler.test.js` | Crash handler | Metadata update on crash, status transitions |
+| `mcp-app/logos.test.js` | Logo SVG registry | SVG output, fallback, colors, case-insensitive matching |
+| `mcp-app/chat-resource.test.js` | Chat HTML resource | HTML structure, toolbar, fold button, App.callTool usage |
+| `mcp-app/app-tools.test.js` | App tool handlers | Error cases for send, messages, fold |
+| `mcp-app/app-integration.test.js` | MCP App lifecycle | Full lifecycle, port storage, resource HTML validation |
+| `mcp-app/resource-registration.test.js` | UI resource + writeSessionInfo | Resource registration, metadata port/session writes |
 | `mcp-headless-lifecycle.test.js` | MCP headless lifecycle | Start, poll, progress, crash, abort, read |
 | `mcp-discovery.test.js` | MCP discovery | Plugin chain, `~/.claude.json` mcpServers, merge priority, sidecar exclusion |
 | `mcp-repomix-e2e.integration.test.js` | MCP E2E (real LLM + repomix) | Real discovery → headless sidecar → repomix tool call |

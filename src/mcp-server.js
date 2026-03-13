@@ -10,6 +10,7 @@ const { safeSessionDir } = require('./utils/validators');
 const { readProgress } = require('./sidecar/progress');
 const { apiRequest, requestSummaryFromModel } = require('./utils/opencode-api');
 const { getSummaryTemplate } = require('./prompt-builder');
+const { buildChatResource } = require('./mcp-app/chat-resource');
 
 /** Resolve the project directory with smart fallback. */
 function getProjectDir(explicitProject) {
@@ -383,6 +384,11 @@ async function startMcpServer() {
   const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
   const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
   const server = new McpServer({ name: 'sidecar', version: require('../package.json').version });
+
+  // Register MCP App UI resource (ui://sidecar/chat)
+  server.resource('chat', 'ui://sidecar/chat', { mimeType: 'text/html' }, async () => ({
+    contents: [{ uri: 'ui://sidecar/chat', mimeType: 'text/html', text: buildChatResource() }],
+  }));
 
   for (const tool of getTools()) {
     server.registerTool(

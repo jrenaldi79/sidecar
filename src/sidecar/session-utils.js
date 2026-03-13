@@ -225,6 +225,24 @@ async function startOpenCodeServer(mcpConfig, options = {}) {
   return { client, server };
 }
 
+/**
+ * Write OpenCode port and session ID to metadata.json.
+ * Called early during session startup so MCP App tools can access them.
+ * No-op if metadata.json doesn't exist yet.
+ */
+function writeSessionInfo(sessionDir, port, sessionId) {
+  const metaPath = SessionPaths.metadataFile(sessionDir);
+  try {
+    if (!fs.existsSync(metaPath)) { return; }
+    const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+    meta.opencodePort = String(port);
+    meta.opencodeSessionId = sessionId;
+    fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), { mode: 0o600 });
+  } catch {
+    // Non-fatal — MCP App tools will report missing port/session gracefully
+  }
+}
+
 module.exports = {
   HEARTBEAT_INTERVAL,
   SessionPaths,
@@ -233,5 +251,6 @@ module.exports = {
   outputSummary,
   createHeartbeat,
   executeMode,
-  startOpenCodeServer
+  startOpenCodeServer,
+  writeSessionInfo
 };

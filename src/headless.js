@@ -12,6 +12,7 @@ const { ensureNodeModulesBinInPath } = require('./utils/path-setup');
 const { ensurePortAvailable } = require('./utils/server-setup');
 const { mapAgentToOpenCode } = require('./utils/agent-mapping');
 const { writeProgress } = require('./sidecar/progress');
+const { writeSessionInfo } = require('./sidecar/session-utils');
 
 /**
  * Fold marker that the agent outputs when done
@@ -160,6 +161,10 @@ async function runHeadless(model, systemPrompt, userMessage, taskId, project, ti
     }
     logger.debug('Session ID', { sessionId });
     writeProgress(sessionDir, 'session_created');
+
+    // Write port + session ID to metadata so MCP App tools can access them
+    const serverPort = new URL(server.url).port;
+    writeSessionInfo(sessionDir, serverPort, sessionId);
 
     // Log user message to conversation before sending
     logMessage(conversationPath, {
