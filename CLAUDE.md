@@ -153,19 +153,31 @@ sidecar/
 │   │   ├── progress.js          # Session progress reader
 │   │   ├── crash-handler.js     # Crash recovery handler
 │   │   └── setup.js             # Setup wizard
-│   ├── mcp-app/                 # MCP App (Claude Desktop inline UI)
+│   ├── mcp-app/                 # MCP App (Claude Desktop inline UI, Vite-bundled)
+│   │   ├── mcp-app.html         # Entry HTML + CSS (Vite input)
+│   │   ├── mcp-app.js           # App lifecycle, polling, send/fold (ESM)
+│   │   ├── renderers.js         # Message rendering, DOMParser integration (ESM)
+│   │   ├── auto-scroll.js       # Auto-scroll with user override (CJS)
 │   │   ├── chat-resource.js     # HTML for ui://sidecar/chat
-│   │   ├── chat-styles.js       # CSS string constant
-│   │   ├── chat-script.js       # JS string constant
-│   │   ├── icons.js             # Tool and file extension icon registry
+│   │   ├── icons.js             # Tool and file extension icon registry (CJS)
 │   │   ├── logos.js             # Model logo SVG registry
-│   │   ├── tool-output.js       # Tool output dispatcher (routes by tool name)
-│   │   ├── utils.js             # escapeHtml + shared SVG constants
-│   │   ├── highlight.js         # Syntax highlighting (highlightCode, formatBashCommand)
-│   │   ├── markdown.js          # Markdown renderer (renderMarkdown, marked + highlightCode)
-│   │   └── tools/               # Per-tool HTML formatters
-│   │       ├── generic.js       # Fallback formatter (formatGenericOutput)
-│   │       └── bash.js          # Bash formatter (formatBashOutput)
+│   │   ├── tool-output.js       # Tool output dispatcher, routes by tool name (CJS)
+│   │   ├── utils.js             # escapeHtml + shared SVG constants (CJS)
+│   │   ├── highlight.js         # Syntax highlighting (CJS)
+│   │   ├── markdown.js          # Markdown renderer, marked + highlightCode (CJS)
+│   │   └── tools/               # Per-tool HTML formatters (CJS)
+│   │       ├── generic.js       # Fallback (formatGenericOutput)
+│   │       ├── bash.js          # Bash (formatBashOutput)
+│   │       ├── edit.js          # Edit diff (formatEditDiff)
+│   │       ├── read.js          # File content (formatFileOutput)
+│   │       ├── write.js         # Write (formatWriteOutput)
+│   │       ├── grep.js          # Grep results (formatGrepOutput)
+│   │       ├── glob.js          # Glob results (formatGlobOutput)
+│   │       ├── question.js      # Question (formatQuestionOutput)
+│   │       ├── list.js          # LS/List (formatListOutput)
+│   │       ├── todo.js          # Todo (formatTodoOutput)
+│   │       ├── webfetch.js      # WebFetch (formatWebfetchOutput)
+│   │       └── task.js          # Task (formatTaskOutput)
 │   ├── prompts/                 # Prompt modules
 │   │   └── cowork-agent-prompt.js
 │   └── utils/                   # Helpers (see src/utils/ for full list)

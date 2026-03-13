@@ -70,32 +70,32 @@ function buildEditDiffLines(input) {
 function renderDiffLine(line) {
   if (line.type === 'context') {
     return (
-      `<div class="tool-diff-line context">` +
+      '<div class="tool-diff-line context">' +
       `<span class="tool-diff-line-number">${line.oldNum}</span>` +
       `<span class="tool-diff-line-number">${line.newNum}</span>` +
-      `<span class="tool-diff-gutter"></span>` +
+      '<span class="tool-diff-gutter"></span>' +
       `<span class="tool-diff-content">${escapeHtml(line.content)}</span>` +
-      `</div>`
+      '</div>'
     );
   }
   if (line.type === 'deletion') {
     return (
-      `<div class="tool-diff-line deletion">` +
+      '<div class="tool-diff-line deletion">' +
       `<span class="tool-diff-line-number deletion">${line.oldNum}</span>` +
-      `<span class="tool-diff-line-number"></span>` +
-      `<span class="tool-diff-gutter deletion">-</span>` +
+      '<span class="tool-diff-line-number"></span>' +
+      '<span class="tool-diff-gutter deletion">-</span>' +
       `<span class="tool-diff-content">${escapeHtml(line.content)}</span>` +
-      `</div>`
+      '</div>'
     );
   }
   if (line.type === 'addition') {
     return (
-      `<div class="tool-diff-line addition">` +
-      `<span class="tool-diff-line-number"></span>` +
+      '<div class="tool-diff-line addition">' +
+      '<span class="tool-diff-line-number"></span>' +
       `<span class="tool-diff-line-number addition">${line.newNum}</span>` +
-      `<span class="tool-diff-gutter addition">+</span>` +
+      '<span class="tool-diff-gutter addition">+</span>' +
       `<span class="tool-diff-content">${escapeHtml(line.content)}</span>` +
-      `</div>`
+      '</div>'
     );
   }
   return '';

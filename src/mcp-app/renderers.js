@@ -1,8 +1,20 @@
 /* eslint-env browser */
 /**
  * Message rendering functions for MCP App.
- * Pure DOM-building functions (no innerHTML per security hook).
+ * Uses DOMParser for safe HTML-to-DOM conversion (no innerHTML per security hook).
  */
+import { formatToolOutput } from './tool-output.js';
+import { renderMarkdown } from './markdown.js';
+
+/** Convert an HTML string to a DocumentFragment safely (no innerHTML). */
+function htmlToFragment(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const frag = document.createDocumentFragment();
+  while (doc.body.firstChild) {
+    frag.appendChild(doc.body.firstChild);
+  }
+  return frag;
+}
 
 /** Compact one-line thinking indicator with expand/collapse */
 export function makeThinkingIndicator(text, isDone) {
@@ -45,16 +57,46 @@ export function makeThinkingIndicator(text, isDone) {
   return frag;
 }
 
-/** Single-line tool status indicator */
-export function makeToolIndicator(name, status) {
-  const div = document.createElement('div');
-  div.className = 'msg tool-indicator';
+/** Tool block: clickable summary indicator + expandable formatted output */
+export function makeToolBlock(part) {
+  const name = part.toolName || part.state?.input?.description || 'tool';
+  const status = part.state?.status || 'done';
+  const frag = document.createDocumentFragment();
+
+  const row = document.createElement('div');
+  row.className = 'msg tool-indicator';
   const icon = status === 'completed' ? '\u2713' : status === 'running' ? '\u25CF' : '\u2026';
-  div.textContent = `${icon} ${name}`;
-  return div;
+
+  const label = document.createElement('span');
+  label.textContent = `${icon} ${name}`;
+  row.appendChild(label);
+
+  const chevron = document.createElement('span');
+  chevron.className = 'tool-chevron';
+  chevron.textContent = '\u25B6';
+  row.appendChild(chevron);
+
+  frag.appendChild(row);
+
+  const output = part.state?.output;
+  if (output !== undefined && output !== null) {
+    const html = formatToolOutput(name, part.state?.input, output);
+    const detail = document.createElement('div');
+    detail.className = 'tool-detail';
+    detail.appendChild(htmlToFragment(html));
+
+    row.addEventListener('click', () => {
+      const open = row.classList.toggle('expanded');
+      detail.classList.toggle('visible', open);
+    });
+
+    frag.appendChild(detail);
+  }
+
+  return frag;
 }
 
-/** Message bubble with role label */
+/** Message bubble with role label. Assistant text is rendered as markdown. */
 export function makeBubble(cssClass, roleLabel, text) {
   const div = document.createElement('div');
   div.className = `msg ${cssClass}`;
@@ -63,7 +105,13 @@ export function makeBubble(cssClass, roleLabel, text) {
   label.textContent = roleLabel;
   div.appendChild(label);
   const content = document.createElement('div');
-  content.textContent = text;
+  content.className = 'msg-content';
+  if (cssClass === 'assistant') {
+    const rendered = renderMarkdown(text);
+    content.appendChild(htmlToFragment(rendered));
+  } else {
+    content.textContent = text;
+  }
   div.appendChild(content);
   return div;
 }
@@ -80,7 +128,7 @@ export function renderMessage(msg) {
 
   const textChunks = [];
   const reasoningChunks = [];
-  const toolNames = [];
+  const toolParts = [];
 
   for (const p of parts) {
     if (p.type === 'text' && p.text) {
@@ -88,13 +136,11 @@ export function renderMessage(msg) {
     } else if (p.type === 'reasoning' && p.text) {
       reasoningChunks.push(p.text);
     } else if (p.type === 'tool') {
-      const name = p.toolName || p.state?.input?.description || 'tool';
-      const status = p.state?.status || 'done';
-      toolNames.push({ name, status });
+      toolParts.push(p);
     }
   }
 
-  if (!textChunks.length && !reasoningChunks.length && !toolNames.length) {
+  if (!textChunks.length && !reasoningChunks.length && !toolParts.length) {
     if (msg.text) { return makeBubble(role, role, msg.text); }
     return null;
   }
@@ -102,12 +148,12 @@ export function renderMessage(msg) {
   const frag = document.createDocumentFragment();
 
   if (reasoningChunks.length) {
-    const isDone = textChunks.length > 0 || toolNames.length > 0;
+    const isDone = textChunks.length > 0 || toolParts.length > 0;
     frag.appendChild(makeThinkingIndicator(reasoningChunks.join('\n\n'), isDone));
   }
-  if (toolNames.length) {
-    for (const t of toolNames) {
-      frag.appendChild(makeToolIndicator(t.name, t.status));
+  if (toolParts.length) {
+    for (const p of toolParts) {
+      frag.appendChild(makeToolBlock(p));
     }
   }
   if (textChunks.length) {

@@ -6,6 +6,7 @@
  */
 import { App, applyDocumentTheme, applyHostStyleVariables, applyHostFonts } from '@modelcontextprotocol/ext-apps';
 import { renderMessage } from './renderers.js';
+import { setupAutoScroll } from './auto-scroll.js';
 
 const container = document.getElementById('messages-container');
 const loading = document.getElementById('loading-indicator');
@@ -20,6 +21,8 @@ const taskIdDisplay = document.getElementById('task-id-display');
 const statusDot = document.getElementById('status-dot');
 const overlay = document.getElementById('fold-overlay');
 const foldStatusText = document.getElementById('fold-status-text');
+
+const autoScroll = setupAutoScroll(container);
 
 let taskId = null;
 let folded = false;
@@ -131,7 +134,6 @@ async function pollOnce() {
         if (el) { container.appendChild(el); }
       }
       lastCursor = newCursor;
-      container.scrollTop = container.scrollHeight;
     }
 
     if (data.status === 'completed' || data.status === 'error') {
@@ -169,7 +171,6 @@ async function sendMessage() {
   userDiv.className = 'msg user';
   userDiv.textContent = text;
   container.appendChild(userDiv);
-  container.scrollTop = container.scrollHeight;
 
   try {
     await app.callServerTool({
@@ -197,6 +198,7 @@ async function triggerFold() {
   if (!taskId || folded) { return; }
   folded = true;
   polling = false;
+  autoScroll.destroy();
   foldBtn.disabled = true;
   foldBtn.textContent = 'Folding...';
   overlay.classList.add('visible');
