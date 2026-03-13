@@ -8,6 +8,8 @@ const os = require('os');
 const { logger } = require('./utils/logger');
 const { safeSessionDir } = require('./utils/validators');
 const { readProgress } = require('./sidecar/progress');
+const { apiRequest, requestSummaryFromModel } = require('./utils/opencode-api');
+const { getSummaryTemplate } = require('./prompt-builder');
 
 /** Resolve the project directory with smart fallback. */
 function getProjectDir(explicitProject) {
@@ -307,6 +309,73 @@ const handlers = {
     return textResult('Setup wizard launched. The Electron window should appear on your desktop.');
   },
   async sidecar_guide() { return textResult(getGuideText()); },
+
+  async sidecar_app_send(input, project) {
+    const cwd = project || getProjectDir(input.project);
+    const metadata = readMetadata(input.taskId, cwd);
+    if (!metadata) { return textResult(`Session ${input.taskId} not found.`, true); }
+    if (!metadata.opencodePort || !metadata.opencodeSessionId) {
+      return textResult('Session missing OpenCode port/session info.', true);
+    }
+    try {
+      await apiRequest('POST',
+        `/session/${metadata.opencodeSessionId}/prompt_async`,
+        metadata.opencodePort,
+        { parts: [{ type: 'text', text: input.message }] }
+      );
+      return textResult(JSON.stringify({ status: 'sent', taskId: input.taskId }));
+    } catch (err) {
+      return textResult(`Failed to send message: ${err.message}`, true);
+    }
+  },
+
+  async sidecar_app_messages(input, project) {
+    const cwd = project || getProjectDir(input.project);
+    const metadata = readMetadata(input.taskId, cwd);
+    if (!metadata) { return textResult(`Session ${input.taskId} not found.`, true); }
+    if (!metadata.opencodePort || !metadata.opencodeSessionId) {
+      return textResult('Session missing OpenCode port/session info.', true);
+    }
+    try {
+      const messages = await apiRequest('GET',
+        `/session/${metadata.opencodeSessionId}/message`,
+        metadata.opencodePort
+      );
+      const msgArray = Array.isArray(messages) ? messages : [];
+      const offset = input.cursor ? Number(input.cursor) : 0;
+      const newMessages = msgArray.slice(offset);
+      const cursor = String(msgArray.length);
+      return textResult(JSON.stringify({ messages: newMessages, cursor, status: metadata.status }));
+    } catch (err) {
+      return textResult(`Failed to get messages: ${err.message}`, true);
+    }
+  },
+
+  async sidecar_app_fold(input, project) {
+    const cwd = project || getProjectDir(input.project);
+    const metadata = readMetadata(input.taskId, cwd);
+    if (!metadata) { return textResult(`Session ${input.taskId} not found.`, true); }
+    if (metadata.status !== 'running') {
+      return textResult(`Session ${input.taskId} is not running (status: ${metadata.status}).`, true);
+    }
+    if (!metadata.opencodePort || !metadata.opencodeSessionId) {
+      return textResult('Session missing OpenCode port/session info.', true);
+    }
+    try {
+      const summary = await requestSummaryFromModel(
+        metadata.opencodeSessionId, metadata.opencodePort, getSummaryTemplate
+      );
+      if (!summary) {
+        return textResult('Summary generation timed out.', true);
+      }
+      const sessionDir = safeSessionDir(cwd, input.taskId);
+      const { finalizeSession } = require('./sidecar/session-utils');
+      await finalizeSession(sessionDir, summary, cwd, metadata);
+      return textResult(JSON.stringify({ summary, taskId: input.taskId }));
+    } catch (err) {
+      return textResult(`Fold failed: ${err.message}`, true);
+    }
+  },
 };
 
 /** Start the MCP server on stdio transport */
