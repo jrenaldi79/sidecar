@@ -37,8 +37,8 @@ describe('MCP Tool Definitions', () => {
     expect(names).toContain('sidecar_abort');
   });
 
-  test('has exactly 9 tools', () => {
-    expect(TOOLS).toHaveLength(9);
+  test('has exactly 12 tools', () => {
+    expect(TOOLS).toHaveLength(12);
   });
 
   test('tool names are unique', () => {
@@ -376,6 +376,41 @@ describe('MCP Tool Definitions', () => {
     test('safeModel rejects shell metacharacters', () => {
       expect(() => safeModel.parse('model;rm -rf /')).toThrow();
       expect(() => safeModel.parse('model$(evil)')).toThrow();
+    });
+  });
+
+  describe('MCP App tools', () => {
+    test('sidecar_start includes _meta.ui annotation', () => {
+      const start = TOOLS.find(t => t.name === 'sidecar_start');
+      expect(start._meta).toBeDefined();
+      expect(start._meta.ui).toBeDefined();
+      expect(start._meta.ui.resourceUri).toBe('ui://sidecar/chat');
+    });
+
+    test('sidecar_start _meta.ui includes CSP for localhost frames', () => {
+      const start = TOOLS.find(t => t.name === 'sidecar_start');
+      expect(start._meta.ui.csp).toContain('frame-src');
+      expect(start._meta.ui.csp).toContain('localhost');
+    });
+
+    test('sidecar_app_send tool is defined', () => {
+      const send = TOOLS.find(t => t.name === 'sidecar_app_send');
+      expect(send).toBeDefined();
+      expect(send.inputSchema.taskId).toBeDefined();
+      expect(send.inputSchema.message).toBeDefined();
+    });
+
+    test('sidecar_app_messages tool is defined', () => {
+      const msgs = TOOLS.find(t => t.name === 'sidecar_app_messages');
+      expect(msgs).toBeDefined();
+      expect(msgs.inputSchema.taskId).toBeDefined();
+      expect(msgs.inputSchema.cursor).toBeDefined();
+    });
+
+    test('sidecar_app_fold tool is defined', () => {
+      const fold = TOOLS.find(t => t.name === 'sidecar_app_fold');
+      expect(fold).toBeDefined();
+      expect(fold.inputSchema.taskId).toBeDefined();
     });
   });
 

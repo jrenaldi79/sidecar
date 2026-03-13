@@ -32,6 +32,12 @@ function getTools() {
   {
     name: 'sidecar_start',
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    _meta: {
+      ui: {
+        resourceUri: 'ui://sidecar/chat',
+        csp: 'frame-src http://localhost:*',
+      },
+    },
     description:
       'Spawn a sidecar conversation with a different LLM. Returns a task ID immediately. ' +
       'Mode selection: use INTERACTIVE (default, noUi: false) for research, ' +
@@ -253,6 +259,35 @@ function getTools() {
       'and the async workflow pattern. Call this first if you haven\'t ' +
       'used sidecar before.',
     inputSchema: {},
+  },
+  {
+    name: 'sidecar_app_send',
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    description: 'Send a user message to the active OpenCode session. Called by the MCP App iframe.',
+    inputSchema: {
+      taskId: safeTaskId.describe('The task ID of the active session.'),
+      message: z.string().describe('The user message to send.'),
+      project: z.string().optional().describe('Optional project directory path.'),
+    },
+  },
+  {
+    name: 'sidecar_app_messages',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    description: 'Get latest messages from the OpenCode session. Cursor-based pagination. Called by MCP App iframe for status tracking.',
+    inputSchema: {
+      taskId: safeTaskId.describe('The task ID of the active session.'),
+      cursor: z.string().optional().describe('Cursor from previous call for pagination.'),
+      project: z.string().optional().describe('Optional project directory path.'),
+    },
+  },
+  {
+    name: 'sidecar_app_fold',
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    description: 'Trigger fold: generate a structured summary from the sidecar session. Returns the summary for context/update. Called by MCP App iframe Fold button.',
+    inputSchema: {
+      taskId: safeTaskId.describe('The task ID of the session to fold.'),
+      project: z.string().optional().describe('Optional project directory path.'),
+    },
   },
   ];
 }
