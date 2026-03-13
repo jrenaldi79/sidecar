@@ -1,4 +1,7 @@
 const { formatGenericOutput } = require('./tools/generic');
+const { formatBashOutput } = require('./tools/bash');
+const { formatEditDiff } = require('./tools/edit');
+const { formatFileOutput } = require('./tools/read');
 
 /**
  * Routes a tool call to the appropriate HTML formatter.
@@ -17,10 +20,10 @@ function formatToolOutput(toolName, input, output) {
   const outputStr = output !== null && output !== undefined ? String(output) : '';
 
   // Individual formatters will replace these stubs as they are implemented.
-  if (name === 'edit') { return formatGenericOutput(input, outputStr); }
+  if (name === 'edit') { return formatEditDiff(input); }
   if (name === 'write') { return formatGenericOutput(input, outputStr); }
-  if (name === 'bash') { return formatGenericOutput(input, outputStr); }
-  if (name === 'read') { return formatGenericOutput(input, outputStr); }
+  if (name === 'bash') { return formatBashOutput(input, outputStr); }
+  if (name === 'read') { return formatFileOutput(input, outputStr); }
   if (name === 'glob') { return formatGenericOutput(input, outputStr); }
   if (name === 'grep') { return formatGenericOutput(input, outputStr); }
   if (name === 'question' || name === 'askuserquestion') { return formatGenericOutput(input, outputStr); }
