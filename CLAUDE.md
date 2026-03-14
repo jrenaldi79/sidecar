@@ -104,6 +104,7 @@ src/
 │   ├── api-key-validation.js  # Validation endpoints per provider
 │   ├── auth-json.js  # Known provider IDs that map to sidecar's PROVIDER_ENV_MAP
 │   ├── config.js  # Default model alias map — short names to full OpenRouter model identifiers
+│   ├── env-loader.js  # Credential Loader
 │   ├── idle-watchdog.js  # @type {Object.<string, number>} Default timeouts per mode in milliseconds
 │   ├── input-validators.js  # MCP input validation with structured error responses.
 │   ├── logger.js  # Structured Logger Module
@@ -225,10 +226,11 @@ evals/
 | `sidecar/start.js` | Generate a unique 8-character hex task ID | `generateTaskId()`, `createSessionMetadata()`, `buildMcpConfig()`, `checkElectronAvailable()`, `runInteractive()` |
 | `utils/agent-mapping.js` | * All OpenCode native agent names (lowercase) | `PRIMARY_AGENTS()`, `OPENCODE_AGENTS()`, `HEADLESS_SAFE_AGENTS()`, `mapAgentToOpenCode()`, `isValidAgent()` |
 | `utils/alias-resolver.js` | Alias Resolver Utilities | `applyDirectApiFallback()`, `autoRepairAlias()` |
-| `utils/api-key-store.js` | Maps provider IDs to environment variable names | `getEnvPath()`, `readApiKeys()`, `readApiKeyHints()`, `readApiKeyValues()`, `saveApiKey()` |
+| `utils/api-key-store.js` | Maps provider IDs to environment variable names | `getEnvPath()`, `loadEnvEntries()`, `readApiKeys()`, `readApiKeyHints()`, `readApiKeyValues()` |
 | `utils/api-key-validation.js` | Validation endpoints per provider | `validateApiKey()`, `validateOpenRouterKey()`, `VALIDATION_ENDPOINTS()` |
 | `utils/auth-json.js` | Known provider IDs that map to sidecar's PROVIDER_ENV_MAP | `readAuthJsonKeys()`, `importFromAuthJson()`, `checkAuthJson()`, `removeFromAuthJson()`, `AUTH_JSON_PATH()` |
 | `utils/config.js` | Default model alias map — short names to full OpenRouter model identifiers | `getConfigDir()`, `getConfigPath()`, `loadConfig()`, `saveConfig()`, `getDefaultAliases()` |
+| `utils/env-loader.js` | Credential Loader | `loadCredentials()` |
 | `utils/idle-watchdog.js` | @type {Object.<string, number>} Default timeouts per mode in milliseconds | `IdleWatchdog()`, `resolveTimeout()` |
 | `utils/input-validators.js` | MCP input validation with structured error responses. | `validateStartInputs()`, `findSimilar()` |
 | `utils/logger.js` | Structured Logger Module | `logger()`, `LOG_LEVELS()` |

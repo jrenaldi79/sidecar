@@ -233,6 +233,7 @@ function removeApiKey(provider) {
 
 module.exports = {
   getEnvPath,
+  loadEnvEntries,
   readApiKeys,
   readApiKeyHints,
   readApiKeyValues,
