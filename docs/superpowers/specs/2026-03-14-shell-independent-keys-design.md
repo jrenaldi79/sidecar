@@ -70,7 +70,7 @@ Fix with one of:
 
 ## Testing
 
-### Unit Tests: `tests/utils/env-loader.test.js`
+### Unit Tests: `tests/env-loader.test.js`
 
 - Priority order: `process.env` > `.env` file > `auth.json`
 - No-overwrite: existing `process.env` values are preserved

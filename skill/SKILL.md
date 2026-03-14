@@ -873,7 +873,7 @@ The mutex approach looks correct. Add tests."
 
 ### "Missing Authentication header" in Claude Code or CI
 
-API keys in `~/.zshrc` are not available in non-interactive shells. Fix:
+API keys in `~/.zshrc` are not available in non-interactive shells. Resolution order: `process.env` > `~/.config/sidecar/.env` > `~/.local/share/opencode/auth.json` (first wins). Fix:
 1. Run `sidecar setup` (stores keys in `~/.config/sidecar/.env`)
 2. Or move exports to `~/.zshenv`
 3. Or add credentials to `~/.local/share/opencode/auth.json`
