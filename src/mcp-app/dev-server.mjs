@@ -106,8 +106,7 @@ const viteServer = await vite.createServer({
 await viteServer.listen();
 
 const url = 'http://localhost:5174/interactive-harness.html';
-console.log(`\nInteractive harness: ${url}`);
-console.log('Press Ctrl+C to stop the server (closing the browser tab does not stop it).\n');
+console.log(`\nInteractive harness: ${url}\n`);
 
 // 4. Open browser (macOS; dev-only tool)
 execFile('open', [url]);
