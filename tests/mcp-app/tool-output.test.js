@@ -33,7 +33,7 @@ describe('TOOL_HANDLERS export', () => {
     const expected = [
       'edit', 'write', 'bash', 'read', 'glob', 'grep',
       'question', 'askuserquestion', 'list', 'ls',
-      'task', 'webfetch', 'todowrite', 'todoread',
+      'task', 'webfetch', 'todowrite', 'todoread', 'skill',
     ];
     for (const key of expected) {
       expect(TOOL_HANDLERS).toHaveProperty(key);

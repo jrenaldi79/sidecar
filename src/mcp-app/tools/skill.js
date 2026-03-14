@@ -3,25 +3,19 @@ const { escapeHtml } = require('../utils');
 const MAX_OUTPUT_LEN = 300;
 
 /**
- * Formats a Task tool call showing the task ID, description, and truncated output.
- * @param {object|null} input - Tool input; may include `input.id`, `input.description`.
- * @param {string} output - Task status or result string.
+ * Formats a Skill tool call showing the skill name and truncated output.
+ * @param {object|null} input - Tool input; may include `input.skill` or `input.name`.
+ * @param {string} output - Skill output string.
  * @returns {string} HTML string suitable for injection into the chat UI.
  */
-function formatTaskOutput(input, output) {
-  const taskId = input?.id || '';
-  const desc = input?.description || '';
+function formatSkillOutput(input, output) {
+  const skillName = input?.skill || input?.name || '';
   const outputStr = output || '';
 
   let html = '<div class="task-output">';
 
-  if (taskId) {
-    html += `<div class="task-id">${escapeHtml(taskId)}</div>`;
-  }
-
-  if (desc) {
-    const truncDesc = desc.length > 80 ? desc.slice(0, 80) + '...' : desc;
-    html += `<div class="task-desc">${escapeHtml(truncDesc)}</div>`;
+  if (skillName) {
+    html += `<div class="task-id">${escapeHtml(skillName)}</div>`;
   }
 
   if (outputStr.trim()) {
@@ -37,4 +31,4 @@ function formatTaskOutput(input, output) {
   return html;
 }
 
-module.exports = { formatTaskOutput };
+module.exports = { formatSkillOutput };

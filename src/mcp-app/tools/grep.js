@@ -1,6 +1,7 @@
 const { escapeHtml } = require('../utils');
 
 const MAX_MATCHES = 50;
+const MAX_PER_FILE = 5;
 
 /**
  * Parses a grep output line into its file, line number, and content parts.
@@ -71,12 +72,16 @@ function formatGrepOutput(input, output) {
     html += `<span class="grep-file-count">${fileMatches.length}</span>`;
     html += '</div>';
 
-    fileMatches.forEach(m => {
+    const displayFileMatches = fileMatches.slice(0, MAX_PER_FILE);
+    displayFileMatches.forEach(m => {
       html += '<div class="grep-match">';
       html += `<span class="grep-line-num">${escapeHtml(m.lineNum)}</span>`;
       html += `<span class="grep-content">${highlightPattern(m.content, pattern)}</span>`;
       html += '</div>';
     });
+    if (fileMatches.length > MAX_PER_FILE) {
+      html += `<div class="grep-file-overflow">+${fileMatches.length - MAX_PER_FILE} more in this file</div>`;
+    }
   });
 
   if (truncated) {

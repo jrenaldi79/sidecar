@@ -1,6 +1,6 @@
 const { escapeHtml } = require('../utils');
 
-const MAX_LINES = 25;
+const MAX_LINES = 12;
 
 /**
  * Formats file content output (Read tool) into a line-numbered diff-style HTML block.

@@ -33,7 +33,7 @@ function fetchJSON(url) {
 }
 
 /** Known gaps: tools we know about but haven't built renderers for yet. */
-const KNOWN_GAPS = ['websearch', 'codesearch', 'skill', 'apply_patch'];
+const KNOWN_GAPS = ['websearch', 'codesearch', 'apply_patch'];
 
 describeToolCoverage('Tool Coverage E2E', () => {
   let serverProcess;

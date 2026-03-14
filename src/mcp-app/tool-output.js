@@ -10,6 +10,7 @@ const { formatListOutput } = require('./tools/list');
 const { formatTodoOutput } = require('./tools/todo');
 const { formatWebfetchOutput } = require('./tools/webfetch');
 const { formatTaskOutput } = require('./tools/task');
+const { formatSkillOutput } = require('./tools/skill');
 
 /**
  * Map of tool name (lowercase) to formatter function.
@@ -37,6 +38,7 @@ const TOOL_HANDLERS = {
   webfetch: formatWebfetchOutput,
   todowrite: formatTodoOutput,
   todoread: formatTodoOutput,
+  skill: formatSkillOutput,
 };
 
 /**

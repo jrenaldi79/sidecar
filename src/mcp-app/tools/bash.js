@@ -35,14 +35,18 @@ function formatBashOutput(input, output) {
     return '<div class="tool-pending-message">Awaiting execution...</div>';
   }
 
+  const copyIcon = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+
   let html = '';
 
   if (command) {
-    html += `<div class="tool-bash-command-card"><div class="tool-bash-label">bash</div><div class="tool-bash-cmd">${formatBashCommand(command)}</div></div>`;
+    const escapedCmd = escapeHtml(command).replace(/'/g, '&#39;');
+    html += `<div class="tool-bash-command-card"><div class="tool-bash-label">bash</div><button class="bash-copy-btn" data-copy="${escapedCmd}" title="Copy command">${copyIcon}</button><div class="tool-bash-cmd">${formatBashCommand(command)}</div></div>`;
   }
 
   if (outputStr.trim()) {
-    html += '<div class="tool-bash-output-card">';
+    const escapedOutput = escapeHtml(outputStr.trim()).replace(/'/g, '&#39;');
+    html += `<div class="tool-bash-output-card"><button class="bash-copy-btn" data-copy="${escapedOutput}" title="Copy output">${copyIcon}</button>`;
     displayLines.forEach(line => { html += formatBashLine(line); });
     if (truncated) {
       html += `<div class="tool-bash-toggle">Show ${lines.length - MAX_LINES} more lines</div>`;
