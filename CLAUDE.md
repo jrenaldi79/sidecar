@@ -32,6 +32,7 @@ Global guidance in `../CLAUDE.md` applies here; this file only documents sidecar
 npm start
 npm test
 npm run lint
+npm run dev:ui -- --model <alias> --prompt "<text>"  # Interactive harness (Vite + real LLM)
 ```
 
 ### CLI (Common)
@@ -154,8 +155,9 @@ sidecar/
 │   │   ├── crash-handler.js     # Crash recovery handler
 │   │   └── setup.js             # Setup wizard
 │   ├── mcp-app/                 # MCP App (Claude Desktop inline UI, Vite-bundled)
-│   │   ├── mcp-app.html         # Entry HTML + CSS (Vite input)
+│   │   ├── mcp-app.html         # Entry HTML (links to styles.css, Vite input)
 │   │   ├── mcp-app.js           # App lifecycle, polling, send/fold (ESM)
+│   │   ├── styles.css           # Shared CSS (extracted from mcp-app.html)
 │   │   ├── renderers.js         # Message rendering, DOMParser integration (ESM)
 │   │   ├── auto-scroll.js       # Auto-scroll with user override (CJS)
 │   │   ├── chat-resource.js     # HTML for ui://sidecar/chat
@@ -165,6 +167,9 @@ sidecar/
 │   │   ├── utils.js             # escapeHtml + shared SVG constants (CJS)
 │   │   ├── highlight.js         # Syntax highlighting (CJS)
 │   │   ├── markdown.js          # Markdown renderer, marked + highlightCode (CJS)
+│   │   ├── interactive-harness.html  # Interactive test harness HTML (dev-only)
+│   │   ├── interactive-harness.js    # Harness client, direct fetch to OpenCode API (ESM)
+│   │   ├── dev-server.mjs       # Dev server: OpenCode + Vite orchestrator (ESM)
 │   │   └── tools/               # Per-tool HTML formatters (CJS)
 │   │       ├── generic.js       # Fallback (formatGenericOutput)
 │   │       ├── bash.js          # Bash (formatBashOutput)

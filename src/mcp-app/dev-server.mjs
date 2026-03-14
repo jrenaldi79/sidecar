@@ -54,11 +54,39 @@ await sendPrompt(client, sessionId, {
 console.log('Prompt sent.');
 
 // 3. Start Vite dev server with proxy
+// Inline plugin converts CJS patterns (require/module.exports) to ESM for Vite dev mode.
+// @rollup/plugin-commonjs only works during Rollup builds, not Vite's dev transform pipeline.
 const vite = await import('vite');
-const commonjs = (await import('@rollup/plugin-commonjs')).default;
+function cjsToEsm() {
+  return {
+    name: 'cjs-to-esm',
+    transform(code, id) {
+      if (!id.endsWith('.js') || !id.includes('/mcp-app/')) { return null; }
+      if (!code.includes('module.exports') && !code.includes('require(')) { return null; }
+      let out = code;
+      // Convert: const { X, Y } = require('./file')  ->  import { X, Y } from './file'
+      out = out.replace(
+        /const\s+(\{[^}]+\})\s*=\s*require\((['"][^'"]+['"])\);?/g,
+        'import $1 from $2;',
+      );
+      // Convert: const X = require('./file')  ->  import X from './file'
+      out = out.replace(
+        /const\s+(\w+)\s*=\s*require\((['"][^'"]+['"])\);?/g,
+        'import $1 from $2;',
+      );
+      // Convert: module.exports = { X, Y }  ->  export { X, Y }
+      out = out.replace(
+        /module\.exports\s*=\s*\{([^}]+)\};?/g,
+        (_match, inner) => `export { ${inner.trim()} };`,
+      );
+      if (out === code) { return null; }
+      return { code: out, map: null };
+    },
+  };
+}
 const viteServer = await vite.createServer({
   root: 'src/mcp-app',
-  plugins: [commonjs()],
+  plugins: [cjsToEsm()],
   server: {
     port: 5174,
     proxy: {
