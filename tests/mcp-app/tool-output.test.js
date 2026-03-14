@@ -1,4 +1,4 @@
-const { formatToolOutput } = require('../../src/mcp-app/tool-output');
+const { formatToolOutput, TOOL_HANDLERS } = require('../../src/mcp-app/tool-output');
 
 describe('formatToolOutput', () => {
   test('falls back to generic for unknown tools', () => {
@@ -20,5 +20,30 @@ describe('formatToolOutput', () => {
   test('handles null output', () => {
     const result = formatToolOutput('Bash', {}, null);
     expect(result).toBeTruthy();
+  });
+});
+
+describe('TOOL_HANDLERS export', () => {
+  test('exports a TOOL_HANDLERS map', () => {
+    expect(TOOL_HANDLERS).toBeDefined();
+    expect(typeof TOOL_HANDLERS).toBe('object');
+  });
+
+  test('contains all expected tool keys', () => {
+    const expected = [
+      'edit', 'write', 'bash', 'read', 'glob', 'grep',
+      'question', 'askuserquestion', 'list', 'ls',
+      'task', 'webfetch', 'todowrite', 'todoread',
+    ];
+    for (const key of expected) {
+      expect(TOOL_HANDLERS).toHaveProperty(key);
+      expect(typeof TOOL_HANDLERS[key]).toBe('function');
+    }
+  });
+
+  test('aliases point to same handler', () => {
+    expect(TOOL_HANDLERS.ls).toBe(TOOL_HANDLERS.list);
+    expect(TOOL_HANDLERS.askuserquestion).toBe(TOOL_HANDLERS.question);
+    expect(TOOL_HANDLERS.todoread).toBe(TOOL_HANDLERS.todowrite);
   });
 });
