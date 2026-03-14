@@ -108,6 +108,10 @@ export ANTHROPIC_API_KEY=your-anthropic-api-key
 
 Add these to your shell profile (`~/.bashrc`, `~/.zshrc`) for persistence.
 
+**zsh users:** `~/.zshrc` is only sourced by interactive shells. If you use sidecar from Claude Code, CI, or scripts, either:
+- Run `sidecar setup` to store keys in sidecar's config (recommended)
+- Move your exports to `~/.zshenv` (sourced by all zsh shell types)
+
 **Model names with direct API keys:**
 When using direct API keys, use the provider/model format WITHOUT the `openrouter/` prefix:
 ```bash
@@ -866,6 +870,13 @@ The mutex approach looks correct. Add tests."
 ---
 
 ## Troubleshooting
+
+### "Missing Authentication header" in Claude Code or CI
+
+API keys in `~/.zshrc` are not available in non-interactive shells. Fix:
+1. Run `sidecar setup` (stores keys in `~/.config/sidecar/.env`)
+2. Or move exports to `~/.zshenv`
+3. Or add credentials to `~/.local/share/opencode/auth.json`
 
 ### "No Claude Code conversation history found"
 
