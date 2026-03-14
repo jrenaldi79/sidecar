@@ -161,6 +161,8 @@ sidecar/
 │   │   ├── question-handler.js  # Question interaction: option clicks, submit, skip (ESM)
 │   │   ├── styles.css           # Shared CSS (extracted from mcp-app.html)
 │   │   ├── renderers.js         # Message rendering, DOMParser integration (ESM)
+│   │   ├── render-engine.js     # Poll/fingerprint/render cycle, shared by app + harness (ESM)
+│   │   ├── tool-titles.js       # Tool title/subtitle for collapsed display (CJS)
 │   │   ├── auto-scroll.js       # Auto-scroll with user override (CJS)
 │   │   ├── chat-resource.js     # HTML for ui://sidecar/chat
 │   │   ├── icons.js             # Tool and file extension icon registry (CJS)
@@ -186,7 +188,8 @@ sidecar/
 │   │       ├── list.js          # LS/List (formatListOutput)
 │   │       ├── todo.js          # Todo (formatTodoOutput)
 │   │       ├── webfetch.js      # WebFetch (formatWebfetchOutput)
-│   │       └── task.js          # Task (formatTaskOutput)
+│   │       ├── task.js          # Task (formatTaskOutput)
+│   │       └── skill.js         # Skill (formatSkillOutput)
 │   ├── prompts/                 # Prompt modules
 │   │   └── cowork-agent-prompt.js
 │   └── utils/                   # Helpers (see src/utils/ for full list)
