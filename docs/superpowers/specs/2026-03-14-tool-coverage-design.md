@@ -22,11 +22,13 @@ const name = part.toolName || part.state?.input?.description || 'tool';
 
 The OpenCode API sends `part.tool` (e.g. `"bash"`), not `part.toolName`. This means `name` resolves to `part.state?.input?.description` (e.g. `"List files in current directory"`), and `formatToolOutput(name, ...)` in `tool-output.js` can't route to the correct formatter because none of the `if (name === 'bash')` checks match a description string.
 
-**Fix**: Inside `makeToolBlock(part)`, derive both the tool ID and display label from the `part` object (no signature change needed since it's all on `part`):
+**Fix**: Inside `makeToolBlock(part)`, derive both the tool ID and display label from the `part` object (no signature change needed since it's all on `part`). Normalize to lowercase defensively since tool names should be case-insensitive:
 ```js
-const toolId = part.tool || part.toolName || '';
+const toolId = (part.tool || part.toolName || '').toLowerCase();
 const displayName = part.state?.input?.description || toolId || 'tool';
 ```
+
+**Important**: `toolId` must only come from `part.tool` (the actual tool identifier). Never route based on `part.state?.input?.description` -- that's for display only.
 
 Three lines in `makeToolBlock` change:
 - **Line 62**: Replace `const name = part.toolName || ...` with the two variables above
@@ -85,7 +87,47 @@ Add `npm run qa:ui` script. This is different from `dev:ui` (which requires `--m
 
 A minimal `vite.config.test-harness.mjs` is needed because the test harness uses the `cjsToEsm()` plugin but no proxy or define globals. Alternatively, inline the Vite config in a small script like `dev-server.mjs` does.
 
-### Tool Coverage E2E Test
+### Refactor: Export TOOL_HANDLERS Map
+
+Before the E2E test, refactor `tool-output.js` from if/else chains to an exported map. This eliminates fragile regex-based source parsing in the test and makes the routing table directly importable:
+
+```js
+const TOOL_HANDLERS = {
+  edit: formatEditDiff,
+  write: formatWriteOutput,
+  bash: formatBashOutput,
+  read: formatFileOutput,
+  glob: formatGlobOutput,
+  grep: formatGrepOutput,
+  question: formatQuestionOutput,
+  askuserquestion: formatQuestionOutput,
+  list: formatListOutput,
+  ls: formatListOutput,
+  task: formatTaskOutput,
+  webfetch: formatWebfetchOutput,
+  todowrite: formatTodoOutput,
+  todoread: formatTodoOutput,
+};
+
+function formatToolOutput(toolName, input, output) {
+  const name = toolName.toLowerCase();
+  const outputStr = output !== null && output !== undefined ? String(output) : '';
+  const handler = TOOL_HANDLERS[name];
+  if (handler) { return handler(input, outputStr); }
+  if (typeof console !== 'undefined') {
+    console.warn(`[tool-output] No renderer for tool: "${name}" — using generic fallback`);
+  }
+  return formatGenericOutput(input, outputStr);
+}
+
+module.exports = { formatToolOutput, TOOL_HANDLERS };
+```
+
+The `console.warn` fires at runtime when a tool hits the generic fallback, providing a visible signal during development (browser console) without affecting production behavior. This complements the E2E test by catching drift during interactive testing sessions.
+
+This is a pure refactor with no behavior change. Aliases (`ls`, `askuserquestion`, `todoread`) are explicit keys pointing to the same handler. The test imports `TOOL_HANDLERS` directly instead of regex-parsing source code.
+
+### Tool Coverage Integration Test
 
 **File**: `tests/mcp-app/tool-coverage-e2e.integration.test.js`
 
@@ -95,13 +137,16 @@ const HAS_OPENCODE = (() => { try { require.resolve('opencode-ai'); return true;
 const describeToolCoverage = HAS_OPENCODE ? describe : describe.skip;
 ```
 
+**Note**: The `/experimental/tool/ids` endpoint is marked experimental in the OpenCode API. If the endpoint is renamed or removed in a future OpenCode release, this test will fail with a clear HTTP error. Treat such failures as a signal to update the endpoint path, not to remove the test.
+
 **Test flow**:
 1. Start a real OpenCode server via `tests/helpers/start-server.js`
 2. Query `GET http://localhost:{port}/experimental/tool/ids` to get the authoritative tool list
-3. Parse `src/mcp-app/tool-output.js` source to extract all tool names from routing checks. The regex must handle compound `||` patterns (e.g. `if (name === 'question' || name === 'askuserquestion')`). Extract all quoted string operands adjacent to `name ===` across the entire file, not just single-tool lines.
+3. Import `TOOL_HANDLERS` from `src/mcp-app/tool-output.js` to get our handled tool names (`Object.keys(TOOL_HANDLERS)`)
 4. Compare the two lists:
    - Filter out `invalid` from the OpenCode list (error sentinel, not a real tool)
-   - Assert every remaining OpenCode tool ID has a matching entry in our routing table
+   - Filter out any `mcp__*` prefixed tools (provider-specific, not built-in)
+   - Assert every remaining OpenCode tool ID has a matching key in `TOOL_HANDLERS`
 5. On success or failure, write `tests/fixtures/tool-coverage.json` (gitignored, outside `src/` to avoid being published to npm):
    ```json
    {
@@ -148,7 +193,7 @@ Contents:
 2. Start the interactive harness (`npm run dev:ui`) with a prompt that exercises the tool
 3. Inspect raw API data via the browser console or CDP
 4. Create `src/mcp-app/tools/<name>.js` following the existing CJS pattern (`formatXxxOutput(input, output)` returning HTML string)
-5. Wire it in `tool-output.js` with an `if (name === '<name>')` check
+5. Add an entry to the `TOOL_HANDLERS` map in `tool-output.js`
 6. Add mock data to `test-harness.js`
 7. Add unit test in `tests/mcp-app/tools/<name>.test.js`
 8. Remove from the known gaps list in the E2E test
@@ -165,6 +210,7 @@ Contents:
 | File | Action | Purpose |
 |------|--------|---------|
 | `src/mcp-app/renderers.js` | Modify | Fix `part.toolName` -> `part.tool`, separate toolId from displayName (lines 62, 71, 83) |
+| `src/mcp-app/tool-output.js` | Modify | Refactor if/else to exported `TOOL_HANDLERS` map, add `console.warn` fallback |
 | `src/mcp-app/test-harness.html` | Create | Static test harness HTML with coverage panel |
 | `src/mcp-app/test-harness.js` | Create | Mock data for all tool types + coverage panel renderer |
 | `tests/fixtures/tool-coverage.json` | Generated | Written by E2E test, gitignored |
