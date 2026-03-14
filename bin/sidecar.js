@@ -7,16 +7,9 @@
  * Routes commands to appropriate handlers.
  */
 
-const path = require('path');
-
-// Load API keys from ~/.config/sidecar/.env (single source of truth)
-const homeDir = process.env.HOME || process.env.USERPROFILE;
-require('dotenv').config({ path: path.join(homeDir, '.config', 'sidecar', '.env'), quiet: true });
-
-// Migrate legacy env var: GEMINI_API_KEY -> GOOGLE_GENERATIVE_AI_API_KEY
-if (process.env.GEMINI_API_KEY && !process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
-  process.env.GOOGLE_GENERATIVE_AI_API_KEY = process.env.GEMINI_API_KEY;
-}
+// Load API keys from all sources: process.env > sidecar .env > auth.json
+const { loadCredentials } = require('../src/utils/env-loader');
+loadCredentials();
 
 const { parseArgs, validateStartArgs, getUsage } = require('../src/cli');
 const { validateTaskId } = require('../src/utils/validators');

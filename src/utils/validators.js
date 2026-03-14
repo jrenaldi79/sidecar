@@ -226,12 +226,10 @@ const { validateMcpSpec, validateMcpConfigFile } = require('./mcp-validators');
 const { MODEL_THINKING_SUPPORT, getSupportedThinkingLevels, validateThinkingLevel } = require('./thinking-validators');
 
 /**
- * Validate API key is present for the given model's provider
+ * Validate API key is present for the given model's provider.
  *
- * NOTE: OpenCode manages its own credentials via `opencode auth`.
- * The env var check is a convenience hint, not a hard requirement.
- * If OpenCode has credentials configured, the model will work
- * even without the env var set.
+ * Assumes loadCredentials() has already run, projecting all credential
+ * sources (sidecar .env, auth.json) into process.env.
  *
  * @param {string} model - The model string (e.g., 'openrouter/google/gemini-2.5-flash')
  * @returns {{valid: boolean, error?: string}}
@@ -249,17 +247,14 @@ function validateApiKey(model) {
   }
 
   if (!process.env[providerInfo.key]) {
-    // Check if OpenCode has credentials configured (auth.json)
-    const os = require('os');
-    const authPath = path.join(os.homedir(), '.local', 'share', 'opencode', 'auth.json');
-    if (fs.existsSync(authPath)) {
-      // OpenCode manages its own auth — skip env var check
-      return { valid: true };
-    }
-
     return {
       valid: false,
-      error: `Error: ${providerInfo.key} environment variable is required for ${providerInfo.name} models. Set it with: export ${providerInfo.key}=your-api-key`
+      error: `Error: ${providerInfo.key} not found.\n\n` +
+        'In non-interactive shells (Claude Code, CI), ~/.zshrc is not sourced.\n' +
+        'Fix with one of:\n' +
+        '  - Run `sidecar setup` to store keys in sidecar\'s config\n' +
+        '  - Move your export to ~/.zshenv (sourced by all zsh shells)\n' +
+        '  - Add key to ~/.local/share/opencode/auth.json'
     };
   }
 
