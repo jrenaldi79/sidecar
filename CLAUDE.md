@@ -33,6 +33,7 @@ npm start
 npm test
 npm run lint
 npm run dev:ui -- --model <alias> --prompt "<text>"  # Interactive harness (Vite + real LLM)
+npm run qa:ui                                        # Static test harness (no API needed)
 ```
 
 ### CLI (Common)
@@ -163,8 +164,10 @@ sidecar/
 │   │   ├── chat-resource.js     # HTML for ui://sidecar/chat
 │   │   ├── icons.js             # Tool and file extension icon registry (CJS)
 │   │   ├── logos.js             # Model logo SVG registry
-│   │   ├── tool-output.js       # Tool output dispatcher, routes by tool name (CJS)
+│   │   ├── tool-output.js       # Tool output dispatcher, TOOL_HANDLERS map (CJS)
 │   │   ├── utils.js             # escapeHtml + shared SVG constants (CJS)
+│   │   ├── test-harness.html    # Static test harness HTML (Vite-served)
+│   │   ├── test-harness.js      # Mock data for all tool types (ESM)
 │   │   ├── highlight.js         # Syntax highlighting (CJS)
 │   │   ├── markdown.js          # Markdown renderer, marked + highlightCode (CJS)
 │   │   ├── interactive-harness.html  # Interactive test harness HTML (dev-only)
@@ -202,6 +205,7 @@ sidecar/
 │   ├── mcp-app/
 │   ├── scripts/
 │   ├── sidecar/
+│   ├── fixtures/                # Generated test data (gitignored)
 │   └── screenshots/             # CDP screenshots (gitignored)
 ├── skill/
 │   └── SKILL.md                 # Claude Code skill integration
@@ -507,9 +511,11 @@ GEMINI.md and AGENTS.md are symlinks to CLAUDE.md -- no sync needed.
 - [README.md](README.md) - User-facing documentation
 - [docs/testing.md](docs/testing.md) - Comprehensive testing guide (all tiers, CDP, cross-platform)
 - [docs/opencode.md](docs/opencode.md) - OpenCode SDK + integration reference
+- [docs/interactive-harness.md](docs/interactive-harness.md) - Interactive harness dev tool for MCP App UI iteration
 - [docs/electron-testing.md](docs/electron-testing.md) - Manual CDP WebSocket recipes and debugging
 - [docs/jsdoc-setup.md](docs/jsdoc-setup.md) - JSDoc patterns and type declarations
 - [evals/README.md](evals/README.md) - Agentic eval system (end-to-end LLM interaction testing)
+- [docs/tool-coverage.md](docs/tool-coverage.md) - Tool coverage matrix and renderer build guide
 - [skill/SKILL.md](skill/SKILL.md) - Claude Code skill integration
 - [OpenCode docs](https://opencode.ai/docs/) - SDK and server API reference (upstream)
 - [Husky docs](https://typicode.github.io/husky/) - Git hooks and config reference
