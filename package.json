@@ -51,6 +51,7 @@
     "generate-icon": "node scripts/generate-icon.js",
     "build:ui": "npx vite build --config vite.config.mcp-app.mjs",
     "dev:ui": "node src/mcp-app/dev-server.mjs",
+    "qa:ui": "cp tests/fixtures/tool-coverage.json src/mcp-app/tool-coverage.json 2>/dev/null; npx vite --open /test-harness.html --config vite.config.test-harness.mjs",
     "validate-docs": "node scripts/validate-docs.js --full",
     "prepare": "husky"
   },
