@@ -37,8 +37,8 @@ describe('MCP Tool Definitions', () => {
     expect(names).toContain('sidecar_abort');
   });
 
-  test('has exactly 12 tools', () => {
-    expect(TOOLS).toHaveLength(12);
+  test('has exactly 14 tools', () => {
+    expect(TOOLS).toHaveLength(14);
   });
 
   test('tool names are unique', () => {

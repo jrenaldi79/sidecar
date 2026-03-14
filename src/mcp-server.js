@@ -404,6 +404,68 @@ const handlers = {
     }
   },
 
+  async sidecar_app_answer_question(input, project) {
+    const cwd = project || getProjectDir(input.project);
+    const metadata = readMetadata(input.taskId, cwd);
+    if (!metadata) { return textResult(`Session ${input.taskId} not found.`, true); }
+    if (!metadata.opencodePort || !metadata.opencodeSessionId) {
+      return textResult('Session missing OpenCode port/session info.', true);
+    }
+    try {
+      // List pending questions from the OpenCode server
+      const questions = await apiRequest('GET', '/question', metadata.opencodePort);
+      const pending = Array.isArray(questions)
+        ? questions.filter(q => q.sessionID === metadata.opencodeSessionId)
+        : [];
+      if (pending.length === 0) {
+        // No pending question found; send as regular user message as fallback
+        await apiRequest('POST',
+          `/session/${metadata.opencodeSessionId}/prompt_async`,
+          metadata.opencodePort,
+          { parts: [{ type: 'text', text: input.answer }] }
+        );
+        return textResult(JSON.stringify({ status: 'sent_as_message', taskId: input.taskId }));
+      }
+      // Reply to the first pending question for this session
+      const requestId = pending[0].id;
+      await apiRequest('POST',
+        `/question/${requestId}/reply`,
+        metadata.opencodePort,
+        { answers: [[input.answer]] }
+      );
+      return textResult(JSON.stringify({ status: 'answered', taskId: input.taskId, requestId }));
+    } catch (err) {
+      return textResult(`Failed to answer question: ${err.message}`, true);
+    }
+  },
+
+  async sidecar_app_skip_question(input, project) {
+    const cwd = project || getProjectDir(input.project);
+    const metadata = readMetadata(input.taskId, cwd);
+    if (!metadata) { return textResult(`Session ${input.taskId} not found.`, true); }
+    if (!metadata.opencodePort || !metadata.opencodeSessionId) {
+      return textResult('Session missing OpenCode port/session info.', true);
+    }
+    try {
+      const questions = await apiRequest('GET', '/question', metadata.opencodePort);
+      const pending = Array.isArray(questions)
+        ? questions.filter(q => q.sessionID === metadata.opencodeSessionId)
+        : [];
+      if (pending.length === 0) {
+        return textResult(JSON.stringify({ status: 'no_pending_question', taskId: input.taskId }));
+      }
+      const requestId = pending[0].id;
+      await apiRequest('POST',
+        `/question/${requestId}/reject`,
+        metadata.opencodePort,
+        {}
+      );
+      return textResult(JSON.stringify({ status: 'skipped', taskId: input.taskId, requestId }));
+    } catch (err) {
+      return textResult(`Failed to skip question: ${err.message}`, true);
+    }
+  },
+
   async sidecar_app_fold(input, project) {
     const cwd = project || getProjectDir(input.project);
     const metadata = readMetadata(input.taskId, cwd);

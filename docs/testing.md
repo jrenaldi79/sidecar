@@ -69,7 +69,30 @@ Do not write unit tests for:
 - Electron window configuration (`main.js`)
 - CSS class assignments and styling
 
-DOM mock tests are ineffective. They test mock behavior, not real rendering. Use CDP E2E tests for UI verification instead.
+DOM mock tests are ineffective. They test mock behavior, not real rendering. Use CDP E2E tests for UI verification, or the interactive harness for manual testing instead.
+
+### Static Test Harness (Visual QA)
+
+For visual QA of all tool renderers without any API dependency, use the static test harness:
+
+```bash
+npm run qa:ui
+```
+
+This serves `src/mcp-app/test-harness.html` via Vite, rendering mock messages for every tool type (bash, read, write, edit, glob, grep, question, list, task, webfetch, todowrite, generic fallback) plus error states, running/pending states, and reasoning blocks.
+
+The harness includes:
+- Theme toggle (light/dark)
+- Width controls (520px/700px) to simulate Claude Desktop panel widths
+- Tool coverage panel showing which tools have renderers vs gaps
+
+Question tool has 4 mock states: pending with options, completed with selected option, pending free-form, and completed free-form.
+
+### Manual UI Testing with the Interactive Harness
+
+For rapid visual iteration on MCP App rendering, use the interactive harness (`npm run dev:ui`). It connects to a real LLM and renders messages through the same `renderMessage()` pipeline as production, with Vite HMR for instant CSS/JS reloads. CDP can be used to programmatically inspect the harness DOM in Chrome.
+
+See [docs/interactive-harness.md](interactive-harness.md) for setup and usage.
 
 ### Mocking Patterns
 
@@ -339,6 +362,7 @@ Two-stage: programmatic checks (gate) then LLM-as-judge (quality). All programma
 | Critical spawn config | Integration | Read source, assert pattern present |
 | New headless workflow | E2E | Real LLM, verify session files |
 | New toolbar UI element | E2E (CDP) | Real Electron, assert DOM via CDP |
+| MCP App rendering changes | Manual (harness) | `npm run dev:ui`, visual + CDP inspection |
 | LLM decision quality | Eval | Claude + sidecar in sandbox |
 
 ### Naming Conventions

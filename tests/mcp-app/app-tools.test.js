@@ -59,6 +59,52 @@ describe('MCP App tool handlers', () => {
     });
   });
 
+  describe('sidecar_app_answer_question', () => {
+    test('returns error if session not found', async () => {
+      const result = await handlers.sidecar_app_answer_question(
+        { taskId: 'nonexistent', answer: 'yes' }, tmpDir
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('not found');
+    });
+
+    test('returns error if no port in metadata', async () => {
+      const sessionDir = path.join(tmpDir, '.claude', 'sidecar_sessions', 'q-no-port');
+      fs.mkdirSync(sessionDir, { recursive: true });
+      fs.writeFileSync(path.join(sessionDir, 'metadata.json'), JSON.stringify({
+        taskId: 'q-no-port', status: 'running',
+      }));
+      const result = await handlers.sidecar_app_answer_question(
+        { taskId: 'q-no-port', answer: 'yes' }, tmpDir
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('port');
+    });
+  });
+
+  describe('sidecar_app_skip_question', () => {
+    test('returns error if session not found', async () => {
+      const result = await handlers.sidecar_app_skip_question(
+        { taskId: 'nonexistent' }, tmpDir
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('not found');
+    });
+
+    test('returns error if no port in metadata', async () => {
+      const sessionDir = path.join(tmpDir, '.claude', 'sidecar_sessions', 'skip-no-port');
+      fs.mkdirSync(sessionDir, { recursive: true });
+      fs.writeFileSync(path.join(sessionDir, 'metadata.json'), JSON.stringify({
+        taskId: 'skip-no-port', status: 'running',
+      }));
+      const result = await handlers.sidecar_app_skip_question(
+        { taskId: 'skip-no-port' }, tmpDir
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('port');
+    });
+  });
+
   describe('sidecar_app_fold', () => {
     test('returns error if session not found', async () => {
       const result = await handlers.sidecar_app_fold(

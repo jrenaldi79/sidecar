@@ -7,6 +7,7 @@
 import { App, applyDocumentTheme, applyHostStyleVariables, applyHostFonts } from '@modelcontextprotocol/ext-apps';
 import { renderMessage } from './renderers.js';
 import { setupAutoScroll } from './auto-scroll.js';
+import { setupQuestionHandlers } from './question-handler.js';
 
 const container = document.getElementById('messages-container');
 const loading = document.getElementById('loading-indicator');
@@ -235,6 +236,13 @@ async function triggerFold() {
 }
 
 foldBtn.addEventListener('click', triggerFold);
+
+// Question interaction: option clicks, submit, skip, "type something else"
+setupQuestionHandlers(container, {
+  getTaskId: () => taskId,
+  isFolded: () => folded,
+  callServerTool: (params) => app.callServerTool(params),
+});
 
 // Connect to host, then apply initial theme
 await app.connect();

@@ -139,10 +139,42 @@ const mockMessages = [
     'src/mcp-app/tool-output.js:15:  // TODO: add websearch renderer\nsrc/headless.js:42:  // TODO: configurable timeout\nsrc/context.js:88:  // TODO: handle edge case for empty sessions'
   )]),
 
-  // 8. question
+  // 8. question (pending -- with options, no answer yet)
   toolMsg([toolPart('question',
-    { question: 'Which deployment target should I use for the staging environment?' },
-    'Use the us-east-1 staging cluster.'
+    {
+      question: 'Which deployment target should I use for the staging environment?',
+      options: [
+        { label: 'us-east-1', description: 'Virginia, lowest latency for US users' },
+        { label: 'eu-west-1', description: 'Ireland, GDPR-compliant region' },
+        { label: 'ap-southeast-1', description: 'Singapore, closest to APAC users' },
+      ],
+    },
+    null
+  )]),
+
+  // 8b. question (completed -- option was selected)
+  toolMsg([toolPart('question',
+    {
+      question: 'Which test framework should we use?',
+      options: [
+        { label: 'Jest', description: 'Fast, built-in mocking, great for Node.js' },
+        { label: 'Vitest', description: 'Vite-native, ESM-first, fast HMR' },
+        { label: 'Mocha', description: 'Flexible, extensible, many plugins' },
+      ],
+    },
+    'Jest'
+  )]),
+
+  // 8c. question (pending -- free-form, no options)
+  toolMsg([toolPart('question',
+    { question: 'What name would you like for the new database migration?' },
+    null
+  )]),
+
+  // 8d. question (completed -- free-form answer)
+  toolMsg([toolPart('question',
+    { question: 'What should the API rate limit be (requests per minute)?' },
+    '100 requests per minute'
   )]),
 
   // 9. list / ls

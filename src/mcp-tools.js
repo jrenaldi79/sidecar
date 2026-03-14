@@ -281,6 +281,25 @@ function getTools() {
     },
   },
   {
+    name: 'sidecar_app_answer_question',
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    description: 'Answer a pending question from the AI assistant. Called by the MCP App when the user clicks an option or submits a free-form answer.',
+    inputSchema: {
+      taskId: safeTaskId.describe('The task ID of the active session.'),
+      answer: z.string().describe('The user\'s answer text (selected option label or free-form input).'),
+      project: z.string().optional().describe('Optional project directory path.'),
+    },
+  },
+  {
+    name: 'sidecar_app_skip_question',
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    description: 'Skip (reject) a pending question from the AI assistant. Called by the MCP App when the user clicks Skip.',
+    inputSchema: {
+      taskId: safeTaskId.describe('The task ID of the active session.'),
+      project: z.string().optional().describe('Optional project directory path.'),
+    },
+  },
+  {
     name: 'sidecar_app_fold',
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     description: 'Trigger fold: generate a structured summary from the sidecar session. Returns the summary for context/update. Called by MCP App iframe Fold button.',

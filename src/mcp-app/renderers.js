@@ -80,7 +80,9 @@ export function makeToolBlock(part) {
   frag.appendChild(row);
 
   const output = part.state?.output;
-  if (output !== undefined && output !== null) {
+  const isQuestion = toolId === 'question' || toolId === 'askuserquestion';
+  // Render detail panel if output exists, or if it's a question tool (show interactive UI even when pending)
+  if (output !== undefined && output !== null || isQuestion) {
     const html = formatToolOutput(toolId, part.state?.input, output);
     const detail = document.createElement('div');
     detail.className = 'tool-detail';
