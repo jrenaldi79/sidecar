@@ -231,9 +231,15 @@ const mockMessages = [
 
 // ---- Render all mock messages ----
 
+const renderOpts = { model: 'openrouter/google/gemini-2.5-flash' };
+
 for (const msg of mockMessages) {
-  const fragment = renderMessage(msg);
+  const fragment = renderMessage(msg, renderOpts);
   if (fragment) {
-    container.appendChild(fragment);
+    const role = msg.info?.role || msg.role || 'assistant';
+    const group = document.createElement('div');
+    group.className = `msg-group ${role}-group`;
+    group.appendChild(fragment);
+    container.appendChild(group);
   }
 }
