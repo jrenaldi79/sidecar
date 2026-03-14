@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sidecar Static Test Harness</title>
+<link rel="stylesheet" href="./styles.css">
+<style>
+  /* Test harness chrome -- NOT part of shared styles */
+  .harness-controls {
+    position: fixed;
+    top: 8px;
+    right: 8px;
+    z-index: 200;
+    display: flex;
+    gap: 6px;
+  }
+  .harness-btn {
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 4px 10px;
+    border: 1px solid var(--border-medium);
+    border-radius: 4px;
+    background: var(--bg-surface);
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+  .harness-btn:hover { background: var(--bg-elevated); }
+  .harness-btn.active {
+    background: var(--accent-warm-soft);
+    border-color: var(--accent-warm);
+    color: var(--accent-warm);
+  }
+  #coverage-panel {
+    margin: 12px 16px;
+    padding: 12px;
+    border: 1px solid var(--border-medium);
+    border-radius: var(--radius-sm);
+    background: var(--bg-card);
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  #coverage-panel h3 {
+    font-size: 12px;
+    margin-bottom: 8px;
+    color: var(--text-secondary);
+  }
+  .coverage-item { padding: 2px 0; }
+  .coverage-handled { color: #2ea043; }
+  .coverage-missing { color: #f85149; }
+  .coverage-note {
+    color: var(--text-tertiary);
+    font-size: 11px;
+    margin-top: 8px;
+    font-style: italic;
+  }
+</style>
+<script>
+  if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  }
+</script>
+</head>
+<body>
+<div class="harness-controls">
+  <button class="harness-btn" id="theme-toggle">Toggle Dark</button>
+  <button class="harness-btn" id="size-520" data-width="520">520px</button>
+  <button class="harness-btn active" id="size-700" data-width="700">700px</button>
+</div>
+
+<div id="sidecar-app" style="max-width: 700px; margin: 0 auto;">
+  <div id="sidecar-header">
+    <div class="header-brand">
+      <div class="status-dot connected" id="status-dot"></div>
+      <span class="brand-name">Sidecar</span>
+    </div>
+    <span id="model-badge">test-harness</span>
+    <div class="header-meta">
+      <span id="timer">0:00</span>
+    </div>
+  </div>
+
+  <div id="coverage-panel">
+    <h3>Tool Coverage</h3>
+    <div id="coverage-content">Loading coverage data...</div>
+  </div>
+
+  <div id="messages-container" style="height: calc(100vh - 160px); overflow-y: auto;"></div>
+</div>
+
+<script type="module" src="./test-harness.js"></script>
+</body>
+</html>
