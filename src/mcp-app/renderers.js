@@ -59,7 +59,8 @@ export function makeThinkingIndicator(text, isDone) {
 
 /** Tool block: clickable summary indicator + expandable formatted output */
 export function makeToolBlock(part) {
-  const name = part.toolName || part.state?.input?.description || 'tool';
+  const toolId = (part.tool || part.toolName || '').toLowerCase();
+  const displayName = part.state?.input?.description || toolId || 'tool';
   const status = part.state?.status || 'done';
   const frag = document.createDocumentFragment();
 
@@ -68,7 +69,7 @@ export function makeToolBlock(part) {
   const icon = status === 'completed' ? '\u2713' : status === 'running' ? '\u25CF' : '\u2026';
 
   const label = document.createElement('span');
-  label.textContent = `${icon} ${name}`;
+  label.textContent = `${icon} ${displayName}`;
   row.appendChild(label);
 
   const chevron = document.createElement('span');
@@ -80,7 +81,7 @@ export function makeToolBlock(part) {
 
   const output = part.state?.output;
   if (output !== undefined && output !== null) {
-    const html = formatToolOutput(name, part.state?.input, output);
+    const html = formatToolOutput(toolId, part.state?.input, output);
     const detail = document.createElement('div');
     detail.className = 'tool-detail';
     detail.appendChild(htmlToFragment(html));
@@ -133,7 +134,7 @@ export function renderMessage(msg) {
   for (const p of parts) {
     if (p.type === 'text' && p.text) {
       textChunks.push(p.text);
-    } else if (p.type === 'reasoning' && p.text) {
+    } else if (p.type === 'reasoning' && p.text && p.text !== '[REDACTED]') {
       reasoningChunks.push(p.text);
     } else if (p.type === 'tool') {
       toolParts.push(p);
