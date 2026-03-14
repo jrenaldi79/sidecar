@@ -3,7 +3,8 @@ module.exports = {
   testMatch: ['**/tests/**/*.test.js'],
   testPathIgnorePatterns: [
     '/node_modules/',
-    '\\.integration\\.test\\.js$'
+    '\\.integration\\.test\\.js$',
+    '\\.worktrees/'
   ],
   collectCoverageFrom: [
     'src/**/*.js',

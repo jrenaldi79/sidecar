@@ -38,8 +38,8 @@
   "scripts": {
     "start": "node --experimental-top-level-await --experimental-vm-modules bin/sidecar.js",
     "test": "jest",
-    "test:integration": "jest --testPathIgnorePatterns='[]' --testMatch='**/tests/**/*.integration.test.js'",
-    "test:all": "jest --testPathIgnorePatterns='/node_modules/' && git rev-parse HEAD > .test-passed 2>/dev/null || true",
+    "test:integration": "jest --testPathIgnorePatterns='\\.worktrees/' --testMatch='**/tests/**/*.integration.test.js'",
+    "test:all": "jest --testPathIgnorePatterns='/node_modules/' --testPathIgnorePatterns='\\.worktrees/' && git rev-parse HEAD > .test-passed 2>/dev/null || true",
     "test:e2e:mcp": "jest tests/mcp-repomix-e2e.integration.test.js --testTimeout=180000 --forceExit",
     "posttest": "git rev-parse HEAD > .test-passed 2>/dev/null || true",
     "lint": "eslint src/",
