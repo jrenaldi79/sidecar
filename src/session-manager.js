@@ -15,7 +15,9 @@ const SESSION_STATUS = {
   RUNNING: 'running',
   COMPLETE: 'complete',
   ERROR: 'error',
-  TIMEOUT: 'timeout'
+  TIMEOUT: 'timeout',
+  ABORTED: 'aborted',
+  CRASHED: 'crashed'
 };
 
 /**
@@ -255,9 +257,14 @@ function createSubagentSession(projectDir, parentTaskId, subagentId, metadata) {
     parentTaskId,
     agentType: metadata.agentType,
     briefing: metadata.briefing,
-    status: SESSION_STATUS.RUNNING,
-    createdAt: new Date().toISOString(),
-    completedAt: null
+    backend: metadata.backend || 'unknown',
+    status: metadata.status || SESSION_STATUS.RUNNING,
+    sandboxMode: metadata.sandboxMode || null,
+    pid: metadata.pid || null,
+    exitCode: metadata.exitCode ?? null,
+    reason: metadata.reason || null,
+    createdAt: metadata.createdAt || new Date().toISOString(),
+    completedAt: metadata.completedAt || null
   };
 
   // Write metadata
@@ -371,6 +378,29 @@ function saveSubagentSummary(projectDir, parentTaskId, subagentId, summary) {
   });
 }
 
+/**
+ * Append a message to a sub-agent conversation log.
+ *
+ * @param {string} projectDir - Project directory path
+ * @param {string} parentTaskId - Parent sidecar task ID
+ * @param {string} subagentId - Sub-agent ID
+ * @param {object} message - Message to append
+ */
+function appendSubagentConversation(projectDir, parentTaskId, subagentId, message) {
+  const subagentDir = getSubagentDir(projectDir, parentTaskId, subagentId);
+  const convPath = path.join(subagentDir, 'conversation.jsonl');
+
+  if (!fs.existsSync(subagentDir)) {
+    throw new Error(`Sub-agent ${subagentId} not found`);
+  }
+
+  const payload = {
+    ...message,
+    timestamp: message.timestamp || new Date().toISOString()
+  };
+  fs.appendFileSync(convPath, JSON.stringify(payload) + '\n', { mode: 0o600 });
+}
+
 module.exports = {
   createSession,
   updateSession,
@@ -385,5 +415,6 @@ module.exports = {
   updateSubagentSession,
   getSubagentSession,
   listSubagents,
-  saveSubagentSummary
+  saveSubagentSummary,
+  appendSubagentConversation
 };

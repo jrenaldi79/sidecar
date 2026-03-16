@@ -24,7 +24,7 @@ sidecar update                       # Update to latest version
 claude mcp add-json sidecar '{"command":"npx","args":["-y","claude-sidecar@latest","mcp"]}' --scope user
 ```
 
-MCP tools: `sidecar_start`, `sidecar_status`, `sidecar_read`, `sidecar_list`, `sidecar_resume`, `sidecar_continue`, `sidecar_setup`, `sidecar_guide`, `sidecar_abort`
+MCP tools: `sidecar_start`, `sidecar_status`, `sidecar_read`, `sidecar_list`, `sidecar_resume`, `sidecar_continue`, `sidecar_setup`, `sidecar_guide`, `sidecar_abort`, `sidecar_subagent_start`, `sidecar_subagent_status`, `sidecar_subagent_read`, `sidecar_subagent_abort`
 
 Session statuses: `running`, `complete`, `aborted`, `crashed`, `error`
 
@@ -40,6 +40,23 @@ The `--agent` option specifies which OpenCode native agent to use:
 | **Explore** | Read-only subagent | Read-only |
 
 Custom agents defined in `~/.config/opencode/agents/` or `.opencode/agents/` are also supported.
+
+## Codex Subagents (Experimental / Local)
+
+Sidecar can start Codex-backed subagents beneath an existing parent Sidecar task through the MCP tools:
+
+- `sidecar_subagent_start`
+- `sidecar_subagent_status`
+- `sidecar_subagent_read`
+- `sidecar_subagent_abort`
+
+Current constraints:
+
+- Supported Codex subagent roles: `plan`, `explore`, `build`, `general`
+- `chat` is intentionally unsupported because Codex `exec` is non-interactive
+- `plan` and `explore` run with Codex `read-only` sandboxing
+- `build` and `general` run with Codex `workspace-write` sandboxing
+- Output is stored under the parent task at `.claude/sidecar_sessions/<parentTaskId>/subagents/<subagentId>/`
 
 ## Process Self-Termination
 

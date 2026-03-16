@@ -35,10 +35,14 @@ describe('MCP Tool Definitions', () => {
     expect(names).toContain('sidecar_setup');
     expect(names).toContain('sidecar_guide');
     expect(names).toContain('sidecar_abort');
+    expect(names).toContain('sidecar_subagent_start');
+    expect(names).toContain('sidecar_subagent_status');
+    expect(names).toContain('sidecar_subagent_read');
+    expect(names).toContain('sidecar_subagent_abort');
   });
 
-  test('has exactly 9 tools', () => {
-    expect(TOOLS).toHaveLength(9);
+  test('has exactly 13 tools', () => {
+    expect(TOOLS).toHaveLength(13);
   });
 
   test('tool names are unique', () => {
@@ -273,6 +277,48 @@ describe('MCP Tool Definitions', () => {
     });
   });
 
+  describe('sidecar_subagent_start', () => {
+    test('has the expected schema fields', () => {
+      const tool = TOOLS.find(t => t.name === 'sidecar_subagent_start');
+      expect(tool.inputSchema).toHaveProperty('parentTaskId');
+      expect(tool.inputSchema).toHaveProperty('prompt');
+      expect(tool.inputSchema).toHaveProperty('agentType');
+      expect(tool.inputSchema).toHaveProperty('model');
+    });
+
+    test('supports the four codex-safe subagent types', () => {
+      const tool = TOOLS.find(t => t.name === 'sidecar_subagent_start');
+      expect(tool.inputSchema.agentType._def.values).toEqual(
+        expect.arrayContaining(['plan', 'explore', 'build', 'general'])
+      );
+    });
+  });
+
+  describe('sidecar_subagent_status', () => {
+    test('has parentTaskId and subagentId in input schema', () => {
+      const tool = TOOLS.find(t => t.name === 'sidecar_subagent_status');
+      expect(tool.inputSchema).toHaveProperty('parentTaskId');
+      expect(tool.inputSchema).toHaveProperty('subagentId');
+    });
+  });
+
+  describe('sidecar_subagent_read', () => {
+    test('has parentTaskId, subagentId, and mode in input schema', () => {
+      const tool = TOOLS.find(t => t.name === 'sidecar_subagent_read');
+      expect(tool.inputSchema).toHaveProperty('parentTaskId');
+      expect(tool.inputSchema).toHaveProperty('subagentId');
+      expect(tool.inputSchema).toHaveProperty('mode');
+    });
+  });
+
+  describe('sidecar_subagent_abort', () => {
+    test('has parentTaskId and subagentId in input schema', () => {
+      const tool = TOOLS.find(t => t.name === 'sidecar_subagent_abort');
+      expect(tool.inputSchema).toHaveProperty('parentTaskId');
+      expect(tool.inputSchema).toHaveProperty('subagentId');
+    });
+  });
+
   describe('polling guidance in descriptions', () => {
     test('sidecar_start description mentions interactive and headless modes', () => {
       const tool = TOOLS.find(t => t.name === 'sidecar_start');
@@ -300,6 +346,12 @@ describe('MCP Tool Definitions', () => {
       expect(guide).toContain('sidecar_start');
       expect(guide).toContain('sidecar_status');
       expect(guide).toContain('sidecar_read');
+    });
+
+    test('mentions experimental codex subagents', () => {
+      const guide = getGuideText();
+      expect(guide).toContain('sidecar_subagent_*');
+      expect(guide).toContain('Codex-backed subagents');
     });
 
     test('contains agent selection guidance', () => {
@@ -383,6 +435,8 @@ describe('MCP Tool Definitions', () => {
     const toolsWithProject = [
       'sidecar_start', 'sidecar_status', 'sidecar_read',
       'sidecar_list', 'sidecar_resume', 'sidecar_continue', 'sidecar_abort',
+      'sidecar_subagent_start', 'sidecar_subagent_status',
+      'sidecar_subagent_read', 'sidecar_subagent_abort',
     ];
 
     for (const name of toolsWithProject) {

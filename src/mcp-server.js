@@ -29,6 +29,20 @@ function readMetadata(taskId, project) {
   return JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
 }
 
+/** Resolve a subagent session directory safely beneath a parent sidecar task. */
+function getSubagentSessionDir(project, parentTaskId, subagentId) {
+  const { getSubagentDir } = require('./session-manager');
+  return getSubagentDir(project, parentTaskId, subagentId);
+}
+
+/** Read subagent metadata from disk, or null if not found. */
+function readSubagentMetadata(project, parentTaskId, subagentId) {
+  const sessionDir = getSubagentSessionDir(project, parentTaskId, subagentId);
+  const metaPath = path.join(sessionDir, 'metadata.json');
+  if (!fs.existsSync(metaPath)) { return null; }
+  return JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+}
+
 /** Build an MCP text response */
 function textResult(text, isError) {
   const result = { content: [{ type: 'text', text }] };
@@ -428,6 +442,147 @@ const handlers = {
     return textResult(JSON.stringify({
       taskId: input.taskId, status: 'aborted',
       message: 'Session abort requested. The sidecar process will terminate shortly.',
+    }));
+  },
+
+  async sidecar_subagent_start(input, project) {
+    const cwd = project || getProjectDir(input.project);
+    const parentMetadata = readMetadata(input.parentTaskId, cwd);
+    if (!parentMetadata) {
+      return textResult(`Parent session ${input.parentTaskId} not found.`, true);
+    }
+
+    const { generateTaskId } = require('./sidecar/start');
+    const { startCodexSubagent } = require('./subagents/codex-runner');
+    const subagentId = generateTaskId();
+    const run = await startCodexSubagent({
+      projectDir: cwd,
+      parentTaskId: input.parentTaskId,
+      subagentId,
+      briefing: input.prompt,
+      agentType: input.agentType,
+      model: input.model,
+    });
+
+    if (run && run.completion && typeof run.completion.catch === 'function') {
+      run.completion.catch((err) => {
+        logger.warn('Codex subagent completion rejected', {
+          parentTaskId: input.parentTaskId,
+          subagentId,
+          error: err.message
+        });
+      });
+    }
+
+    return textResult(JSON.stringify({
+      parentTaskId: input.parentTaskId,
+      subagentId,
+      status: 'running',
+      backend: 'codex',
+    }));
+  },
+
+  async sidecar_subagent_status(input, project) {
+    const cwd = project || getProjectDir(input.project);
+    const subagentDir = getSubagentSessionDir(cwd, input.parentTaskId, input.subagentId);
+    const metadata = readSubagentMetadata(cwd, input.parentTaskId, input.subagentId);
+    if (!metadata) {
+      return textResult(`Sub-agent ${input.subagentId} not found under parent ${input.parentTaskId}.`, true);
+    }
+
+    if (metadata.status === 'running' && metadata.pid) {
+      try { process.kill(metadata.pid, 0); } catch {
+        const { updateSubagentSession } = require('./session-manager');
+        updateSubagentSession(cwd, input.parentTaskId, input.subagentId, {
+          status: 'crashed',
+          reason: 'Process exited unexpectedly',
+          completedAt: new Date().toISOString(),
+          pid: null
+        });
+      }
+    }
+
+    const refreshed = readSubagentMetadata(cwd, input.parentTaskId, input.subagentId);
+    const response = {
+      parentTaskId: input.parentTaskId,
+      subagentId: input.subagentId,
+      status: refreshed.status,
+      backend: refreshed.backend
+    };
+
+    if (refreshed.agentType) {
+      response.agentType = refreshed.agentType;
+    }
+    if (refreshed.status === 'running') {
+      Object.assign(response, readProgress(subagentDir));
+    }
+    if (refreshed.status === 'crashed' || refreshed.status === 'error') {
+      response.reason = refreshed.reason || 'Unknown error';
+    }
+
+    return textResult(JSON.stringify(response));
+  },
+
+  async sidecar_subagent_read(input, project) {
+    const cwd = project || getProjectDir(input.project);
+    const subagentDir = getSubagentSessionDir(cwd, input.parentTaskId, input.subagentId);
+    if (!fs.existsSync(subagentDir)) {
+      return textResult(`Sub-agent ${input.subagentId} not found under parent ${input.parentTaskId}.`, true);
+    }
+
+    const mode = input.mode || 'summary';
+    if (mode === 'metadata') {
+      return textResult(fs.readFileSync(path.join(subagentDir, 'metadata.json'), 'utf-8'));
+    }
+    if (mode === 'conversation') {
+      const convPath = path.join(subagentDir, 'conversation.jsonl');
+      if (!fs.existsSync(convPath)) { return textResult('No conversation recorded.'); }
+      return textResult(fs.readFileSync(convPath, 'utf-8'));
+    }
+
+    const summaryPath = path.join(subagentDir, 'summary.md');
+    if (!fs.existsSync(summaryPath)) {
+      return textResult('No summary available (subagent may still be running).');
+    }
+    return textResult(fs.readFileSync(summaryPath, 'utf-8'));
+  },
+
+  async sidecar_subagent_abort(input, project) {
+    const cwd = project || getProjectDir(input.project);
+    const metadata = readSubagentMetadata(cwd, input.parentTaskId, input.subagentId);
+    if (!metadata) {
+      return textResult(`Sub-agent ${input.subagentId} not found under parent ${input.parentTaskId}.`, true);
+    }
+    if (metadata.status !== 'running') {
+      return textResult(
+        `Sub-agent ${input.subagentId} is not running (status: ${metadata.status}).`
+      );
+    }
+
+    if (metadata.pid) {
+      try { process.kill(metadata.pid, 'SIGTERM'); } catch (err) {
+        if (err.code !== 'ESRCH') {
+          logger.warn('Failed to kill Codex subagent process', {
+            pid: metadata.pid,
+            error: err.message
+          });
+        }
+      }
+    }
+
+    const { updateSubagentSession } = require('./session-manager');
+    updateSubagentSession(cwd, input.parentTaskId, input.subagentId, {
+      status: 'aborted',
+      abortedAt: new Date().toISOString(),
+      pid: null
+    });
+
+    return textResult(JSON.stringify({
+      parentTaskId: input.parentTaskId,
+      subagentId: input.subagentId,
+      status: 'aborted',
+      backend: metadata.backend || 'codex',
+      message: 'Sub-agent abort requested. The Codex process will terminate shortly.',
     }));
   },
 

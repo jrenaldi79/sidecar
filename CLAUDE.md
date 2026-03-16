@@ -97,6 +97,9 @@ src/
 │   ├── setup-window.js  # Setup Window Launcher
 │   ├── setup.js  # Sidecar Setup Wizard
 │   └── start.js  # Generate a unique 8-character hex task ID
+├── subagents/
+│   ├── codex-event-normalizer.js  # Parse a single Codex JSONL line.
+│   └── codex-runner.js  # Map Sidecar agent types onto Codex sandbox modes.
 ├── utils/
 │   ├── agent-mapping.js  # * All OpenCode native agent names (lowercase)
 │   ├── alias-resolver.js  # Alias Resolver Utilities
@@ -224,6 +227,8 @@ evals/
 | `sidecar/setup-window.js` | Setup Window Launcher | `launchSetupWindow()` |
 | `sidecar/setup.js` | Sidecar Setup Wizard | `addAlias()`, `createDefaultConfig()`, `detectApiKeys()`, `runInteractiveSetup()`, `runReadlineSetup()` |
 | `sidecar/start.js` | Generate a unique 8-character hex task ID | `generateTaskId()`, `createSessionMetadata()`, `buildMcpConfig()`, `checkElectronAvailable()`, `runInteractive()` |
+| `subagents/codex-event-normalizer.js` | Parse a single Codex JSONL line. | `parseCodexJsonLine()`, `normalizeCodexEvent()`, `getFinalSummary()` |
+| `subagents/codex-runner.js` | Map Sidecar agent types onto Codex sandbox modes. | `runCodexSubagent()`, `startCodexSubagent()`, `resolveSandboxMode()`, `addRolePreamble()`, `assertCodexAvailable()` |
 | `utils/agent-mapping.js` | * All OpenCode native agent names (lowercase) | `PRIMARY_AGENTS()`, `OPENCODE_AGENTS()`, `HEADLESS_SAFE_AGENTS()`, `mapAgentToOpenCode()`, `isValidAgent()` |
 | `utils/alias-resolver.js` | Alias Resolver Utilities | `applyDirectApiFallback()`, `autoRepairAlias()` |
 | `utils/api-key-store.js` | Maps provider IDs to environment variable names | `getEnvPath()`, `loadEnvEntries()`, `readApiKeys()`, `readApiKeyHints()`, `readApiKeyValues()` |
@@ -403,5 +408,6 @@ GEMINI.md and AGENTS.md are symlinks to CLAUDE.md -- no sync needed.
 - [docs/troubleshooting.md](docs/troubleshooting.md)
 - [docs/electron-testing.md](docs/electron-testing.md) - CDP patterns
 - [docs/jsdoc-setup.md](docs/jsdoc-setup.md) - JSDoc, `.d.ts` generation
+- [docs/research/2026-03-16-openai-codex-auth.md](docs/research/2026-03-16-openai-codex-auth.md) - Research on OpenAI/Codex auth reuse and product boundaries
 - [evals/README.md](evals/README.md) - Agentic eval system
 - [docs/plans/index.md](docs/plans/index.md) - Design plans

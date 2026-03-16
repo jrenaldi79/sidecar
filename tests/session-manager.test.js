@@ -24,7 +24,8 @@ const {
   updateSubagentSession,
   getSubagentSession,
   listSubagents,
-  saveSubagentSummary
+  saveSubagentSummary,
+  appendSubagentConversation
 } = require('../src/session-manager');
 
 describe('Session Manager', () => {
@@ -451,6 +452,22 @@ describe('Session Manager', () => {
         expect(metadata.briefing).toBe('Audit authentication');
         expect(metadata.status).toBe(SESSION_STATUS.RUNNING);
       });
+
+      it('should preserve optional backend metadata', () => {
+        const subagentId = 'subagent-backend';
+        createSubagentSession(projectDir, parentTaskId, subagentId, {
+          agentType: 'explore',
+          briefing: 'Find auth flows',
+          backend: 'codex',
+          sandboxMode: 'read-only',
+          pid: 4321
+        });
+
+        const metadata = getSubagentSession(projectDir, parentTaskId, subagentId);
+        expect(metadata.backend).toBe('codex');
+        expect(metadata.sandboxMode).toBe('read-only');
+        expect(metadata.pid).toBe(4321);
+      });
     });
 
     describe('updateSubagentSession', () => {
@@ -569,6 +586,27 @@ describe('Session Manager', () => {
         const metadata = getSubagentSession(projectDir, parentTaskId, subagentId);
         expect(metadata.status).toBe(SESSION_STATUS.COMPLETE);
         expect(metadata.completedAt).toBeDefined();
+      });
+    });
+
+    describe('appendSubagentConversation', () => {
+      it('should append a JSONL conversation entry for a sub-agent', () => {
+        const subagentId = 'subagent-conversation';
+        createSubagentSession(projectDir, parentTaskId, subagentId, {
+          agentType: 'general',
+          briefing: 'Do work'
+        });
+
+        appendSubagentConversation(projectDir, parentTaskId, subagentId, {
+          role: 'assistant',
+          content: 'Planning...'
+        });
+
+        const convPath = path.join(
+          projectDir, '.claude', 'sidecar_sessions', parentTaskId, 'subagents', subagentId, 'conversation.jsonl'
+        );
+
+        expect(fs.readFileSync(convPath, 'utf-8')).toContain('Planning...');
       });
     });
   });

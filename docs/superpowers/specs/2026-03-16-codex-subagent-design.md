@@ -89,8 +89,24 @@ The parent-facing contract should stay aligned with current OpenCode subagent co
 
 Initial mapping:
 
+- `Plan` -> `codex exec --json --sandbox read-only`
 - `Explore` -> `codex exec --json --sandbox read-only`
+- `Build` -> `codex exec --json --sandbox workspace-write`
 - `General` -> `codex exec --json --sandbox workspace-write`
+- `Chat` -> not supported for the Codex backend
+
+Because Codex `exec` is non-interactive, Sidecar should reject `chat` for Codex-backed subagents rather than pretending it can match OpenCode's interactive permission-asking behavior.
+
+### Role Prompt Adders
+
+Sandboxing alone is not enough to preserve OpenCode-style role semantics. Sidecar should prepend a short role-specific instruction block to the user briefing for each supported Codex role:
+
+- `plan`: analyze, propose, and do not modify files
+- `explore`: inspect, summarize findings, and stay read-only
+- `build`: make changes directly and report what changed
+- `general`: execute the task with full workspace access and summarize outcomes
+
+These adders should be short and explicit, so Codex gets clear behavioral guidance without drowning out the user briefing.
 
 Additional command behavior for v1:
 
@@ -159,12 +175,14 @@ This keeps the file compatible with existing Sidecar subagent listings while giv
 
 The first implementation slice should verify:
 
-1. `Explore` maps to read-only Codex sandboxing.
-2. `General` maps to writable Codex sandboxing.
-3. A Codex subagent creates the expected session files under the parent Sidecar task.
-4. Streaming execution produces meaningful normalized Sidecar conversation or progress updates before completion.
-5. Final summary output is saved to `summary.md` and final status is correct.
-6. Abort behavior terminates the subprocess and leaves a sane final metadata state.
+1. `Plan` and `Explore` map to read-only Codex sandboxing.
+2. `Build` and `General` map to writable Codex sandboxing.
+3. Role-specific prompt adders are applied for all four supported Codex roles.
+4. `Chat` is rejected clearly as unsupported for Codex-backed subagents.
+5. A Codex subagent creates the expected session files under the parent Sidecar task.
+6. Streaming execution produces meaningful normalized Sidecar conversation or progress updates before completion.
+7. Final summary output is saved to `summary.md` and final status is correct.
+8. Abort behavior terminates the subprocess and leaves a sane final metadata state.
 
 Manual local verification is acceptable for the first slice as long as the implementation also adds unit coverage around process launching, event normalization, and status transitions.
 
@@ -189,7 +207,7 @@ The repo also contains some subagent-oriented documentation and helper APIs, inc
 Proceed with a narrow event-stream adapter:
 
 1. implement `CodexSubagentRunner` around `codex exec --json`
-2. map `Explore` and `General` to Codex sandbox modes
+2. map `Plan`, `Explore`, `Build`, and `General` to Codex sandbox modes and short role prompt adders
 3. persist normalized Sidecar records under the existing subagent session layout
 4. keep docs and product claims intentionally minimal until the local workflow proves valuable
 

@@ -254,6 +254,67 @@ function getTools() {
       'used sidecar before.',
     inputSchema: {},
   },
+  {
+    name: 'sidecar_subagent_start',
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    description:
+      'Start a Codex-backed subagent beneath an existing Sidecar task. ' +
+      'Experimental and intended for local/skunk-works use.',
+    inputSchema: {
+      parentTaskId: safeTaskId.describe('Existing parent Sidecar task ID.'),
+      prompt: z.string().describe('Subagent briefing.'),
+      agentType: z.enum(['plan', 'explore', 'build', 'general']).describe(
+        'plan/explore: read-only Codex. build/general: workspace-write Codex. chat is unsupported.'
+      ),
+      model: safeModel.optional().describe('Optional Codex model override.'),
+      project: z.string().optional().describe(
+        'Optional project directory path. Auto-detected from working directory if omitted.'
+      ),
+    },
+  },
+  {
+    name: 'sidecar_subagent_status',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    description:
+      'Check the status of a Codex-backed subagent beneath an existing Sidecar task.',
+    inputSchema: {
+      parentTaskId: safeTaskId.describe('Existing parent Sidecar task ID.'),
+      subagentId: safeTaskId.describe('The subagent ID returned by sidecar_subagent_start.'),
+      project: z.string().optional().describe(
+        'Optional project directory path. Auto-detected from working directory if omitted.'
+      ),
+    },
+  },
+  {
+    name: 'sidecar_subagent_read',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    description:
+      'Read the results of a Codex-backed subagent beneath an existing Sidecar task.',
+    inputSchema: {
+      parentTaskId: safeTaskId.describe('Existing parent Sidecar task ID.'),
+      subagentId: safeTaskId.describe('The subagent ID to read.'),
+      mode: z.enum(['summary', 'conversation', 'metadata']).optional()
+        .default('summary').describe(
+          'What to read. summary (default): the folded result. conversation: normalized records. metadata: session info.'
+        ),
+      project: z.string().optional().describe(
+        'Optional project directory path. Auto-detected from working directory if omitted.'
+      ),
+    },
+  },
+  {
+    name: 'sidecar_subagent_abort',
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    description:
+      'Abort a running Codex-backed subagent beneath an existing Sidecar task.',
+    inputSchema: {
+      parentTaskId: safeTaskId.describe('Existing parent Sidecar task ID.'),
+      subagentId: safeTaskId.describe('The running subagent ID to abort.'),
+      project: z.string().optional().describe(
+        'Optional project directory path. Auto-detected from working directory if omitted.'
+      ),
+    },
+  },
   ];
 }
 
@@ -352,6 +413,8 @@ The sidecar has NO other context. Everything it needs must be in the briefing.
 
 ## Existing Sessions
 Call sidecar_list before spawning. Use sidecar_resume to reopen or sidecar_continue to build on previous findings.
+
+Experimental: \`sidecar_subagent_*\` tools can start Codex-backed subagents under an existing Sidecar task. This is currently intended for local/skunk-works use.
 `;
 }
 

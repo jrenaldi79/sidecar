@@ -184,6 +184,8 @@ describe('MCP Server Handlers', () => {
       'sidecar_start', 'sidecar_status', 'sidecar_read',
       'sidecar_list', 'sidecar_resume', 'sidecar_continue',
       'sidecar_setup', 'sidecar_guide', 'sidecar_abort',
+      'sidecar_subagent_start', 'sidecar_subagent_status',
+      'sidecar_subagent_read', 'sidecar_subagent_abort',
     ];
     for (const name of expectedTools) {
       expect(handlers).toHaveProperty(name);
