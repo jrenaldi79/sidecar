@@ -17,6 +17,8 @@ const EXPECTED_TOOLS = [
   'sidecar_start', 'sidecar_status', 'sidecar_read',
   'sidecar_list', 'sidecar_resume', 'sidecar_continue',
   'sidecar_setup', 'sidecar_guide', 'sidecar_abort',
+  'sidecar_subagent_start', 'sidecar_subagent_status',
+  'sidecar_subagent_read', 'sidecar_subagent_abort',
 ];
 
 /**
@@ -136,7 +138,7 @@ describe('MCP Protocol: handshake and tool discovery', () => {
     }
   });
 
-  it('lists all 9 sidecar tools via tools/list', async () => {
+  it('lists all 13 sidecar tools via tools/list', async () => {
     const result = await client.request('tools/list', {});
     expect(result.result).toBeDefined();
     const toolNames = result.result.tools.map(t => t.name);
