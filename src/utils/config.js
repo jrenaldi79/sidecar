@@ -29,7 +29,7 @@ const DEFAULT_ALIASES = {
   'devstral': 'openrouter/mistralai/devstral-2512',
   'glm': 'openrouter/z-ai/glm-5',
   'minimax': 'openrouter/minimax/minimax-m2.5',
-  'grok': 'openrouter/x-ai/grok-4.1-fast',
+  'grok': 'openrouter/x-ai/grok-4.20-beta',
   'kimi': 'openrouter/moonshotai/kimi-k2.5',
   'seed': 'openrouter/bytedance-seed/seed-2.0-mini',
 };
