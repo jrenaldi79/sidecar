@@ -166,8 +166,8 @@ describe('Sidecar Config Module - Miscellaneous', () => {
       expect(result).toHaveProperty('openrouter');
       expect(result.openrouter).toHaveProperty('models');
 
-      // grok alias -> openrouter/x-ai/grok-4.1-fast -> key should be x-ai/grok-4.1-fast
-      expect(result.openrouter.models['x-ai/grok-4.1-fast']).toBeDefined();
+      // grok alias -> openrouter/x-ai/grok-4.20-beta -> key should be x-ai/grok-4.20-beta
+      expect(result.openrouter.models['x-ai/grok-4.20-beta']).toBeDefined();
       // gemini alias
       expect(result.openrouter.models['google/gemini-3.1-flash-lite-preview']).toBeDefined();
     });

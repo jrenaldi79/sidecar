@@ -152,17 +152,17 @@ describe('buildServerOptions provider model sync', () => {
     expect(provider.openrouter.models).toBeDefined();
 
     // Should include models from default aliases
-    expect(provider.openrouter.models['x-ai/grok-4.1-fast']).toBeDefined();
+    expect(provider.openrouter.models['x-ai/grok-4.20-beta']).toBeDefined();
     expect(provider.openrouter.models['anthropic/claude-opus-4.6']).toBeDefined();
   });
 
   it('includes provider models even when other options are set', () => {
     const opts = buildServerOptions({
-      model: 'openrouter/x-ai/grok-4.1-fast',
+      model: 'openrouter/x-ai/grok-4.20-beta',
       systemPrompt: 'test',
     });
 
     expect(opts.config.provider.openrouter.models).toBeDefined();
-    expect(opts.config.model).toBe('openrouter/x-ai/grok-4.1-fast');
+    expect(opts.config.model).toBe('openrouter/x-ai/grok-4.20-beta');
   });
 });

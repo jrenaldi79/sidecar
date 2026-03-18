@@ -126,13 +126,13 @@ describe('Sidecar Config Module - Model Resolution', () => {
       fs.writeFileSync(path.join(tempDir, 'config.json'), JSON.stringify(data));
       const config = loadModule();
       const result = config.resolveModel('grok');
-      expect(result).toBe('openrouter/x-ai/grok-4.1-fast');
+      expect(result).toBe('openrouter/x-ai/grok-4.20-beta');
     });
 
     it('should resolve default alias (grok) with no config file at all', () => {
       const config = loadModule();
       const result = config.resolveModel('grok');
-      expect(result).toBe('openrouter/x-ai/grok-4.1-fast');
+      expect(result).toBe('openrouter/x-ai/grok-4.20-beta');
     });
 
     it('should resolve default from DEFAULT_ALIASES when user config default points to a built-in alias', () => {
@@ -140,7 +140,7 @@ describe('Sidecar Config Module - Model Resolution', () => {
       fs.writeFileSync(path.join(tempDir, 'config.json'), JSON.stringify(data));
       const config = loadModule();
       const result = config.resolveModel(undefined);
-      expect(result).toBe('openrouter/x-ai/grok-4.1-fast');
+      expect(result).toBe('openrouter/x-ai/grok-4.20-beta');
     });
 
     it('should still throw for truly unknown aliases not in defaults or user config', () => {

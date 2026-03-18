@@ -614,13 +614,13 @@ describe('MCP Server Handlers', () => {
       fs.mkdirSync(sessDir, { recursive: true });
       fs.writeFileSync(path.join(sessDir, 'metadata.json'), JSON.stringify({
         taskId: 'mdl1', status: 'complete',
-        model: 'openrouter/x-ai/grok-4.1-fast',
+        model: 'openrouter/x-ai/grok-4.20-beta',
         createdAt: new Date().toISOString(),
       }));
       try {
         const result = await handlers.sidecar_status({ taskId: 'mdl1' }, tmpDir);
         const parsed = JSON.parse(result.content[0].text);
-        expect(parsed.model).toBe('openrouter/x-ai/grok-4.1-fast');
+        expect(parsed.model).toBe('openrouter/x-ai/grok-4.20-beta');
       } finally {
         fs.rmSync(tmpDir, { recursive: true });
       }
@@ -667,12 +667,12 @@ describe('MCP Server Handlers', () => {
       const sessDir = path.join(tmpDir, '.claude', 'sidecar_sessions', 'rdmdl1');
       fs.mkdirSync(sessDir, { recursive: true });
       fs.writeFileSync(path.join(sessDir, 'metadata.json'), JSON.stringify({
-        model: 'openrouter/x-ai/grok-4.1-fast',
+        model: 'openrouter/x-ai/grok-4.20-beta',
       }));
       fs.writeFileSync(path.join(sessDir, 'summary.md'), '## Results\n\nFound the bug.');
       try {
         const result = await handlers.sidecar_read({ taskId: 'rdmdl1' }, tmpDir);
-        expect(result.content[0].text).toContain('openrouter/x-ai/grok-4.1-fast');
+        expect(result.content[0].text).toContain('openrouter/x-ai/grok-4.20-beta');
         expect(result.content[0].text).toContain('Found the bug.');
       } finally {
         fs.rmSync(tmpDir, { recursive: true });
