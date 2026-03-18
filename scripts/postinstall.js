@@ -6,6 +6,7 @@
  * 1. Copies SKILL.md to ~/.claude/skills/sidecar/
  * 2. Registers MCP server in Claude Code (~/.claude.json)
  * 3. Registers MCP server in Claude Desktop/Cowork config
+ * 4. Checks VM sandboxing prerequisites
  */
 
 const fs = require('fs');
@@ -110,11 +111,45 @@ function registerClaudeDesktop() {
   }
 }
 
+/**
+ * Check VM sandboxing prerequisites and return warnings.
+ * @param {object} [overrides] - Override paths for testing
+ * @returns {string[]} Array of warning messages
+ */
+function checkVMPrerequisites(overrides = {}) {
+  if (process.platform !== 'darwin') { return []; }
+
+  const warnings = [];
+  const claudeAppPath = overrides.claudeAppPath || '/Applications/Claude.app';
+  const coworkImagePath = overrides.coworkImagePath || path.join(
+    os.homedir(), 'Library', 'Application Support', 'Claude',
+    'vm_bundles', 'claudevm.bundle', 'rootfs.img'
+  );
+
+  if (!fs.existsSync(claudeAppPath)) {
+    warnings.push('Claude Desktop not found. VM sandboxing requires Claude Desktop to be installed.');
+  } else if (!fs.existsSync(coworkImagePath)) {
+    warnings.push('Cowork VM image not found. Enable Cowork in Claude Desktop for VM sandboxing.');
+  }
+
+  return warnings;
+}
+
 function main() {
   console.log('[claude-sidecar] Installing...');
   installSkill();
   registerClaudeCode();
   registerClaudeDesktop();
+
+  const vmWarnings = checkVMPrerequisites();
+  if (vmWarnings.length > 0) {
+    console.log('');
+    console.log('[claude-sidecar] VM Sandboxing:');
+    for (const w of vmWarnings) {
+      console.log(`  Warning: ${w}`);
+    }
+    console.log('  Sidecar will run without sandboxing until prerequisites are met.');
+  }
 
   console.log('');
   console.log('[claude-sidecar] Setup:');
@@ -127,4 +162,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { addMcpToConfigFile };
+module.exports = { addMcpToConfigFile, checkVMPrerequisites };

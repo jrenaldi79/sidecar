@@ -16,19 +16,21 @@ const { logger } = require('./logger');
  * @param {string} urlPath - URL path (e.g., '/session/abc/prompt_async')
  * @param {number} port - OpenCode server port
  * @param {object} [body] - JSON body to send
+ * @param {object} [options] - Additional options
+ * @param {string} [options.host='127.0.0.1'] - Target host (VM IP or localhost)
  * @returns {Promise<object>} Parsed JSON response
  */
-function apiRequest(method, urlPath, port, body) {
+function apiRequest(method, urlPath, port, body, options = {}) {
   return new Promise((resolve, reject) => {
-    const options = {
-      hostname: '127.0.0.1',
+    const reqOptions = {
+      hostname: options.host || '127.0.0.1',
       port,
       path: urlPath,
       method,
       headers: { 'Content-Type': 'application/json' }
     };
 
-    const req = http.request(options, (res) => {
+    const req = http.request(reqOptions, (res) => {
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {

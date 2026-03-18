@@ -190,6 +190,11 @@ sidecar/
 │   │       ├── webfetch.js      # WebFetch (formatWebfetchOutput)
 │   │       ├── task.js          # Task (formatTaskOutput)
 │   │       └── skill.js         # Skill (formatSkillOutput)
+│   ├── vm/                      # VM sandboxing (macOS Virtualization.framework)
+│   │   ├── provider.js          # VMProvider abstract class + createVMProvider() factory
+│   │   ├── noop.js              # NoopProvider (unsandboxed fallback)
+│   │   ├── macos-vz.js          # MacOSProvider (Cowork VM image reuse, CoW overlays)
+│   │   └── image-manager.js     # CoW disk image management (APFS clone, overlays)
 │   ├── prompts/                 # Prompt modules
 │   │   └── cowork-agent-prompt.js
 │   └── utils/                   # Helpers (see src/utils/ for full list)
@@ -209,6 +214,7 @@ sidecar/
 │   ├── mcp-app/
 │   ├── scripts/
 │   ├── sidecar/
+│   ├── vm/                      # VM provider, image manager, lifecycle tests
 │   ├── fixtures/                # Generated test data (gitignored)
 │   └── screenshots/             # CDP screenshots (gitignored)
 ├── skill/
@@ -223,11 +229,21 @@ sidecar/
 │   ├── fixtures/                # Seed projects per eval scenario
 │   ├── tests/                   # Eval unit tests (25 tests, 4 suites)
 │   └── workspace/               # Output (gitignored)
+├── swift/
+│   └── sidecar-vm/              # Swift CLI for macOS Virtualization.framework
+│       ├── Package.swift        # Swift package (macOS 13+, Virtualization framework)
+│       ├── Sources/
+│       │   ├── main.swift       # CLI: boot, shutdown, status, list commands
+│       │   └── VMManager.swift  # VM config (EFI, disk, NAT, VSOCK, VirtioFS)
+│       ├── sidecar-vm.entitlements  # com.apple.security.virtualization
+│       └── guest-agent/         # In-VM agent scripts
+│           ├── sidecar-guest-agent.sh  # VirtioFS mount, OpenCode start, VSOCK bridge
+│           └── install.sh       # Provisioning: socat, opencode, systemd service
 ├── scripts/
 │   ├── check-secrets.js         # Pre-commit secret detection
 │   ├── check-file-sizes.js      # Pre-commit file size enforcement
 │   ├── validate-docs.js         # CLAUDE.md drift detection
-│   ├── postinstall.js           # Auto-install skill + MCP registration
+│   ├── postinstall.js           # Auto-install skill + MCP registration + VM prereq checks
 │   ├── integration-test.sh      # E2E integration tests
 │   └── test-tools.sh            # Tooling smoke tests
 ├── .husky/
@@ -272,6 +288,10 @@ This is a short index of the most important entrypoints. See `src/`, `src/sideca
 | Logging | `src/utils/logger.js` | Structured logging |
 | Models | `src/utils/model-fetcher.js`, `src/utils/model-validator.js` | Provider model lists and validation |
 | Updates | `src/utils/updater.js` | Update check + execution |
+| VM | `src/vm/provider.js` | VMProvider interface + factory (platform abstraction) |
+| VM | `src/vm/macos-vz.js` | macOS provider (Cowork image reuse, provisioning checks) |
+| VM | `src/vm/image-manager.js` | CoW disk overlays (APFS clone per session) |
+| VM | `src/vm/noop.js` | Unsandboxed fallback (used when VM unavailable) |
 
 ---
 
@@ -381,6 +401,11 @@ LOG_LEVEL=error                           # debug | info | warn | error
 # Model Routing
 SIDECAR_DISABLE_MODEL_ROUTING=true        # Disable auto-routing for subagent tasks
 SIDECAR_EXPLORE_MODEL=openrouter/...      # Override model for Explore subagents
+
+# VM Sandboxing
+SIDECAR_VM_DISABLED=true                  # Disable VM sandboxing (force unsandboxed)
+SIDECAR_VM_RAM=2                          # VM RAM in GB (default: 2)
+SIDECAR_VM_CPUS=2                         # VM CPU cores (default: 2)
 
 # Advanced / Debug
 SIDECAR_CONFIG_DIR=/path/to/config        # Override config directory (~/.config/sidecar)
@@ -493,6 +518,9 @@ Quick project-specific reminders:
 | API key errors | Missing env var | Set `OPENROUTER_API_KEY` in .env |
 | Summary not captured | Fold not clicked | Click FOLD button or wait for [SIDECAR_FOLD] |
 | Question tool fails after answer | Using sync API | Ensure `sendToAPIStreaming()` is used, not `sendToAPI()`. See `docs/opencode.md`. |
+| VM not available | Claude Desktop not installed or Cowork image missing | Install Claude Desktop; VM falls back to unsandboxed mode automatically |
+| VM mount refused | Path too broad (home dir, root) | Mount a specific project directory, not `~` or `/` |
+| VM provisioning fails | Cowork image updated or first run | Check `~/.config/sidecar/vm/` for disk space; delete derived image to force re-provision |
 
 ---
 
@@ -520,6 +548,7 @@ GEMINI.md and AGENTS.md are symlinks to CLAUDE.md -- no sync needed.
 - [docs/jsdoc-setup.md](docs/jsdoc-setup.md) - JSDoc patterns and type declarations
 - [evals/README.md](evals/README.md) - Agentic eval system (end-to-end LLM interaction testing)
 - [docs/tool-coverage.md](docs/tool-coverage.md) - Tool coverage matrix and renderer build guide
+- [docs/plans/2026-03-17-vm-sandboxing-design.md](docs/plans/2026-03-17-vm-sandboxing-design.md) - VM sandboxing architecture and design
 - [skill/SKILL.md](skill/SKILL.md) - Claude Code skill integration
 - [OpenCode docs](https://opencode.ai/docs/) - SDK and server API reference (upstream)
 - [Husky docs](https://typicode.github.io/husky/) - Git hooks and config reference

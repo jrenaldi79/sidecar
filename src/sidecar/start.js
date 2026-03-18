@@ -25,6 +25,8 @@ const { loadMcpConfig, parseMcpSpec } = require('../opencode-client');
 const { mapAgentToOpenCode } = require('../utils/agent-mapping');
 const { checkConfigChanged } = require('../utils/config');
 const { discoverParentMcps } = require('../utils/mcp-discovery');
+const { createVMProvider } = require('../vm/provider');
+const { MacOSProvider } = require('../vm/macos-vz');
 
 /** Generate a unique 8-character hex task ID */
 function generateTaskId() {
@@ -190,19 +192,48 @@ async function startSidecar(options) {
   let summary;
   let result;
 
+  // VM sandboxing: enabled by default, only skipped for known-safe local clients.
+  // Falls back to unsandboxed mode if VM boot fails (stub methods, missing CLI, etc.)
+  const UNSANDBOXED_CLIENTS = new Set(['code-local', 'code-web']);
+  let vmProvider = null;
+  let vmConnection = null;
+  if (!UNSANDBOXED_CLIENTS.has(client)) {
+    try {
+      vmProvider = createVMProvider();
+      const vmAvailable = await vmProvider.isAvailable();
+      if (vmAvailable) {
+        logger.info('VM provider available, checking provisioning', { taskId });
+        if (await vmProvider.needsProvisioning()) {
+          logger.info('Provisioning VM image', { taskId });
+          await vmProvider.provision();
+        }
+        MacOSProvider.validateMountPath(effectiveProject);
+        vmConnection = await vmProvider.boot({ workspace: effectiveProject, taskId });
+        logger.info('VM booted', { taskId, host: vmConnection.host, transport: vmConnection.transport });
+      } else {
+        logger.info('VM not available, running unsandboxed', { taskId });
+        vmProvider = null;
+      }
+    } catch (vmErr) {
+      logger.warn('VM setup failed, falling back to unsandboxed mode', { taskId, error: vmErr.message });
+      vmProvider = null;
+      vmConnection = null;
+    }
+  }
+
   try {
     if (client === 'mcp-app') {
       logger.info('Launching MCP App server mode', { taskId, model });
       result = await runMcpAppServer(
         model, systemPrompt, userMessage, taskId, effectiveProject,
-        { mcp: mcpServers, reasoning, agent, client }
+        { mcp: mcpServers, reasoning, agent, client, vmConnection }
       );
       summary = result.summary || '';
       if (result.error) { logger.error('MCP App error', { taskId, error: result.error }); }
     } else if (effectiveHeadless) {
       result = await runHeadless(
         model, systemPrompt, userMessage, taskId, effectiveProject,
-        timeout * 60 * 1000, agent || 'build', { mcp: mcpServers, summaryLength, reasoning, port: opencodePort }
+        timeout * 60 * 1000, agent || 'build', { mcp: mcpServers, summaryLength, reasoning, port: opencodePort, vmConnection }
       );
       summary = result.summary || '## Sidecar Results: No Output\n\nHeadless mode completed without summary.';
       if (result.timedOut) { logger.warn('Task timed out', { taskId }); }
@@ -212,13 +243,21 @@ async function startSidecar(options) {
       logger.info('Launching interactive sidecar', { taskId, model, agent: effectiveAgent });
       result = await runInteractive(
         model, systemPrompt, userMessage, taskId, effectiveProject,
-        { agent, mcp: mcpServers, reasoning, client, windowPosition: position }
+        { agent, mcp: mcpServers, reasoning, client, windowPosition: position, vmConnection }
       );
       summary = result.summary || '';
       if (result.error) { logger.error('Interactive task error', { taskId, error: result.error }); }
     }
   } finally {
     heartbeat.stop();
+    if (vmProvider) {
+      try {
+        await vmProvider.shutdown();
+        logger.info('VM shut down', { taskId });
+      } catch (shutdownErr) {
+        logger.warn('VM shutdown failed', { taskId, error: shutdownErr.message });
+      }
+    }
   }
 
   outputSummary(summary);

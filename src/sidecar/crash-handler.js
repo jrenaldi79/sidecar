@@ -14,9 +14,13 @@ const { SessionPaths } = require('./session-utils');
  *
  * @param {string} taskId - The sidecar task ID
  * @param {string} project - The project root directory
+ * @param {object} [options] - Additional options
+ * @param {object} [options.vmProvider] - VM provider to shut down on crash
  * @returns {function(Error): void} Handler function to call with the error
  */
-function installCrashHandler(taskId, project) {
+function installCrashHandler(taskId, project, options = {}) {
+  const { vmProvider } = options;
+
   return function handleCrash(err) {
     try {
       const sessionDir = SessionPaths.sessionDir(project, taskId);
@@ -39,6 +43,15 @@ function installCrashHandler(taskId, project) {
       fs.writeFileSync(metaPath, JSON.stringify(metadata, null, 2), { mode: 0o600 });
     } catch (_ignored) {
       // Crash handler must never throw - swallow all errors
+    }
+
+    // Best-effort VM shutdown on crash
+    if (vmProvider) {
+      try {
+        vmProvider.shutdown();
+      } catch (_ignored) {
+        // Must never throw in crash handler
+      }
     }
   };
 }
