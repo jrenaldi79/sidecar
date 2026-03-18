@@ -201,7 +201,7 @@ describe('Sidecar Config Module', () => {
       const aliases = config.getDefaultAliases();
       expect(aliases.glm).toBe('openrouter/z-ai/glm-5');
       expect(aliases.minimax).toBe('openrouter/minimax/minimax-m2.5');
-      expect(aliases.grok).toBe('openrouter/x-ai/grok-4.1-fast');
+      expect(aliases.grok).toBe('openrouter/x-ai/grok-4.20-beta');
       expect(aliases.kimi).toBe('openrouter/moonshotai/kimi-k2.5');
       expect(aliases.seed).toBe('openrouter/bytedance-seed/seed-2.0-mini');
     });
