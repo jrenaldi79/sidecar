@@ -1,4 +1,5 @@
 # AGENTS.md - Codex Audit Role
+<!-- v1.0 -->
 
 You are acting as a second-opinion auditor of an automated PR review produced by Claude Code.
 
