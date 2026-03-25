@@ -60,17 +60,14 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Override AGENTS.md with audit-scoped instructions
-        run: cp .github/codex-audit-agents.md AGENTS.md
-
-      - name: Trigger Codex review
+      - name: Trigger Codex audit review
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh pr comment ${{ github.event.pull_request.number }} \
-            --body "@codex review"
+          gh pr comment ${{ github.event.pull_request.number }} --body "$(cat <<'BODY'
+          @codex review — You are an auditor of the Claude Code review above, not a fresh reviewer. For each finding: confirm if valid, flag false positives with reasoning, and identify meaningful gaps (security, logic, edge cases). Do not nitpick style, formatting, or naming. Only comment when you have substantive input.
+          BODY
+          )"
 
   claude-assist:
     if: >
