@@ -166,3 +166,87 @@ describe('buildServerOptions provider model sync', () => {
     expect(opts.config.model).toBe('openrouter/x-ai/grok-4.1-fast');
   });
 });
+
+describe('buildServerOptions MCP type normalization', () => {
+  it('normalizes Claude Desktop format (no type) to local', () => {
+    const opts = buildServerOptions({
+      mcp: { myserver: { command: 'npx', args: ['-y', '@my/server'] } }
+    });
+    expect(opts.config.mcp.myserver).toEqual({
+      type: 'local',
+      enabled: true,
+      command: ['npx', '-y', '@my/server']
+    });
+  });
+
+  it('normalizes type: "stdio" (Claude Code internal format) to local', () => {
+    const opts = buildServerOptions({
+      mcp: { myserver: { type: 'stdio', command: 'node', args: ['server.js'] } }
+    });
+    expect(opts.config.mcp.myserver).toEqual({
+      type: 'local',
+      enabled: true,
+      command: ['node', 'server.js']
+    });
+  });
+
+  it('normalizes type: "http" to remote', () => {
+    const opts = buildServerOptions({
+      mcp: { remote: { type: 'http', url: 'https://example.com/mcp' } }
+    });
+    expect(opts.config.mcp.remote).toEqual({
+      type: 'remote',
+      enabled: true,
+      url: 'https://example.com/mcp'
+    });
+  });
+
+  it('normalizes type: "sse" to remote', () => {
+    const opts = buildServerOptions({
+      mcp: { remote: { type: 'sse', url: 'https://example.com/sse' } }
+    });
+    expect(opts.config.mcp.remote).toEqual({
+      type: 'remote',
+      enabled: true,
+      url: 'https://example.com/sse'
+    });
+  });
+
+  it('passes through already-normalized local config unchanged', () => {
+    const already = { type: 'local', enabled: true, command: ['node', 'srv.js'] };
+    const opts = buildServerOptions({ mcp: { s: already } });
+    expect(opts.config.mcp.s).toEqual(already);
+  });
+
+  it('passes through already-normalized remote config unchanged', () => {
+    const already = { type: 'remote', enabled: true, url: 'https://example.com' };
+    const opts = buildServerOptions({ mcp: { s: already } });
+    expect(opts.config.mcp.s).toEqual(already);
+  });
+
+  it('handles multiple servers with mixed input formats', () => {
+    const opts = buildServerOptions({
+      mcp: {
+        desktop: { command: 'npx', args: ['-y', '@pkg/mcp'] },
+        codeMcp: { type: 'stdio', command: 'node', args: ['s.js'] },
+        httpRemote: { type: 'http', url: 'https://api.example.com/mcp' },
+        sseRemote: { type: 'sse', url: 'https://api.example.com/sse' },
+      }
+    });
+    expect(opts.config.mcp.desktop.type).toBe('local');
+    expect(opts.config.mcp.codeMcp.type).toBe('local');
+    expect(opts.config.mcp.httpRemote.type).toBe('remote');
+    expect(opts.config.mcp.sseRemote.type).toBe('remote');
+  });
+
+  it('handles stdio server with no args', () => {
+    const opts = buildServerOptions({
+      mcp: { minimal: { type: 'stdio', command: '/usr/bin/mcp-server' } }
+    });
+    expect(opts.config.mcp.minimal).toEqual({
+      type: 'local',
+      enabled: true,
+      command: ['/usr/bin/mcp-server']
+    });
+  });
+});

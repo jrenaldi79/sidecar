@@ -306,29 +306,43 @@ function buildServerOptions(options = {}) {
   // Build config object for SDK
   const config = {};
   if (options.mcp) {
-    // Normalize MCP configs for OpenCode SDK format.
-    // Claude Desktop uses {command: "cmd", args: ["a","b"], env: {...}}
-    // OpenCode expects  {type: "local", enabled: true, command: ["cmd","a","b"], env: {...}}
-    // Key differences:
-    //   1. type: "local" (discriminated union, required)
-    //   2. enabled: true (required boolean)
-    //   3. command: array that includes the binary AND args (merged)
+    // Normalize MCP configs for OpenCode's discriminated union format.
+    //
+    // OpenCode accepts exactly two type values (ConfigInvalidError otherwise):
+    //   { type: "local",  enabled: true, command: ["cmd", ...args] }
+    //   { type: "remote", enabled: true, url: "https://..." }
+    //
+    // Input formats we handle:
+    //   Claude Code internal : { type: "stdio", command: "cmd", args: [...] }
+    //   Claude Desktop       : { command: "cmd", args: [...] }   (no type field)
+    //   Claude Code remote   : { type: "http",  url: "..." }
+    //                          { type: "sse",   url: "..." }
+    //   Already normalized   : { type: "local"|"remote", ... }  → pass through
+    //
+    // Note: OpenCode's "local" schema does NOT support an `env` field.
+    // Environment variables from the source config are intentionally dropped;
+    // MCP servers inherit the parent process environment which is sufficient.
     const normalized = {};
     for (const [name, serverConfig] of Object.entries(options.mcp)) {
-      if (serverConfig.command && !serverConfig.type) {
-        // Claude Desktop format → OpenCode format
+      const t = serverConfig.type;
+      if (t === 'stdio' || (!t && serverConfig.command)) {
+        // stdio process (Claude Code or Claude Desktop format) → local
         const cmd = typeof serverConfig.command === 'string' ? serverConfig.command : String(serverConfig.command);
         const args = Array.isArray(serverConfig.args) ? serverConfig.args : [];
-        // Note: OpenCode's "local" schema does NOT support an `env` field.
-        // Environment variables from the Claude Desktop config are intentionally
-        // dropped here. The MCP servers inherit the parent process environment
-        // which is usually sufficient.
         normalized[name] = {
           type: 'local',
           enabled: true,
           command: [cmd, ...args]
         };
+      } else if (t === 'http' || t === 'sse') {
+        // HTTP/SSE remote server → remote
+        normalized[name] = {
+          type: 'remote',
+          enabled: true,
+          url: serverConfig.url
+        };
       } else {
+        // Already in OpenCode format (type: "local"|"remote") or unknown — pass through
         normalized[name] = serverConfig;
       }
     }
