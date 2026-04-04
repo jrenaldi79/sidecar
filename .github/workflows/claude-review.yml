@@ -67,7 +67,10 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           gh pr comment "$PR_NUMBER" --repo "$GH_REPO" --body "$(cat <<'BODY'
-          @codex review — You are an auditor of the Claude Code review above, not a fresh reviewer. For each finding: confirm if valid, flag false positives with reasoning, and identify meaningful gaps (security, logic, edge cases). Do not nitpick style, formatting, or naming. Only comment when you have substantive input.
+          @codex review — You are an auditor of the Claude Code review above, not a fresh reviewer.
+          For each finding: confirm if valid, flag false positives with reasoning, and identify
+          meaningful gaps (security, logic, edge cases). Do not nitpick style, formatting, or naming.
+          Only comment when you have substantive input.
           BODY
           )"
 
