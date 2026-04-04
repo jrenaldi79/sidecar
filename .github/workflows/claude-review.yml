@@ -38,6 +38,21 @@ jobs:
           plugins: |
             pr-review-toolkit@claude-code-plugins
 
+          settings: |
+            {
+              "permissions": {
+                "allow": [
+                  "Bash(gh:*)",
+                  "Bash(git diff:*)",
+                  "Bash(git log:*)",
+                  "Bash(git show:*)",
+                  "Read",
+                  "Glob",
+                  "Grep"
+                ]
+              }
+            }
+
   security-review:
     if: github.event_name == 'pull_request' && !github.event.pull_request.draft
     runs-on: ubuntu-latest
