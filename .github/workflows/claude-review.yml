@@ -11,7 +11,7 @@ on:
     types: [opened, assigned]
 
 concurrency:
-  group: claude-${{ github.event.pull_request.number || github.event.issue.number }}
+  group: claude-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.issue.number }}
   cancel-in-progress: true
 
 jobs:
@@ -68,6 +68,7 @@ jobs:
       - uses: anthropics/claude-code-security-review@main
         with:
           claude-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          run-every-commit: true
 
   codex-audit:
     needs: auto-review
