@@ -29,6 +29,7 @@ jobs:
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          use_sticky_comment: true
           prompt: |
             Review this PR. Always post a review comment summarizing your findings, even if no issues are found.
 
@@ -66,9 +67,34 @@ jobs:
           fetch-depth: 2
 
       - uses: anthropics/claude-code-security-review@main
+        id: security-scan
         with:
           claude-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           run-every-commit: true
+
+      - name: Post security review summary
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FINDINGS: ${{ steps.security-scan.outputs.findings-count }}
+        run: |
+          BODY="## Security Review\n\n"
+          if [ "$FINDINGS" = "0" ] || [ -z "$FINDINGS" ]; then
+            BODY="${BODY}No security vulnerabilities found. Clean bill of health."
+          else
+            BODY="${BODY}Found **${FINDINGS}** security issue(s). See inline comments above for details."
+          fi
+          BODY="${BODY}\n\n---\n*Scope: security vulnerabilities only (injection, auth, secrets, XSS, etc.). For code quality and logic review, see the separate Code Review comment.*"
+          # Update or create a sticky comment so we don't spam on every push
+          MARKER="<!-- security-review-sticky -->"
+          EXISTING=$(gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            --jq ".[] | select(.body | contains(\"$MARKER\")) | .id" | head -1)
+          FULL_BODY="${MARKER}\n${BODY}"
+          if [ -n "$EXISTING" ]; then
+            gh api "repos/${{ github.repository }}/issues/comments/$EXISTING" -X PATCH -f body="$(echo -e "$FULL_BODY")"
+          else
+            gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" -f body="$(echo -e "$FULL_BODY")"
+          fi
 
   codex-audit:
     needs: auto-review
