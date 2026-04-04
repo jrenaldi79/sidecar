@@ -29,6 +29,8 @@ jobs:
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Review this PR. Always post a review comment summarizing your findings, even if no issues are found.
 
           plugin_marketplaces: |
             https://github.com/anthropics/claude-code.git

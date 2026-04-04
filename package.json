@@ -53,7 +53,7 @@
     "generate-docs": "node scripts/generate-docs.js",
     "generate-docs:check": "node scripts/generate-docs.js --check",
     "validate-docs": "node scripts/validate-docs.js --full",
-    "prepare": "husky"
+    "prepare": "[ -d .git ] && husky || true"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.0",
