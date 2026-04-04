@@ -164,4 +164,22 @@ describe('buildServerOptions MCP type normalization', () => {
     expect(opts.config.mcp.disabled.enabled).toBe(false);
     expect(opts.config.mcp.disabled.type).toBe('remote');
   });
+
+  it('passes through unknown types with a warning', () => {
+    const { logger } = require('../src/utils/logger');
+    const opts = buildServerOptions({
+      mcp: {
+        exotic: { type: 'grpc', url: 'grpc://localhost:50051' }
+      }
+    });
+    // Unknown type passes through unchanged
+    expect(opts.config.mcp.exotic).toEqual({
+      type: 'grpc',
+      url: 'grpc://localhost:50051'
+    });
+    // Warning logged for unrecognized type
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('unrecognized type "grpc"')
+    );
+  });
 });

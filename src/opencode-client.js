@@ -355,6 +355,10 @@ function buildServerOptions(options = {}) {
         };
       } else {
         // Already in OpenCode format (type: "local"|"remote") or unknown — pass through
+        if (t && t !== 'local' && t !== 'remote') {
+          const { logger } = require('./utils/logger');
+          logger.warn(`MCP server "${name}": unrecognized type "${t}" — passing through unchanged`);
+        }
         normalized[name] = serverConfig;
       }
     }
