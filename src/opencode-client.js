@@ -327,6 +327,11 @@ function buildServerOptions(options = {}) {
       const t = serverConfig.type;
       if (t === 'stdio' || (!t && serverConfig.command)) {
         // stdio process (Claude Code or Claude Desktop format) → local
+        if (!serverConfig.command) {
+          const { logger } = require('./utils/logger');
+          logger.warn(`MCP server "${name}": type "stdio" requires a command — skipping`);
+          continue;
+        }
         const cmd = typeof serverConfig.command === 'string' ? serverConfig.command : String(serverConfig.command);
         const args = Array.isArray(serverConfig.args) ? serverConfig.args : [];
         normalized[name] = {
@@ -336,10 +341,17 @@ function buildServerOptions(options = {}) {
         };
       } else if (t === 'http' || t === 'sse') {
         // HTTP/SSE remote server → remote
+        if (!serverConfig.url) {
+          const { logger } = require('./utils/logger');
+          logger.warn(`MCP server "${name}": type "${t}" requires a url — skipping`);
+          continue;
+        }
+        // Preserve extra remote options (headers, oauth, timeout, etc.)
+        const { type: _t, args: _a, command: _c, ...rest } = serverConfig;
         normalized[name] = {
+          ...rest,
           type: 'remote',
-          enabled: true,
-          url: serverConfig.url
+          enabled: rest.enabled !== undefined ? rest.enabled : true
         };
       } else {
         // Already in OpenCode format (type: "local"|"remote") or unknown — pass through
