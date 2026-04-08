@@ -1016,6 +1016,23 @@ sidecar start --model gemini --prompt "Task"
 
 ---
 
+## Auto-Skills: Contextual Sidecar Triggers
+
+Sidecar includes auto-skills that fire automatically at key workflow moments. These are NOT user-invocable — they trigger based on conversation context. When their conditions are met, you MUST check the corresponding skill and offer to run it.
+
+| Auto-Skill | Trigger Condition | What It Does |
+|------------|-------------------|--------------|
+| `auto-review` | You have finished implementing changes and are about to tell the user "done" | Offers sidecar code review of the diff before finalizing |
+| `auto-unblock` | You have tried 5+ distinct approaches to fix a bug and all have failed | Offers sidecar brainstorming session with a different model |
+| `auto-security` | User says "commit", "push", "create PR", or you are about to run git commit/push/gh pr create | Offers sidecar security scan of staged changes before commit |
+| `auto-bmad-method-check` | A BMAD-METHOD artifact (PRD, architecture, epics, story, etc.) has just been written or updated in `_bmad-output/` | Offers sidecar second-opinion review of the artifact |
+
+**How to use:** When you recognize a trigger condition above, invoke the skill (e.g., `/sidecar-auto-review`) or read it from `~/.claude/skills/sidecar-<skill-name>/SKILL.md` and follow its procedure. Each skill will prompt the user for confirmation before spawning any sidecars.
+
+**Skip conditions (common to all):** Skip if the `mcp__sidecar__sidecar_start` tool is not available, or if a sidecar review already ran for the same content.
+
+---
+
 ## Quick Start Checklist
 
 1. [ ] Install sidecar: `npm install -g claude-sidecar`

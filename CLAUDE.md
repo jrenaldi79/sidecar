@@ -169,7 +169,7 @@ scripts/
 ├── generate-icon.js  # Generate app icon PNG from SVG source.
 ├── integration-test.sh
 ├── list-models.js
-├── postinstall.js  # Install skill file to ~/.claude/skills/sidecar/
+├── postinstall.js  # Install skill files to ~/.claude/skills/
 ├── test-tools.sh
 ├── validate-docs.js  # * Main entry point.
 ├── validate-thinking.js

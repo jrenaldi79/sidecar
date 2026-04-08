@@ -13,9 +13,21 @@ const path = require('path');
 const os = require('os');
 const { execFileSync } = require('child_process');
 
-const SKILL_SOURCE = path.join(__dirname, '..', 'skill', 'SKILL.md');
+const SKILL_DIR = path.join(__dirname, '..', 'skill');
+const SKILL_SOURCE = path.join(SKILL_DIR, 'SKILL.md');
 const SKILL_DEST_DIR = path.join(os.homedir(), '.claude', 'skills', 'sidecar');
 const SKILL_DEST = path.join(SKILL_DEST_DIR, 'SKILL.md');
+
+let AUTO_SKILLS = [];
+try {
+  AUTO_SKILLS = fs
+    .readdirSync(SKILL_DIR, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith('auto-'))
+    .map((entry) => entry.name)
+    .sort();
+} catch {
+  // skill/ directory missing — continue with empty list
+}
 
 const MCP_CONFIG = { command: 'npx', args: ['-y', 'claude-sidecar@latest', 'mcp'] };
 
@@ -50,7 +62,7 @@ function addMcpToConfigFile(configPath, name, config) {
   return status;
 }
 
-/** Install skill file to ~/.claude/skills/sidecar/ */
+/** Install skill files to ~/.claude/skills/ */
 function installSkill() {
   try {
     fs.mkdirSync(SKILL_DEST_DIR, { recursive: true });
@@ -58,6 +70,32 @@ function installSkill() {
     console.log('[claude-sidecar] Skill installed to ~/.claude/skills/sidecar/');
   } catch (err) {
     console.error(`[claude-sidecar] Warning: Could not install skill: ${err.message}`);
+  }
+
+  const skillsRoot = path.join(os.homedir(), '.claude', 'skills');
+  for (const name of AUTO_SKILLS) {
+    try {
+      const src = path.join(SKILL_DIR, name, 'SKILL.md');
+      // Install as top-level skill (e.g., ~/.claude/skills/sidecar-auto-review/)
+      // so Claude Code discovers it in the available skills list
+      const destDir = path.join(skillsRoot, `sidecar-${name}`);
+      fs.mkdirSync(destDir, { recursive: true });
+      fs.copyFileSync(src, path.join(destDir, 'SKILL.md'));
+      console.log(`[claude-sidecar] Skill installed: sidecar-${name}`);
+
+      // Clean up old nested location (~/.claude/skills/sidecar/<name>/)
+      const oldDir = path.join(SKILL_DEST_DIR, name);
+      try {
+        if (fs.existsSync(path.join(oldDir, 'SKILL.md'))) {
+          fs.unlinkSync(path.join(oldDir, 'SKILL.md'));
+          fs.rmdirSync(oldDir);
+        }
+      } catch {
+        // Old location doesn't exist or already cleaned — ignore
+      }
+    } catch (err) {
+      console.error(`[claude-sidecar] Warning: Could not install ${name} skill: ${err.message}`);
+    }
   }
 }
 
