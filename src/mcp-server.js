@@ -4,9 +4,13 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { getTools, getGuideText } = require('./mcp-tools');
 const { tryResolveModel } = require('./utils/config');
-const os = require('os');
 const { logger } = require('./utils/logger');
 const { safeSessionDir } = require('./utils/validators');
+const {
+  assertContextBinding,
+  validateProjectPath,
+  validateSubagentParent
+} = require('./utils/sidecar-boundaries');
 const { readProgress } = require('./sidecar/progress');
 const { SharedServerManager } = require('./utils/shared-server');
 
@@ -14,11 +18,20 @@ const sharedServer = new SharedServerManager({ logger });
 
 /** Resolve the project directory with smart fallback. */
 function getProjectDir(explicitProject) {
-  if (explicitProject && fs.existsSync(explicitProject)) { return explicitProject; }
   const cwd = process.cwd();
-  if (cwd !== '/' && fs.existsSync(cwd)) { return cwd; }
-  if (cwd === '/') { logger.warn('cwd is root (/), falling back to $HOME'); }
-  return os.homedir();
+  if (explicitProject && fs.existsSync(explicitProject)) {
+    return validateProjectPath(path.resolve(explicitProject), { cwd });
+  }
+  return validateProjectPath(path.resolve(cwd), { cwd });
+}
+
+/** Resolve and validate the project path used by an MCP handler. */
+function resolveHandlerProject(input = {}, project) {
+  if (project) {
+    const resolved = path.resolve(project);
+    return validateProjectPath(resolved, { cwd: resolved, allowedRoots: [resolved] });
+  }
+  return getProjectDir(input.project);
 }
 
 /** Read session metadata from disk, or null if not found */
@@ -27,6 +40,18 @@ function readMetadata(taskId, project) {
   const metaPath = path.join(sessionDir, 'metadata.json');
   if (!fs.existsSync(metaPath)) { return null; }
   return JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+}
+
+/** Read and validate parent metadata before using subagent files. */
+function readValidatedParentMetadata(taskId, project) {
+  const metadata = readMetadata(taskId, project);
+  if (!metadata) { return null; }
+  validateSubagentParent({
+    ...metadata,
+    taskId: metadata.taskId || taskId,
+    projectDir: metadata.projectDir || metadata.project || project
+  }, project);
+  return metadata;
 }
 
 /** Resolve a subagent session directory safely beneath a parent sidecar task. */
@@ -97,9 +122,22 @@ const handlers = {
     }
     const resolvedModel = validation.resolvedModel;
 
-    const cwd = project || getProjectDir(input.project);
+    const cwd = resolveHandlerProject(input, project);
     const { generateTaskId } = require('./sidecar/start');
     const taskId = generateTaskId();
+    const includeContext = input.includeContext === true;
+    if (includeContext) {
+      try {
+        assertContextBinding({
+          parentSession: input.parentSession,
+          session: input.parentSession,
+          coworkProcess: input.coworkProcess,
+          client: input.coworkProcess ? 'cowork' : undefined
+        });
+      } catch (err) {
+        return textResult(err.message, true);
+      }
+    }
 
     const args = ['start', '--prompt', input.prompt, '--task-id', taskId, '--client', 'cowork'];
     if (resolvedModel) { args.push('--model', resolvedModel); }
@@ -113,7 +151,7 @@ const handlers = {
     if (input.contextSince)     { args.push('--context-since', input.contextSince); }
     if (input.contextMaxTokens) { args.push('--context-max-tokens', String(input.contextMaxTokens)); }
     if (input.summaryLength)    { args.push('--summary-length', input.summaryLength); }
-    if (input.includeContext === false) { args.push('--no-context'); }
+    if (!includeContext) { args.push('--no-context'); }
     if (input.coworkProcess)    { args.push('--cowork-process', input.coworkProcess); }
     if (input.parentSession)    { args.push('--session-id', input.parentSession); }
     if (input.windowPosition)   { args.push('--position', input.windowPosition); }
@@ -145,22 +183,26 @@ const handlers = {
           opencodeSessionId: sessionId,
           opencodePort: serverPort,
           goPid: server.goPid || null,
+          project: cwd,
+          projectDir: cwd,
           createdAt: new Date().toISOString(),
           headless: true, model: resolvedModel,
         }, null, 2), { mode: 0o600 });
 
         // Build context from parent conversation (unless --no-context)
         let context = null;
-        if (input.includeContext !== false) {
+        if (includeContext) {
           try {
             context = buildContext(cwd, input.parentSession, {
               contextTurns: input.contextTurns,
               contextSince: input.contextSince,
               contextMaxTokens: input.contextMaxTokens,
               coworkProcess: input.coworkProcess,
+              client: input.coworkProcess ? 'cowork' : undefined,
+              parentProject: cwd,
             });
           } catch (ctxErr) {
-            logger.warn('Failed to build context, proceeding without', { error: ctxErr.message });
+            return textResult(`Failed to build context: ${ctxErr.message}`, true);
           }
         }
 
@@ -241,6 +283,7 @@ const handlers = {
       if (!fs.existsSync(metaPath)) {
         fs.writeFileSync(metaPath, JSON.stringify({
           taskId, status: 'running', pid: child.pid, createdAt: new Date().toISOString(),
+          project: cwd, projectDir: cwd,
           headless: !!input.noUi,
         }, null, 2), { mode: 0o600 });
       }
@@ -262,7 +305,7 @@ const handlers = {
   },
 
   async sidecar_status(input, project) {
-    const cwd = project || getProjectDir(input.project);
+    const cwd = resolveHandlerProject(input, project);
     const sessionDir = safeSessionDir(cwd, input.taskId);
     const metadata = readMetadata(input.taskId, cwd);
     if (!metadata) { return textResult(`Session ${input.taskId} not found.`, true); }
@@ -314,7 +357,7 @@ const handlers = {
   },
 
   async sidecar_read(input, project) {
-    const cwd = project || getProjectDir(input.project);
+    const cwd = resolveHandlerProject(input, project);
     const sessionDir = safeSessionDir(cwd, input.taskId);
     if (!fs.existsSync(sessionDir)) {
       return textResult(`Session ${input.taskId} not found.`, true);
@@ -344,7 +387,7 @@ const handlers = {
   },
 
   async sidecar_list(input, project) {
-    const cwd = project || getProjectDir(input.project);
+    const cwd = resolveHandlerProject(input, project);
     const sessionsDir = path.join(cwd, '.claude', 'sidecar_sessions');
     if (!fs.existsSync(sessionsDir)) { return textResult('No sidecar sessions found.'); }
 
@@ -375,7 +418,7 @@ const handlers = {
   },
 
   async sidecar_resume(input, project) {
-    const cwd = project || getProjectDir(input.project);
+    const cwd = resolveHandlerProject(input, project);
     const sessionDir = safeSessionDir(cwd, input.taskId);
     const args = ['resume', input.taskId, '--client', 'cowork', '--cwd', cwd];
     if (input.noUi) { args.push('--no-ui', '--agent', 'build'); }
@@ -397,7 +440,7 @@ const handlers = {
       }
     }
 
-    const cwd = project || getProjectDir(input.project);
+    const cwd = resolveHandlerProject(input, project);
     const { generateTaskId } = require('./sidecar/start');
     const newTaskId = generateTaskId();
     const sessionDir = path.join(cwd, '.claude', 'sidecar_sessions', newTaskId);
@@ -419,7 +462,7 @@ const handlers = {
   },
 
   async sidecar_abort(input, project) {
-    const cwd = project || getProjectDir(input.project);
+    const cwd = resolveHandlerProject(input, project);
     const metadata = readMetadata(input.taskId, cwd);
     if (!metadata) { return textResult(`Session ${input.taskId} not found.`, true); }
     if (metadata.status !== 'running') {
@@ -446,8 +489,8 @@ const handlers = {
   },
 
   async sidecar_subagent_start(input, project) {
-    const cwd = project || getProjectDir(input.project);
-    const parentMetadata = readMetadata(input.parentTaskId, cwd);
+    const cwd = resolveHandlerProject(input, project);
+    const parentMetadata = readValidatedParentMetadata(input.parentTaskId, cwd);
     if (!parentMetadata) {
       return textResult(`Parent session ${input.parentTaskId} not found.`, true);
     }
@@ -483,7 +526,11 @@ const handlers = {
   },
 
   async sidecar_subagent_status(input, project) {
-    const cwd = project || getProjectDir(input.project);
+    const cwd = resolveHandlerProject(input, project);
+    const parentMetadata = readValidatedParentMetadata(input.parentTaskId, cwd);
+    if (!parentMetadata) {
+      return textResult(`Parent session ${input.parentTaskId} not found.`, true);
+    }
     const subagentDir = getSubagentSessionDir(cwd, input.parentTaskId, input.subagentId);
     const metadata = readSubagentMetadata(cwd, input.parentTaskId, input.subagentId);
     if (!metadata) {
@@ -524,7 +571,11 @@ const handlers = {
   },
 
   async sidecar_subagent_read(input, project) {
-    const cwd = project || getProjectDir(input.project);
+    const cwd = resolveHandlerProject(input, project);
+    const parentMetadata = readValidatedParentMetadata(input.parentTaskId, cwd);
+    if (!parentMetadata) {
+      return textResult(`Parent session ${input.parentTaskId} not found.`, true);
+    }
     const subagentDir = getSubagentSessionDir(cwd, input.parentTaskId, input.subagentId);
     if (!fs.existsSync(subagentDir)) {
       return textResult(`Sub-agent ${input.subagentId} not found under parent ${input.parentTaskId}.`, true);
@@ -548,7 +599,11 @@ const handlers = {
   },
 
   async sidecar_subagent_abort(input, project) {
-    const cwd = project || getProjectDir(input.project);
+    const cwd = resolveHandlerProject(input, project);
+    const parentMetadata = readValidatedParentMetadata(input.parentTaskId, cwd);
+    if (!parentMetadata) {
+      return textResult(`Parent session ${input.parentTaskId} not found.`, true);
+    }
     const metadata = readSubagentMetadata(cwd, input.parentTaskId, input.subagentId);
     if (!metadata) {
       return textResult(`Sub-agent ${input.subagentId} not found under parent ${input.parentTaskId}.`, true);

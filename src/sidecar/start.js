@@ -5,6 +5,7 @@
 
 const crypto = require('crypto');
 const fs = require('fs');
+const path = require('path');
 
 const { buildContext } = require('./context-builder');
 const {
@@ -23,6 +24,11 @@ const { acquireLock, releaseLock } = require('../utils/session-lock');
 const { loadMcpConfig, parseMcpSpec } = require('../opencode-client');
 const { mapAgentToOpenCode } = require('../utils/agent-mapping');
 const { discoverParentMcps } = require('../utils/mcp-discovery');
+const {
+  assertContextBinding,
+  defaultIncludeContext,
+  validateProjectPath
+} = require('../utils/sidecar-boundaries');
 
 /** Generate a unique 8-character hex task ID */
 function generateTaskId() {
@@ -146,13 +152,13 @@ async function startSidecar(options) {
     cwd, project = process.cwd(), contextTurns = 50, contextSince,
     contextMaxTokens = 80000, noUi, headless = false, timeout = 15,
     agent, mcp, mcpConfig, summaryLength = 'normal', thinking,
-    client, sessionDir, noMcp, excludeMcp, opencodePort, coworkProcess, includeContext = true,
+    client, sessionDir, noMcp, excludeMcp, opencodePort, coworkProcess, includeContext = defaultIncludeContext(),
     position = 'right'
   } = options;
 
   const effectivePrompt = prompt || briefing;
   const effectiveSession = sessionId || session;
-  const effectiveProject = cwd || project;
+  const effectiveProject = validateProjectPath(path.resolve(cwd || project), { cwd: process.cwd() });
   const effectiveHeadless = noUi !== undefined ? noUi : headless;
   const mcpServers = buildMcpConfig({ mcp, mcpConfig, clientType: client, noMcp, excludeMcp });
   const taskId = options.taskId || generateTaskId();
@@ -160,9 +166,19 @@ async function startSidecar(options) {
 
   logger.info('Starting task', { taskId, model, mode: effectiveHeadless ? 'headless' : 'interactive' });
 
-  const context = includeContext !== false
-    ? buildContext(effectiveProject, effectiveSession, { contextTurns, contextSince, contextMaxTokens, sessionDir, client, coworkProcess })
-    : '[Context excluded by caller - briefing is self-contained]';
+  let context = '[Context excluded by caller - briefing is self-contained]';
+  if (includeContext === true) {
+    assertContextBinding({ sessionId, session, sessionDir, coworkProcess, client });
+    context = buildContext(effectiveProject, effectiveSession, {
+      contextTurns,
+      contextSince,
+      contextMaxTokens,
+      sessionDir,
+      client,
+      coworkProcess,
+      parentProject: effectiveProject
+    });
+  }
   const { system: systemPrompt, userMessage } = buildPrompts(
     effectivePrompt, context, effectiveProject, effectiveHeadless, agent, summaryLength, client
   );

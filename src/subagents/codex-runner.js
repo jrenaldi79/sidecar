@@ -7,10 +7,13 @@ const {
   createSubagentSession,
   updateSubagentSession,
   saveSubagentSummary,
+  getSession,
+  getSessionDir,
   getSubagentDir,
   appendSubagentConversation
 } = require('../session-manager');
 const { writeProgress } = require('../sidecar/progress');
+const { validateSubagentLaunchProject } = require('../utils/sidecar-boundaries');
 const {
   parseCodexJsonLine,
   normalizeCodexEvent
@@ -201,18 +204,7 @@ function monitorCodexSubagent({
   });
 }
 
-/**
- * Start a Codex-backed subagent and return once the subprocess is running.
- *
- * @param {object} options
- * @param {string} options.projectDir
- * @param {string} options.parentTaskId
- * @param {string} options.subagentId
- * @param {string} options.briefing
- * @param {string} options.agentType
- * @param {string} [options.model]
- * @returns {Promise<{subagentDir: string, pid: number|null, completion: Promise<void>}>}
- */
+/** Start a Codex-backed subagent and return once the subprocess is running. */
 async function startCodexSubagent({
   projectDir,
   parentTaskId,
@@ -223,32 +215,40 @@ async function startCodexSubagent({
 }) {
   await assertCodexAvailable();
 
+  const validatedProjectDir = validateSubagentLaunchProject({
+    projectDir,
+    parentTaskId,
+    getSession,
+    getSessionDir
+  });
+
   const sandboxMode = resolveSandboxMode(agentType);
   const fullBriefing = addRolePreamble(agentType, briefing);
 
-  createSubagentSession(projectDir, parentTaskId, subagentId, {
+  createSubagentSession(validatedProjectDir, parentTaskId, subagentId, {
     agentType,
     briefing,
     backend: 'codex',
-    sandboxMode
+    sandboxMode,
+    projectDir: validatedProjectDir
   });
 
-  const subagentDir = getSubagentDir(projectDir, parentTaskId, subagentId);
+  const subagentDir = getSubagentDir(validatedProjectDir, parentTaskId, subagentId);
   writeProgress(subagentDir, 'prompt_sent', {
     stageLabel: 'Launching Codex subagent...'
   });
 
-  const args = ['exec', '--json', '--sandbox', sandboxMode, '-C', projectDir, '-'];
+  const args = ['exec', '--json', '--sandbox', sandboxMode, '-C', validatedProjectDir, '-'];
   if (model) {
     args.splice(2, 0, '--model', model);
   }
 
   const child = spawn('codex', args, {
-    cwd: projectDir,
+    cwd: validatedProjectDir,
     stdio: ['pipe', 'pipe', 'pipe']
   });
 
-  updateSubagentSession(projectDir, parentTaskId, subagentId, {
+  updateSubagentSession(validatedProjectDir, parentTaskId, subagentId, {
     backend: 'codex',
     sandboxMode,
     pid: child.pid || null,
@@ -261,7 +261,7 @@ async function startCodexSubagent({
     subagentDir,
     pid: child.pid || null,
     completion: monitorCodexSubagent({
-      projectDir,
+      projectDir: validatedProjectDir,
       parentTaskId,
       subagentId,
       subagentDir,

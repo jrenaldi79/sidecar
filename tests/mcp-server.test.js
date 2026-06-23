@@ -10,6 +10,8 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+const repoRoot = fs.realpathSync(path.resolve(__dirname, '..'));
+
 /**
  * Tests that verify the args passed to the spawned CLI process.
  * Uses jest.isolateModulesAsync + jest.doMock to mock child_process per-test.
@@ -26,7 +28,7 @@ describe('MCP spawn arg building', () => {
         }),
       }));
       const { handlers: h } = require('../src/mcp-server');
-      const result = await h.sidecar_start({ prompt: 'test task', noUi: true, model: 'google/gemini-test' }, '/tmp');
+      const result = await h.sidecar_start({ prompt: 'test task', noUi: true, model: 'google/gemini-test' }, repoRoot);
       const { taskId } = JSON.parse(result.content[0].text);
       const idx = capturedArgs.indexOf('--task-id');
       expect(idx).toBeGreaterThan(-1);
@@ -44,7 +46,7 @@ describe('MCP spawn arg building', () => {
         }),
       }));
       const { handlers: h } = require('../src/mcp-server');
-      await h.sidecar_start({ prompt: 'test task', noUi: true, model: 'google/gemini-test' }, '/tmp');
+      await h.sidecar_start({ prompt: 'test task', noUi: true, model: 'google/gemini-test' }, repoRoot);
       const idx = capturedArgs.indexOf('--client');
       expect(idx).toBeGreaterThan(-1);
       expect(capturedArgs[idx + 1]).toBe('cowork');
@@ -61,7 +63,7 @@ describe('MCP spawn arg building', () => {
         }),
       }));
       const { handlers: h } = require('../src/mcp-server');
-      await h.sidecar_start({ prompt: 'test task', noUi: true, model: 'google/gemini-test', parentSession: 'f58f2782-fc8c-41bc-afbc-e0c130b91aaf' }, '/tmp');
+      await h.sidecar_start({ prompt: 'test task', noUi: true, model: 'google/gemini-test', parentSession: 'f58f2782-fc8c-41bc-afbc-e0c130b91aaf' }, repoRoot);
       const idx = capturedArgs.indexOf('--session-id');
       expect(idx).toBeGreaterThan(-1);
       expect(capturedArgs[idx + 1]).toBe('f58f2782-fc8c-41bc-afbc-e0c130b91aaf');
@@ -78,7 +80,7 @@ describe('MCP spawn arg building', () => {
         }),
       }));
       const { handlers: h } = require('../src/mcp-server');
-      await h.sidecar_start({ prompt: 'test task', noUi: true, model: 'google/gemini-test', timeout: 30 }, '/tmp');
+      await h.sidecar_start({ prompt: 'test task', noUi: true, model: 'google/gemini-test', timeout: 30 }, repoRoot);
       const idx = capturedArgs.indexOf('--timeout');
       expect(idx).toBeGreaterThan(-1);
       expect(capturedArgs[idx + 1]).toBe('30');
@@ -96,7 +98,7 @@ describe('MCP spawn arg building', () => {
       const { handlers: h } = require('../src/mcp-server');
       const parentTaskId = 'parent123';
       const result = await h.sidecar_continue(
-        { taskId: parentTaskId, prompt: 'follow-up task', noUi: true }, '/tmp'
+        { taskId: parentTaskId, prompt: 'follow-up task', noUi: true }, repoRoot
       );
       const { taskId } = JSON.parse(result.content[0].text);
       expect(taskId).not.toBe(parentTaskId);
@@ -115,7 +117,7 @@ describe('MCP spawn arg building', () => {
       }));
       const { handlers: h } = require('../src/mcp-server');
       const result = await h.sidecar_continue(
-        { taskId: 'old-parent', prompt: 'new task', noUi: true }, '/tmp'
+        { taskId: 'old-parent', prompt: 'new task', noUi: true }, repoRoot
       );
       const { taskId: newTaskId } = JSON.parse(result.content[0].text);
       const idx = capturedArgs.indexOf('--task-id');
@@ -889,7 +891,7 @@ describe('MCP Server Handlers', () => {
           }),
         }));
         const { handlers: h } = require('../src/mcp-server');
-        const result = await h.sidecar_start({ prompt: 'analyze auth', noUi: false, model: 'google/gemini-test' }, '/tmp');
+        const result = await h.sidecar_start({ prompt: 'analyze auth', noUi: false, model: 'google/gemini-test' }, repoRoot);
         const parsed = JSON.parse(result.content[0].text);
         expect(parsed.mode).toBe('interactive');
         expect(parsed.message).toContain('Do NOT poll');
@@ -907,7 +909,7 @@ describe('MCP Server Handlers', () => {
           }),
         }));
         const { handlers: h } = require('../src/mcp-server');
-        const result = await h.sidecar_start({ prompt: 'implement feature', noUi: true, model: 'google/gemini-test' }, '/tmp');
+        const result = await h.sidecar_start({ prompt: 'implement feature', noUi: true, model: 'google/gemini-test' }, repoRoot);
         const parsed = JSON.parse(result.content[0].text);
         expect(parsed.mode).toBe('headless');
         expect(parsed.message).toContain('headless');
@@ -920,7 +922,7 @@ describe('MCP Server Handlers', () => {
           spawn: jest.fn(() => ({ pid: 12345, unref: jest.fn() })),
         }));
         const { handlers: h } = require('../src/mcp-server');
-        const result = await h.sidecar_start({ prompt: 'test task', noUi: true, model: 'google/gemini-test' }, '/tmp');
+        const result = await h.sidecar_start({ prompt: 'test task', noUi: true, model: 'google/gemini-test' }, repoRoot);
         expect(result.content).toHaveLength(2);
         expect(result.content[1].text).toContain('<system-reminder>');
         expect(result.content[1].text).toContain('sleep 25');
@@ -933,7 +935,7 @@ describe('MCP Server Handlers', () => {
           spawn: jest.fn(() => ({ pid: 12345, unref: jest.fn() })),
         }));
         const { handlers: h } = require('../src/mcp-server');
-        const result = await h.sidecar_start({ prompt: 'analyze auth', noUi: false, model: 'google/gemini-test' }, '/tmp');
+        const result = await h.sidecar_start({ prompt: 'analyze auth', noUi: false, model: 'google/gemini-test' }, repoRoot);
         expect(result.content).toHaveLength(1);
         expect(result.content[0].text).not.toContain('<system-reminder>');
       });
@@ -1075,10 +1077,13 @@ describe('sidecar_start context and summary args', () => {
         ...jest.requireActual('fs'),
         mkdirSync: jest.fn(),
         writeFileSync: jest.fn(),
-        existsSync: jest.fn(() => false)
+        existsSync: jest.fn((target) => {
+          const resolved = path.resolve(target);
+          return resolved === repoRoot || resolved.startsWith(repoRoot + path.sep);
+        })
       }));
       const { handlers } = require('../src/mcp-server');
-      await handlers.sidecar_start({ prompt: 'test', model: 'openrouter/test/model', contextTurns: 25 }, '/tmp/proj');
+      await handlers.sidecar_start({ prompt: 'test', model: 'openrouter/test/model', contextTurns: 25 }, repoRoot);
     });
     expect(capturedArgs).toContain('--context-turns');
     expect(capturedArgs).toContain('25');
@@ -1097,10 +1102,13 @@ describe('sidecar_start context and summary args', () => {
         ...jest.requireActual('fs'),
         mkdirSync: jest.fn(),
         writeFileSync: jest.fn(),
-        existsSync: jest.fn(() => false)
+        existsSync: jest.fn((target) => {
+          const resolved = path.resolve(target);
+          return resolved === repoRoot || resolved.startsWith(repoRoot + path.sep);
+        })
       }));
       const { handlers } = require('../src/mcp-server');
-      await handlers.sidecar_start({ prompt: 'test', model: 'openrouter/test/model', contextSince: '2h' }, '/tmp/proj');
+      await handlers.sidecar_start({ prompt: 'test', model: 'openrouter/test/model', contextSince: '2h' }, repoRoot);
     });
     expect(capturedArgs).toContain('--context-since');
     expect(capturedArgs).toContain('2h');
@@ -1119,10 +1127,13 @@ describe('sidecar_start context and summary args', () => {
         ...jest.requireActual('fs'),
         mkdirSync: jest.fn(),
         writeFileSync: jest.fn(),
-        existsSync: jest.fn(() => false)
+        existsSync: jest.fn((target) => {
+          const resolved = path.resolve(target);
+          return resolved === repoRoot || resolved.startsWith(repoRoot + path.sep);
+        })
       }));
       const { handlers } = require('../src/mcp-server');
-      await handlers.sidecar_start({ prompt: 'test', model: 'openrouter/test/model', contextMaxTokens: 40000 }, '/tmp/proj');
+      await handlers.sidecar_start({ prompt: 'test', model: 'openrouter/test/model', contextMaxTokens: 40000 }, repoRoot);
     });
     expect(capturedArgs).toContain('--context-max-tokens');
     expect(capturedArgs).toContain('40000');
@@ -1141,10 +1152,13 @@ describe('sidecar_start context and summary args', () => {
         ...jest.requireActual('fs'),
         mkdirSync: jest.fn(),
         writeFileSync: jest.fn(),
-        existsSync: jest.fn(() => false)
+        existsSync: jest.fn((target) => {
+          const resolved = path.resolve(target);
+          return resolved === repoRoot || resolved.startsWith(repoRoot + path.sep);
+        })
       }));
       const { handlers } = require('../src/mcp-server');
-      await handlers.sidecar_start({ prompt: 'test', model: 'openrouter/test/model', summaryLength: 'verbose' }, '/tmp/proj');
+      await handlers.sidecar_start({ prompt: 'test', model: 'openrouter/test/model', summaryLength: 'verbose' }, repoRoot);
     });
     expect(capturedArgs).toContain('--summary-length');
     expect(capturedArgs).toContain('verbose');
@@ -1163,10 +1177,13 @@ describe('sidecar_start context and summary args', () => {
         ...jest.requireActual('fs'),
         mkdirSync: jest.fn(),
         writeFileSync: jest.fn(),
-        existsSync: jest.fn(() => false)
+        existsSync: jest.fn((target) => {
+          const resolved = path.resolve(target);
+          return resolved === repoRoot || resolved.startsWith(repoRoot + path.sep);
+        })
       }));
       const { handlers } = require('../src/mcp-server');
-      await handlers.sidecar_start({ prompt: 'self-contained task', model: 'openrouter/test/model', includeContext: false }, '/tmp/proj');
+      await handlers.sidecar_start({ prompt: 'self-contained task', model: 'openrouter/test/model', includeContext: false }, repoRoot);
     });
     expect(capturedArgs).toContain('--no-context');
   });
@@ -1184,15 +1201,23 @@ describe('sidecar_start context and summary args', () => {
         ...jest.requireActual('fs'),
         mkdirSync: jest.fn(),
         writeFileSync: jest.fn(),
-        existsSync: jest.fn(() => false)
+        existsSync: jest.fn((target) => {
+          const resolved = path.resolve(target);
+          return resolved === repoRoot || resolved.startsWith(repoRoot + path.sep);
+        })
       }));
       const { handlers } = require('../src/mcp-server');
-      await handlers.sidecar_start({ prompt: 'needs context', model: 'openrouter/test/model', includeContext: true }, '/tmp/proj');
+      await handlers.sidecar_start({
+        prompt: 'needs context',
+        model: 'openrouter/test/model',
+        includeContext: true,
+        parentSession: 'session-a'
+      }, repoRoot);
     });
     expect(capturedArgs).not.toContain('--no-context');
   });
 
-  it('does NOT pass --no-context when includeContext is omitted', async () => {
+  it('passes --no-context when includeContext is omitted', async () => {
     let capturedArgs = [];
     await jest.isolateModulesAsync(async () => {
       jest.doMock('child_process', () => ({
@@ -1205,12 +1230,15 @@ describe('sidecar_start context and summary args', () => {
         ...jest.requireActual('fs'),
         mkdirSync: jest.fn(),
         writeFileSync: jest.fn(),
-        existsSync: jest.fn(() => false)
+        existsSync: jest.fn((target) => {
+          const resolved = path.resolve(target);
+          return resolved === repoRoot || resolved.startsWith(repoRoot + path.sep);
+        })
       }));
       const { handlers } = require('../src/mcp-server');
-      await handlers.sidecar_start({ prompt: 'default behavior', model: 'openrouter/test/model' }, '/tmp/proj');
+      await handlers.sidecar_start({ prompt: 'default behavior', model: 'openrouter/test/model' }, repoRoot);
     });
-    expect(capturedArgs).not.toContain('--no-context');
+    expect(capturedArgs).toContain('--no-context');
   });
 });
 
@@ -1228,10 +1256,13 @@ describe('sidecar_continue context args', () => {
         ...jest.requireActual('fs'),
         mkdirSync: jest.fn(),
         writeFileSync: jest.fn(),
-        existsSync: jest.fn(() => false)
+        existsSync: jest.fn((target) => {
+          const resolved = path.resolve(target);
+          return resolved === repoRoot || resolved.startsWith(repoRoot + path.sep);
+        })
       }));
       const { handlers } = require('../src/mcp-server');
-      await handlers.sidecar_continue({ taskId: 'abc123', prompt: 'continue task', contextTurns: 10 }, '/tmp/proj');
+      await handlers.sidecar_continue({ taskId: 'abc123', prompt: 'continue task', contextTurns: 10 }, repoRoot);
     });
     expect(capturedArgs).toContain('--context-turns');
     expect(capturedArgs).toContain('10');
@@ -1250,10 +1281,13 @@ describe('sidecar_continue context args', () => {
         ...jest.requireActual('fs'),
         mkdirSync: jest.fn(),
         writeFileSync: jest.fn(),
-        existsSync: jest.fn(() => false)
+        existsSync: jest.fn((target) => {
+          const resolved = path.resolve(target);
+          return resolved === repoRoot || resolved.startsWith(repoRoot + path.sep);
+        })
       }));
       const { handlers } = require('../src/mcp-server');
-      await handlers.sidecar_continue({ taskId: 'abc123', prompt: 'continue task', contextMaxTokens: 20000 }, '/tmp/proj');
+      await handlers.sidecar_continue({ taskId: 'abc123', prompt: 'continue task', contextMaxTokens: 20000 }, repoRoot);
     });
     expect(capturedArgs).toContain('--context-max-tokens');
     expect(capturedArgs).toContain('20000');

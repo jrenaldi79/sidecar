@@ -154,10 +154,10 @@ describe('MCP Tool Definitions', () => {
       expect(startTool.inputSchema).toHaveProperty('includeContext');
     });
 
-    test('includeContext defaults to true', () => {
+    test('includeContext defaults to false', () => {
       const schema = startTool.inputSchema.includeContext;
       expect(schema._def.typeName).toBe('ZodDefault');
-      expect(schema._def.defaultValue()).toBe(true);
+      expect(schema._def.defaultValue()).toBe(false);
     });
 
     test('has parentSession in input schema', () => {
@@ -378,7 +378,7 @@ describe('MCP Tool Definitions', () => {
     test('contains context control guidance', () => {
       const guide = getGuideText();
       expect(guide).toContain('## Context Control (includeContext)');
-      expect(guide).toContain('includeContext: false');
+      expect(guide).toContain('includeContext: true');
       expect(guide).toContain('Safe to Skip Context');
       expect(guide).toContain('Self-Contained Briefing Template');
     });

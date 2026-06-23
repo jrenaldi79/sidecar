@@ -12,6 +12,7 @@ const os = require('os');
 const { resolveSession, getSessionDirectory } = require('../session');
 const { formatContext, readJSONL } = require('../jsonl-parser');
 const { logger } = require('../utils/logger');
+const { resolveContextSessionScope } = require('../utils/sidecar-boundaries');
 
 /**
  * Parse duration string (e.g., '2h', '30m', '1d')
@@ -178,37 +179,35 @@ function normalizeCoworkMessages(messages) {
     }));
 }
 
-/**
- * Build context from Claude Code session
- * Spec Reference: §5 Context Passing
- *
- * @param {string} project - Project directory
- * @param {string} session - Session ID or 'current'
- * @param {object} options - Context options
- * @param {number} [options.contextTurns=50] - Max conversation turns
- * @param {string} [options.contextSince] - Time filter (e.g., '2h')
- * @param {number} [options.contextMaxTokens=80000] - Max context tokens
- * @param {string} [options.sessionDir] - Explicit session directory override (for code-web, cowork)
- * @param {string} [options.client] - Client type (code-local, code-web, cowork)
- * @param {string} [options._homeDir] - Home directory override (testing only)
- * @returns {string} Formatted context string
- */
-function buildContext(project, session, options) {
-  const { contextTurns = 50, contextSince, contextMaxTokens = 80000, sessionDir: sessionDirOverride, client, coworkProcess, _homeDir } = options;
+/** Build context from Claude Code or Cowork session history. */
+function buildContext(project, session, options = {}) {
+  const {
+    contextTurns = 50,
+    contextSince,
+    contextMaxTokens = 80000,
+    sessionDir: sessionDirOverride,
+    client,
+    coworkProcess,
+    parentProject,
+    _homeDir
+  } = options;
   const homeDir = _homeDir || os.homedir();
+  const { validatedProject, resolvedSessionDir } = resolveContextSessionScope({
+    project,
+    parentProject,
+    sessionDir: sessionDirOverride,
+    homeDir,
+    getSessionDirectory
+  });
 
-  // Determine session directory:
-  // 1. If sessionDir is explicitly provided, use it directly (code-web, cowork)
-  // 2. Otherwise, use the standard getSessionDirectory for code-local
-  const resolvedSessionDir = sessionDirOverride || getSessionDirectory(project, homeDir);
-
-  // For cowork clients: read directly from Cowork's local-agent-mode-sessions
-  // on the host Mac. The Cowork VM can't expose its session path to the MCP server,
-  // so we find the most recently active session's audit.jsonl on the host.
+  // Cowork context comes from Claude Desktop's host-side audit log.
   if (client === 'cowork' && !sessionDirOverride) {
+    if (!coworkProcess) {
+      throw new Error('Cowork context requires coworkProcess for exact session matching');
+    }
     const auditPath = findCoworkSession(homeDir, coworkProcess);
     if (!auditPath) {
-      logger.warn('No Cowork session found in local-agent-mode-sessions', { project });
+      logger.warn('No Cowork session found in local-agent-mode-sessions', { project: validatedProject });
       return '[No Claude Code conversation history found]';
     }
 

@@ -83,7 +83,6 @@ describe('Context Builder', () => {
     });
 
     it('should use sessionDir over default path resolution when both could apply', () => {
-      // Even with a real project path, sessionDir should take precedence
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-ctx-test-'));
       const sessionFile = path.join(tmpDir, 'priority-session.jsonl');
       fs.writeFileSync(sessionFile, JSON.stringify({
@@ -92,14 +91,15 @@ describe('Context Builder', () => {
         timestamp: new Date().toISOString()
       }) + '\n');
 
-      const context = buildContext('/some/project', 'priority-session', { sessionDir: tmpDir });
+      const context = buildContext(tmpDir, 'priority-session', { sessionDir: tmpDir });
       expect(context).toContain('from explicit session dir');
       fs.rmSync(tmpDir, { recursive: true });
     });
 
-    it('should handle missing sessionDir gracefully', () => {
-      const context = buildContext('/nonexistent', null, { sessionDir: '/nonexistent/session/dir' });
-      expect(context).toContain('No Claude Code conversation history');
+    it('should reject missing sessionDir when explicitly provided', () => {
+      expect(() => buildContext('/nonexistent', null, {
+        sessionDir: '/nonexistent/session/dir'
+      })).toThrow(/project root|session directory/i);
     });
 
     it('should handle empty session file in sessionDir', () => {
@@ -316,9 +316,12 @@ describe('Context Builder', () => {
         JSON.stringify({ type: 'rate_limit_event', _audit_timestamp: new Date().toISOString() }),
       ];
       fs.writeFileSync(path.join(sessDir, 'audit.jsonl'), lines.join('\n') + '\n');
+      fs.writeFileSync(path.join(sessRoot, 'org-1', 'user-1', 'local_test-session.json'),
+        JSON.stringify({ processName: 'target-process' }));
 
       const context = buildContext('/Users/john_renaldi', null, {
         client: 'cowork',
+        coworkProcess: 'target-process',
         _homeDir: tmpHome
       });
       expect(context).toContain('cowork parent context');
@@ -333,6 +336,7 @@ describe('Context Builder', () => {
 
       const context = buildContext('/Users/john_renaldi', null, {
         client: 'cowork',
+        coworkProcess: 'missing-process',
         _homeDir: tmpHome
       });
       expect(context).toContain('No Claude Code conversation history');
@@ -383,9 +387,12 @@ describe('Context Builder', () => {
         lines.push(JSON.stringify({ type: 'assistant', message: { content: `reply ${i}` }, _audit_timestamp: new Date().toISOString() }));
       }
       fs.writeFileSync(path.join(sessDir, 'audit.jsonl'), lines.join('\n') + '\n');
+      fs.writeFileSync(path.join(sessRoot, 'org-1', 'user-1', 'local_test-session.json'),
+        JSON.stringify({ processName: 'filter-target' }));
 
       const context = buildContext('/Users/john_renaldi', null, {
         client: 'cowork',
+        coworkProcess: 'filter-target',
         _homeDir: tmpHome,
         contextTurns: 2
       });

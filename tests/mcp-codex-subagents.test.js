@@ -7,10 +7,25 @@ const path = require('path');
 describe('codex subagent MCP handlers', () => {
   let tempDir;
   let projectDir;
+  let canonicalProjectDir;
+
+  function createParentSession(taskId = 'parent123') {
+    const parentDir = path.join(projectDir, '.claude', 'sidecar_sessions', taskId);
+    fs.mkdirSync(parentDir, { recursive: true });
+    fs.writeFileSync(path.join(parentDir, 'metadata.json'), JSON.stringify({
+      taskId,
+      project: canonicalProjectDir,
+      projectDir: canonicalProjectDir,
+      status: 'running',
+      createdAt: new Date().toISOString()
+    }));
+    return parentDir;
+  }
 
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-codex-subagent-'));
     projectDir = tempDir;
+    canonicalProjectDir = fs.realpathSync(projectDir);
     jest.resetModules();
     jest.clearAllMocks();
   });
@@ -28,13 +43,7 @@ describe('codex subagent MCP handlers', () => {
         startCodexSubagent: runnerMock
       }));
 
-      const parentDir = path.join(projectDir, '.claude', 'sidecar_sessions', 'parent123');
-      fs.mkdirSync(parentDir, { recursive: true });
-      fs.writeFileSync(path.join(parentDir, 'metadata.json'), JSON.stringify({
-        taskId: 'parent123',
-        status: 'running',
-        createdAt: new Date().toISOString()
-      }));
+      createParentSession('parent123');
 
       const { handlers } = require('../src/mcp-server');
       const result = await handlers.sidecar_subagent_start({
@@ -49,7 +58,7 @@ describe('codex subagent MCP handlers', () => {
       expect(parsed.status).toBe('running');
       expect(parsed.backend).toBe('codex');
       expect(runnerMock).toHaveBeenCalledWith(expect.objectContaining({
-        projectDir,
+        projectDir: canonicalProjectDir,
         parentTaskId: 'parent123',
         briefing: 'Inspect auth flow',
         agentType: 'explore'
@@ -58,6 +67,7 @@ describe('codex subagent MCP handlers', () => {
   });
 
   test('status reads subagent progress from the subagent directory', async () => {
+    createParentSession('parent123');
     const subagentDir = path.join(
       projectDir, '.claude', 'sidecar_sessions', 'parent123', 'subagents', 'sub1'
     );
@@ -94,6 +104,7 @@ describe('codex subagent MCP handlers', () => {
   });
 
   test('read returns summary by default', async () => {
+    createParentSession('parent123');
     const subagentDir = path.join(
       projectDir, '.claude', 'sidecar_sessions', 'parent123', 'subagents', 'sub2'
     );
@@ -119,6 +130,7 @@ describe('codex subagent MCP handlers', () => {
 
   test('abort marks subagent aborted and terminates pid', async () => {
     const killSpy = jest.spyOn(process, 'kill').mockImplementation(() => true);
+    createParentSession('parent123');
     const subagentDir = path.join(
       projectDir, '.claude', 'sidecar_sessions', 'parent123', 'subagents', 'sub3'
     );

@@ -86,7 +86,7 @@ describe('codex-runner', () => {
     });
 
     expect(capturedArgs).toEqual(expect.arrayContaining([
-      'codex', 'exec', '--json', '--sandbox', 'read-only', '-C', projectDir, '-'
+      'codex', 'exec', '--json', '--sandbox', 'read-only', '-C', fs.realpathSync(projectDir), '-'
     ]));
   });
 

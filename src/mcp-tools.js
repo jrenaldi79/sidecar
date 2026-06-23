@@ -48,7 +48,7 @@ function getTools() {
       'For interactive mode, do not poll. Wait for the user to tell you ' +
       'they\'ve clicked Fold, then use sidecar_read. ' +
       'Call sidecar_guide first if you need help choosing a model or writing a good briefing.' +
-      ' Pass includeContext: false when the briefing is fully self-contained.',
+      ' Pass includeContext: true only with an exact parentSession or coworkProcess binding.',
     inputSchema: {
       model: safeModel.optional().describe(
         `Short alias (${aliasNames}) or full provider/model ID. ` +
@@ -89,10 +89,10 @@ function getTools() {
         'Fold summary verbosity. brief: key findings only. normal (default): full ' +
         'structured output. verbose: maximum detail.'
       ),
-      includeContext: z.boolean().optional().default(true).describe(
+      includeContext: z.boolean().optional().default(false).describe(
         'Whether to include parent conversation history as context. '
-        + 'Default: true. Set to false when the briefing is self-contained '
-        + 'and does not depend on prior conversation. See sidecar_guide for guidance.'
+        + 'Default: false. Set to true only when parentSession or coworkProcess '
+        + 'binds the request to the exact parent context. See sidecar_guide for guidance.'
       ),
       coworkProcess: z.string().optional().describe(
         'Cowork VM process name (e.g., "modest-laughing-goodall"). ' +
@@ -382,7 +382,7 @@ Claude Code CLI: pass parentSession with your session UUID.
 
 ## Context Control (includeContext)
 
-By default, sidecar includes your parent conversation history as context. Set \`includeContext: false\` to skip this and save tokens when the briefing is self-contained.
+By default, sidecar does not include parent conversation history. Set \`includeContext: true\` only when passing an exact \`parentSession\` or \`coworkProcess\` binding.
 
 ### MUST Include Context (Red Flags)
 - Task references prior conversation ("the code we discussed", "that bug", "the approach you suggested")
@@ -399,7 +399,7 @@ By default, sidecar includes your parent conversation history as context. Set \`
 - Independent analysis unrelated to current conversation
 
 ### Self-Contained Briefing Template
-When setting \`includeContext: false\`, write a richer briefing:
+When leaving \`includeContext\` false, write a richer briefing:
 
 \`\`\`
 **Objective:** [Specific goal]

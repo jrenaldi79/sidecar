@@ -288,6 +288,11 @@ describe('startSidecar includeContext option', () => {
     jest.mock('../../src/utils/mcp-discovery', () => ({
       discoverParentMcps: jest.fn(() => null)
     }));
+    jest.mock('../../src/utils/sidecar-boundaries', () => ({
+      assertContextBinding: jest.fn(),
+      defaultIncludeContext: jest.fn(() => false),
+      validateProjectPath: jest.fn((project) => project)
+    }));
     jest.mock('fs', () => ({
       ...jest.requireActual('fs'),
       existsSync: jest.fn(() => false),
@@ -307,12 +312,15 @@ describe('startSidecar includeContext option', () => {
     expect(buildContextMock).toHaveBeenCalled();
   });
 
-  it('calls buildContext when includeContext is omitted (default true)', async () => {
+  it('skips buildContext when includeContext is omitted (default false)', async () => {
     const { startSidecar } = require('../../src/sidecar/start');
+    const { buildPrompts } = require('../../src/prompt-builder');
     await startSidecar({
       model: 'gemini', prompt: 'test', noUi: true
     });
-    expect(buildContextMock).toHaveBeenCalled();
+    expect(buildContextMock).not.toHaveBeenCalled();
+    const contextArg = buildPrompts.mock.calls[0][1];
+    expect(contextArg).toContain('Context excluded');
   });
 
   it('skips buildContext when includeContext is false', async () => {
