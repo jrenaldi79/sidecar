@@ -176,7 +176,8 @@ async function startSidecar(options) {
       sessionDir,
       client,
       coworkProcess,
-      parentProject: effectiveProject
+      parentProject: effectiveProject,
+      exactSession: true
     });
   }
   const { system: systemPrompt, userMessage } = buildPrompts(

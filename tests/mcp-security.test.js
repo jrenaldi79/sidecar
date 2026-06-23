@@ -106,11 +106,19 @@ describe('sidecar workspace boundaries', () => {
     expect(() => assertContextBinding({ session: 'current' })).toThrow(/exact/i);
     expect(() => assertContextBinding({ sessionId: 'current' })).toThrow(/exact/i);
     expect(() => assertContextBinding({ parentSession: 'current' })).toThrow(/exact/i);
+    expect(() => assertContextBinding({ sessionDir: path.join(repoRoot, '.claude', 'sidecar_sessions') })).toThrow(/exact/i);
+    expect(() => assertContextBinding({
+      session: 'current',
+      sessionDir: path.join(repoRoot, '.claude', 'sidecar_sessions')
+    })).toThrow(/exact/i);
   });
 
-  test('includeContext accepts exact session, sessionDir, or coworkProcess bindings', () => {
+  test('includeContext accepts exact session, exact session plus sessionDir, or coworkProcess bindings', () => {
     expect(() => assertContextBinding({ session: 'session-a' })).not.toThrow();
-    expect(() => assertContextBinding({ sessionDir: path.join(repoRoot, '.claude', 'sidecar_sessions', 'session-a') })).not.toThrow();
+    expect(() => assertContextBinding({
+      session: 'session-a',
+      sessionDir: path.join(repoRoot, '.claude', 'sidecar_sessions')
+    })).not.toThrow();
     expect(() => assertContextBinding({ client: 'cowork', coworkProcess: 'exact-process' })).not.toThrow();
   });
 

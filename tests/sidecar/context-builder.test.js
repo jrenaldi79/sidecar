@@ -144,6 +144,67 @@ describe('Context Builder', () => {
       expect(context).not.toContain('user message 0');
       fs.rmSync(tmpDir, { recursive: true });
     });
+
+    it('should reject current when exactSession is requested with sessionDir', () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-ctx-exact-'));
+      fs.writeFileSync(path.join(tmpDir, 'newest-session.jsonl'), JSON.stringify({
+        type: 'user',
+        message: { content: 'newest fallback should not be used' },
+        timestamp: new Date().toISOString()
+      }) + '\n');
+
+      try {
+        expect(() => buildContext(tmpDir, 'current', {
+          sessionDir: tmpDir,
+          exactSession: true
+        })).toThrow(/exact session/i);
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it('should reject nonexistent exact session instead of falling back to most recent', () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-ctx-exact-'));
+      fs.writeFileSync(path.join(tmpDir, 'newest-session.jsonl'), JSON.stringify({
+        type: 'user',
+        message: { content: 'newest fallback should not be used' },
+        timestamp: new Date().toISOString()
+      }) + '\n');
+
+      try {
+        expect(() => buildContext(tmpDir, 'missing-session', {
+          sessionDir: tmpDir,
+          exactSession: true
+        })).toThrow(/missing-session|not found/i);
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it('should read the requested file when exactSession is requested with an existing session', () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-ctx-exact-'));
+      fs.writeFileSync(path.join(tmpDir, 'target-session.jsonl'), JSON.stringify({
+        type: 'user',
+        message: { content: 'target exact context' },
+        timestamp: new Date().toISOString()
+      }) + '\n');
+      fs.writeFileSync(path.join(tmpDir, 'newest-session.jsonl'), JSON.stringify({
+        type: 'user',
+        message: { content: 'newest fallback should not be used' },
+        timestamp: new Date().toISOString()
+      }) + '\n');
+
+      try {
+        const context = buildContext(tmpDir, 'target-session', {
+          sessionDir: tmpDir,
+          exactSession: true
+        });
+        expect(context).toContain('target exact context');
+        expect(context).not.toContain('newest fallback should not be used');
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
   });
 
   describe('buildContext default behavior', () => {

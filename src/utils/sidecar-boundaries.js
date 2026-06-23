@@ -168,19 +168,35 @@ function isExactSessionBinding(value) {
   return session !== '' && session !== 'current';
 }
 
+function resolveExactSessionFile(sessionDir, session) {
+  if (!isExactSessionBinding(session)) {
+    throw new Error('Exact session id is required for context inclusion');
+  }
+
+  const filename = session.endsWith('.jsonl') ? session : `${session}.jsonl`;
+  if (filename.includes('/') || filename.includes('\\') || filename.includes('\0')) {
+    throw new Error('Exact session id is invalid');
+  }
+
+  const sessionPath = path.join(sessionDir, filename);
+  if (!fs.existsSync(sessionPath)) {
+    throw new Error(`Exact session ${session} not found`);
+  }
+  return { path: sessionPath, method: 'explicit' };
+}
+
 function hasContextBinding(options = {}) {
   return Boolean(
     isExactSessionBinding(options.parentSession) ||
     isExactSessionBinding(options.sessionId) ||
     isExactSessionBinding(options.session) ||
-    options.sessionDir ||
     options.coworkProcess
   );
 }
 
 function assertContextBinding(options = {}) {
   if (!hasContextBinding(options)) {
-    throw new Error('includeContext requires an exact parentSession/session, sessionDir, or coworkProcess');
+    throw new Error('includeContext requires an exact parentSession/session or coworkProcess');
   }
   if (options.client === 'cowork' && !options.sessionDir && !options.coworkProcess) {
     throw new Error('Cowork context requires coworkProcess for exact session matching');
@@ -227,6 +243,8 @@ module.exports = {
   defaultIncludeContext,
   hasContextBinding,
   assertContextBinding,
+  isExactSessionBinding,
+  resolveExactSessionFile,
   resolveContextSessionScope,
   validateSubagentLaunchProject,
   isPathInside

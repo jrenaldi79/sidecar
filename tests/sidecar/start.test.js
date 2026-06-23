@@ -316,6 +316,33 @@ describe('startSidecar context binding validation', () => {
       includeContext: true
     })).rejects.toThrow(/exact/i);
   });
+
+  it('rejects includeContext true with sessionDir but no exact session id', async () => {
+    const { startSidecar } = require('../../src/sidecar/start');
+
+    await expect(startSidecar({
+      model: 'gemini',
+      prompt: 'test',
+      noUi: true,
+      cwd: repoRoot,
+      includeContext: true,
+      sessionDir: path.join(repoRoot, '.claude', 'sidecar_sessions')
+    })).rejects.toThrow(/exact/i);
+  });
+
+  it('rejects includeContext true with sessionDir and current session', async () => {
+    const { startSidecar } = require('../../src/sidecar/start');
+
+    await expect(startSidecar({
+      model: 'gemini',
+      prompt: 'test',
+      noUi: true,
+      cwd: repoRoot,
+      includeContext: true,
+      session: 'current',
+      sessionDir: path.join(repoRoot, '.claude', 'sidecar_sessions')
+    })).rejects.toThrow(/exact/i);
+  });
 });
 
 describe('startSidecar includeContext option', () => {

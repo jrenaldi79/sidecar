@@ -152,6 +152,78 @@ describe('MCP spawn arg building', () => {
   });
 });
 
+describe('MCP shared server exact context resolution', () => {
+  test('sidecar_start rejects missing exact parentSession instead of allowing fallback', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-shared-exact-'));
+    const sharedServerMock = {
+      enabled: true,
+      ensureServer: jest.fn(async () => ({
+        server: { url: 'http://127.0.0.1:43210', goPid: 1234 },
+        client: {}
+      })),
+      addSession: jest.fn(),
+      getSessionWatchdog: jest.fn(() => ({})),
+      removeSession: jest.fn(),
+      shutdown: jest.fn()
+    };
+    const buildContextMock = jest.fn((_project, _session, options) => {
+      if (options.exactSession === true) {
+        throw new Error('Exact session missing-session not found');
+      }
+      return 'fallback context';
+    });
+
+    try {
+      await jest.isolateModulesAsync(async () => {
+        jest.doMock('../src/utils/shared-server', () => ({
+          SharedServerManager: jest.fn(() => sharedServerMock)
+        }));
+        jest.doMock('../src/opencode-client', () => ({
+          createSession: jest.fn(async () => 'shared-opencode-session')
+        }));
+        jest.doMock('../src/sidecar/context-builder', () => ({
+          buildContext: buildContextMock
+        }));
+        jest.doMock('../src/prompt-builder', () => ({
+          buildPrompts: jest.fn(() => ({ system: 'sys', userMessage: 'user' }))
+        }));
+        jest.doMock('../src/headless', () => ({
+          runHeadless: jest.fn(async () => ({ summary: 'done' }))
+        }));
+        jest.doMock('../src/sidecar/session-utils', () => ({
+          finalizeSession: jest.fn()
+        }));
+
+        const { handlers: h } = require('../src/mcp-server');
+        const result = await h.sidecar_start({
+          prompt: 'test task',
+          noUi: true,
+          model: 'google/gemini-test',
+          includeContext: true,
+          parentSession: 'missing-session'
+        }, tmpDir);
+
+        expect(result.isError).toBe(true);
+        expect(result.content[0].text).toContain('Exact session missing-session not found');
+        expect(buildContextMock).toHaveBeenCalledWith(
+          fs.realpathSync(tmpDir),
+          'missing-session',
+          expect.objectContaining({ exactSession: true })
+        );
+      });
+    } finally {
+      jest.dontMock('../src/utils/shared-server');
+      jest.dontMock('../src/opencode-client');
+      jest.dontMock('../src/sidecar/context-builder');
+      jest.dontMock('../src/prompt-builder');
+      jest.dontMock('../src/headless');
+      jest.dontMock('../src/sidecar/session-utils');
+      jest.resetModules();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('safeSessionDir (shared validator)', () => {
   const { safeSessionDir, validateTaskId } = require('../src/utils/validators');
 

@@ -200,6 +200,7 @@ const handlers = {
               coworkProcess: input.coworkProcess,
               client: input.coworkProcess ? 'cowork' : undefined,
               parentProject: cwd,
+              exactSession: true,
             });
           } catch (ctxErr) {
             return textResult(`Failed to build context: ${ctxErr.message}`, true);

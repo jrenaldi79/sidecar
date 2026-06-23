@@ -12,7 +12,7 @@ const os = require('os');
 const { resolveSession, getSessionDirectory } = require('../session');
 const { formatContext, readJSONL } = require('../jsonl-parser');
 const { logger } = require('../utils/logger');
-const { resolveContextSessionScope } = require('../utils/sidecar-boundaries');
+const { resolveExactSessionFile, resolveContextSessionScope } = require('../utils/sidecar-boundaries');
 
 /**
  * Parse duration string (e.g., '2h', '30m', '1d')
@@ -31,14 +31,11 @@ function parseDuration(str) {
   return parseInt(match[1], 10) * multipliers[match[2]];
 }
 
-/**
- * Resolve session file from session directory
- * @param {string} sessionDir - Session directory path
- * @param {string} session - Session ID or 'current'
- * @returns {{path: string|null, method: string, warning?: string}}
- */
-function resolveSessionFile(sessionDir, session) {
-  // Use the existing resolveSession function
+/** Resolve a session file, optionally requiring an exact match. */
+function resolveSessionFile(sessionDir, session, options = {}) {
+  if (options.exactSession) {
+    return resolveExactSessionFile(sessionDir, session);
+  }
   return resolveSession(sessionDir, session);
 }
 
@@ -189,6 +186,7 @@ function buildContext(project, session, options = {}) {
     client,
     coworkProcess,
     parentProject,
+    exactSession = false,
     _homeDir
   } = options;
   const homeDir = _homeDir || os.homedir();
@@ -236,12 +234,15 @@ function buildContext(project, session, options = {}) {
   }
 
   if (!fs.existsSync(resolvedSessionDir)) {
+    if (exactSession) {
+      throw new Error(`Exact session ${session} not found`);
+    }
     logger.warn('No Claude Code conversation history found', { project, sessionDir: resolvedSessionDir, client });
     return '[No Claude Code conversation history found]';
   }
 
   // Resolve session file
-  const resolution = resolveSessionFile(resolvedSessionDir, session);
+  const resolution = resolveSessionFile(resolvedSessionDir, session, { exactSession });
 
   if (!resolution.path) {
     logger.warn('No Claude Code session found', { project, session });
@@ -289,6 +290,7 @@ module.exports = {
   buildContext,
   parseDuration,
   resolveSessionFile,
+  resolveExactSessionFile,
   applyContextFilters,
   findCoworkSession,
   normalizeCoworkMessages,
