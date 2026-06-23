@@ -10,6 +10,7 @@ const path = require('path');
 const {
   appendContainedSessionFile,
   ensureSidecarSessionDir,
+  ensureSidecarSubagentSessionDir,
   readContainedSessionFile,
   validateSidecarSessionDir,
   validateSidecarSubagentSessionDir,
@@ -105,15 +106,15 @@ function createSession(projectDir, taskId, metadata) {
  * @throws {Error} If session not found
  */
 function updateSession(projectDir, taskId, updates) {
-  const sessionDir = getSessionDir(projectDir, taskId);
-  const metaPath = path.join(sessionDir, 'metadata.json');
+  const sessionDir = validateSidecarSessionDir(projectDir, taskId);
+  const metadataText = readContainedSessionFile(sessionDir, 'metadata.json', { optional: true });
 
-  if (!fs.existsSync(metaPath)) {
+  if (metadataText === null) {
     throw new Error(`Session ${taskId} not found`);
   }
 
   // Read existing metadata
-  const metadata = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+  const metadata = JSON.parse(metadataText);
 
   // Merge updates
   // For array fields, we append rather than replace
@@ -134,7 +135,7 @@ function updateSession(projectDir, taskId, updates) {
   Object.assign(metadata, updates);
 
   // Write updated metadata
-  fs.writeFileSync(metaPath, JSON.stringify(metadata, null, 2), { mode: 0o600 });
+  writeContainedSessionFile(sessionDir, 'metadata.json', JSON.stringify(metadata, null, 2), { mode: 0o600 });
 }
 
 /**
@@ -145,14 +146,18 @@ function updateSession(projectDir, taskId, updates) {
  * @returns {object|null} Session metadata or null if not found
  */
 function getSession(projectDir, taskId) {
-  const sessionDir = getSessionDir(projectDir, taskId);
-  const metaPath = path.join(sessionDir, 'metadata.json');
-
-  if (!fs.existsSync(metaPath)) {
-    return null;
+  let sessionDir;
+  try {
+    sessionDir = validateSidecarSessionDir(projectDir, taskId);
+  } catch (err) {
+    if (/not found/i.test(err.message)) {
+      return null;
+    }
+    throw err;
   }
 
-  return JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+  const metadataText = readContainedSessionFile(sessionDir, 'metadata.json', { optional: true });
+  return metadataText === null ? null : JSON.parse(metadataText);
 }
 
 /**
@@ -197,15 +202,10 @@ function saveConversation(projectDir, taskId, message) {
  * @throws {Error} If session not found
  */
 function saveSummary(projectDir, taskId, summary) {
-  const sessionDir = getSessionDir(projectDir, taskId);
-  const summaryPath = path.join(sessionDir, 'summary.md');
-
-  if (!fs.existsSync(sessionDir)) {
-    throw new Error(`Session ${taskId} not found`);
-  }
+  const sessionDir = validateSidecarSessionDir(projectDir, taskId);
 
   // Write summary file
-  fs.writeFileSync(summaryPath, summary, { mode: 0o600 });
+  writeContainedSessionFile(sessionDir, 'summary.md', summary, { mode: 0o600 });
 
   // Update session status
   updateSession(projectDir, taskId, {
@@ -247,10 +247,9 @@ function getSubagentDir(projectDir, parentTaskId, subagentId) {
  * @returns {string} Path to the created sub-agent directory
  */
 function createSubagentSession(projectDir, parentTaskId, subagentId, metadata) {
-  const subagentDir = getSubagentDir(projectDir, parentTaskId, subagentId);
-
-  // Create sub-agent directory
-  fs.mkdirSync(subagentDir, { recursive: true, mode: 0o700 });
+  const subagentDir = ensureSidecarSubagentSessionDir(projectDir, parentTaskId, subagentId, {
+    allowExisting: false
+  });
 
   // Build sub-agent metadata
   const subagentMetadata = {
@@ -269,14 +268,15 @@ function createSubagentSession(projectDir, parentTaskId, subagentId, metadata) {
   };
 
   // Write metadata
-  fs.writeFileSync(
-    path.join(subagentDir, 'metadata.json'),
+  writeContainedSessionFile(
+    subagentDir,
+    'metadata.json',
     JSON.stringify(subagentMetadata, null, 2),
     { mode: 0o600 }
   );
 
   // Initialize empty conversation file
-  fs.writeFileSync(path.join(subagentDir, 'conversation.jsonl'), '', { mode: 0o600 });
+  writeContainedSessionFile(subagentDir, 'conversation.jsonl', '', { mode: 0o600 });
 
   return subagentDir;
 }

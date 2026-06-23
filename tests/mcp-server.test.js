@@ -12,6 +12,34 @@ const os = require('os');
 
 const repoRoot = fs.realpathSync(path.resolve(__dirname, '..'));
 
+async function captureMcpSpawnArgs(runHandler) {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-spawn-args-'));
+  const originalSharedServer = process.env.SIDECAR_SHARED_SERVER;
+  let capturedArgs = [];
+
+  try {
+    process.env.SIDECAR_SHARED_SERVER = '0';
+    await jest.isolateModulesAsync(async () => {
+      jest.doMock('child_process', () => ({
+        spawn: (_cmd, args, _opts) => {
+          capturedArgs = args;
+          return { pid: 1234, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
+        }
+      }));
+      const { handlers } = require('../src/mcp-server');
+      await runHandler(handlers, tmpDir);
+    });
+    return capturedArgs;
+  } finally {
+    if (originalSharedServer === undefined) {
+      delete process.env.SIDECAR_SHARED_SERVER;
+    } else {
+      process.env.SIDECAR_SHARED_SERVER = originalSharedServer;
+    }
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
 /**
  * Tests that verify the args passed to the spawned CLI process.
  * Uses jest.isolateModulesAsync + jest.doMock to mock child_process per-test.
@@ -1390,178 +1418,59 @@ describe('MCP Server Handlers', () => {
 
 describe('sidecar_start context and summary args', () => {
   it('passes --context-turns to CLI', async () => {
-    let capturedArgs = [];
-    await jest.isolateModulesAsync(async () => {
-      jest.doMock('child_process', () => ({
-        spawn: (_cmd, args, _opts) => {
-          capturedArgs = args;
-          return { pid: 1234, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
-        }
-      }));
-      jest.doMock('fs', () => ({
-        ...jest.requireActual('fs'),
-        mkdirSync: jest.fn(),
-        writeFileSync: jest.fn(),
-        existsSync: jest.fn((target) => {
-          const resolved = path.resolve(target);
-          return resolved === repoRoot || resolved.startsWith(repoRoot + path.sep);
-        })
-      }));
-      const { handlers } = require('../src/mcp-server');
-      await handlers.sidecar_start({ prompt: 'test', model: 'openrouter/test/model', contextTurns: 25 }, repoRoot);
+    const capturedArgs = await captureMcpSpawnArgs(async (handlers, tmpDir) => {
+      await handlers.sidecar_start({ prompt: 'test', model: 'openrouter/test/model', contextTurns: 25 }, tmpDir);
     });
     expect(capturedArgs).toContain('--context-turns');
     expect(capturedArgs).toContain('25');
   });
 
   it('passes --context-since to CLI', async () => {
-    let capturedArgs = [];
-    await jest.isolateModulesAsync(async () => {
-      jest.doMock('child_process', () => ({
-        spawn: (_cmd, args, _opts) => {
-          capturedArgs = args;
-          return { pid: 1234, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
-        }
-      }));
-      jest.doMock('fs', () => ({
-        ...jest.requireActual('fs'),
-        mkdirSync: jest.fn(),
-        writeFileSync: jest.fn(),
-        existsSync: jest.fn((target) => {
-          const resolved = path.resolve(target);
-          return resolved === repoRoot || resolved.startsWith(repoRoot + path.sep);
-        })
-      }));
-      const { handlers } = require('../src/mcp-server');
-      await handlers.sidecar_start({ prompt: 'test', model: 'openrouter/test/model', contextSince: '2h' }, repoRoot);
+    const capturedArgs = await captureMcpSpawnArgs(async (handlers, tmpDir) => {
+      await handlers.sidecar_start({ prompt: 'test', model: 'openrouter/test/model', contextSince: '2h' }, tmpDir);
     });
     expect(capturedArgs).toContain('--context-since');
     expect(capturedArgs).toContain('2h');
   });
 
   it('passes --context-max-tokens to CLI', async () => {
-    let capturedArgs = [];
-    await jest.isolateModulesAsync(async () => {
-      jest.doMock('child_process', () => ({
-        spawn: (_cmd, args, _opts) => {
-          capturedArgs = args;
-          return { pid: 1234, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
-        }
-      }));
-      jest.doMock('fs', () => ({
-        ...jest.requireActual('fs'),
-        mkdirSync: jest.fn(),
-        writeFileSync: jest.fn(),
-        existsSync: jest.fn((target) => {
-          const resolved = path.resolve(target);
-          return resolved === repoRoot || resolved.startsWith(repoRoot + path.sep);
-        })
-      }));
-      const { handlers } = require('../src/mcp-server');
-      await handlers.sidecar_start({ prompt: 'test', model: 'openrouter/test/model', contextMaxTokens: 40000 }, repoRoot);
+    const capturedArgs = await captureMcpSpawnArgs(async (handlers, tmpDir) => {
+      await handlers.sidecar_start({ prompt: 'test', model: 'openrouter/test/model', contextMaxTokens: 40000 }, tmpDir);
     });
     expect(capturedArgs).toContain('--context-max-tokens');
     expect(capturedArgs).toContain('40000');
   });
 
   it('passes --summary-length to CLI', async () => {
-    let capturedArgs = [];
-    await jest.isolateModulesAsync(async () => {
-      jest.doMock('child_process', () => ({
-        spawn: (_cmd, args, _opts) => {
-          capturedArgs = args;
-          return { pid: 1234, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
-        }
-      }));
-      jest.doMock('fs', () => ({
-        ...jest.requireActual('fs'),
-        mkdirSync: jest.fn(),
-        writeFileSync: jest.fn(),
-        existsSync: jest.fn((target) => {
-          const resolved = path.resolve(target);
-          return resolved === repoRoot || resolved.startsWith(repoRoot + path.sep);
-        })
-      }));
-      const { handlers } = require('../src/mcp-server');
-      await handlers.sidecar_start({ prompt: 'test', model: 'openrouter/test/model', summaryLength: 'verbose' }, repoRoot);
+    const capturedArgs = await captureMcpSpawnArgs(async (handlers, tmpDir) => {
+      await handlers.sidecar_start({ prompt: 'test', model: 'openrouter/test/model', summaryLength: 'verbose' }, tmpDir);
     });
     expect(capturedArgs).toContain('--summary-length');
     expect(capturedArgs).toContain('verbose');
   });
 
   it('passes --no-context to CLI when includeContext is false', async () => {
-    let capturedArgs = [];
-    await jest.isolateModulesAsync(async () => {
-      jest.doMock('child_process', () => ({
-        spawn: (_cmd, args, _opts) => {
-          capturedArgs = args;
-          return { pid: 1234, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
-        }
-      }));
-      jest.doMock('fs', () => ({
-        ...jest.requireActual('fs'),
-        mkdirSync: jest.fn(),
-        writeFileSync: jest.fn(),
-        existsSync: jest.fn((target) => {
-          const resolved = path.resolve(target);
-          return resolved === repoRoot || resolved.startsWith(repoRoot + path.sep);
-        })
-      }));
-      const { handlers } = require('../src/mcp-server');
-      await handlers.sidecar_start({ prompt: 'self-contained task', model: 'openrouter/test/model', includeContext: false }, repoRoot);
+    const capturedArgs = await captureMcpSpawnArgs(async (handlers, tmpDir) => {
+      await handlers.sidecar_start({ prompt: 'self-contained task', model: 'openrouter/test/model', includeContext: false }, tmpDir);
     });
     expect(capturedArgs).toContain('--no-context');
   });
 
   it('does NOT pass --no-context when includeContext is true', async () => {
-    let capturedArgs = [];
-    await jest.isolateModulesAsync(async () => {
-      jest.doMock('child_process', () => ({
-        spawn: (_cmd, args, _opts) => {
-          capturedArgs = args;
-          return { pid: 1234, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
-        }
-      }));
-      jest.doMock('fs', () => ({
-        ...jest.requireActual('fs'),
-        mkdirSync: jest.fn(),
-        writeFileSync: jest.fn(),
-        existsSync: jest.fn((target) => {
-          const resolved = path.resolve(target);
-          return resolved === repoRoot || resolved.startsWith(repoRoot + path.sep);
-        })
-      }));
-      const { handlers } = require('../src/mcp-server');
+    const capturedArgs = await captureMcpSpawnArgs(async (handlers, tmpDir) => {
       await handlers.sidecar_start({
         prompt: 'needs context',
         model: 'openrouter/test/model',
         includeContext: true,
         parentSession: 'session-a'
-      }, repoRoot);
+      }, tmpDir);
     });
     expect(capturedArgs).not.toContain('--no-context');
   });
 
   it('passes --no-context when includeContext is omitted', async () => {
-    let capturedArgs = [];
-    await jest.isolateModulesAsync(async () => {
-      jest.doMock('child_process', () => ({
-        spawn: (_cmd, args, _opts) => {
-          capturedArgs = args;
-          return { pid: 1234, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
-        }
-      }));
-      jest.doMock('fs', () => ({
-        ...jest.requireActual('fs'),
-        mkdirSync: jest.fn(),
-        writeFileSync: jest.fn(),
-        existsSync: jest.fn((target) => {
-          const resolved = path.resolve(target);
-          return resolved === repoRoot || resolved.startsWith(repoRoot + path.sep);
-        })
-      }));
-      const { handlers } = require('../src/mcp-server');
-      await handlers.sidecar_start({ prompt: 'default behavior', model: 'openrouter/test/model' }, repoRoot);
+    const capturedArgs = await captureMcpSpawnArgs(async (handlers, tmpDir) => {
+      await handlers.sidecar_start({ prompt: 'default behavior', model: 'openrouter/test/model' }, tmpDir);
     });
     expect(capturedArgs).toContain('--no-context');
   });
@@ -1569,50 +1478,16 @@ describe('sidecar_start context and summary args', () => {
 
 describe('sidecar_continue context args', () => {
   it('passes --context-turns to CLI', async () => {
-    let capturedArgs = [];
-    await jest.isolateModulesAsync(async () => {
-      jest.doMock('child_process', () => ({
-        spawn: (_cmd, args, _opts) => {
-          capturedArgs = args;
-          return { pid: 1234, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
-        }
-      }));
-      jest.doMock('fs', () => ({
-        ...jest.requireActual('fs'),
-        mkdirSync: jest.fn(),
-        writeFileSync: jest.fn(),
-        existsSync: jest.fn((target) => {
-          const resolved = path.resolve(target);
-          return resolved === repoRoot || resolved.startsWith(repoRoot + path.sep);
-        })
-      }));
-      const { handlers } = require('../src/mcp-server');
-      await handlers.sidecar_continue({ taskId: 'abc123', prompt: 'continue task', contextTurns: 10 }, repoRoot);
+    const capturedArgs = await captureMcpSpawnArgs(async (handlers, tmpDir) => {
+      await handlers.sidecar_continue({ taskId: 'abc123', prompt: 'continue task', contextTurns: 10 }, tmpDir);
     });
     expect(capturedArgs).toContain('--context-turns');
     expect(capturedArgs).toContain('10');
   });
 
   it('passes --context-max-tokens to CLI', async () => {
-    let capturedArgs = [];
-    await jest.isolateModulesAsync(async () => {
-      jest.doMock('child_process', () => ({
-        spawn: (_cmd, args, _opts) => {
-          capturedArgs = args;
-          return { pid: 1234, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
-        }
-      }));
-      jest.doMock('fs', () => ({
-        ...jest.requireActual('fs'),
-        mkdirSync: jest.fn(),
-        writeFileSync: jest.fn(),
-        existsSync: jest.fn((target) => {
-          const resolved = path.resolve(target);
-          return resolved === repoRoot || resolved.startsWith(repoRoot + path.sep);
-        })
-      }));
-      const { handlers } = require('../src/mcp-server');
-      await handlers.sidecar_continue({ taskId: 'abc123', prompt: 'continue task', contextMaxTokens: 20000 }, repoRoot);
+    const capturedArgs = await captureMcpSpawnArgs(async (handlers, tmpDir) => {
+      await handlers.sidecar_continue({ taskId: 'abc123', prompt: 'continue task', contextMaxTokens: 20000 }, tmpDir);
     });
     expect(capturedArgs).toContain('--context-max-tokens');
     expect(capturedArgs).toContain('20000');

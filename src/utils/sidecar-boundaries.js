@@ -6,6 +6,7 @@ const path = require('path');
 const { buildChildProcessEnv } = require('./sidecar-env');
 const {
   validateSidecarSessionsRoot,
+  ensureSidecarSessionDir,
   validateSidecarSessionDir,
   validateSidecarSubagentSessionDir,
   validateSidecarSessionMetadata,
@@ -279,6 +280,7 @@ module.exports = {
   validateSessionDir,
   validateSubagentParent,
   validateSidecarSessionsRoot,
+  ensureSidecarSessionDir,
   validateSidecarSessionDir,
   validateSidecarSubagentSessionDir,
   validateSidecarSessionMetadata,

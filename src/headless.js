@@ -5,7 +5,6 @@
  * Uses OpenCode SDK for headless execution (no CLI spawning required).
  */
 
-const fs = require('fs');
 const path = require('path');
 const { logger } = require('./utils/logger');
 const { ensureNodeModulesBinInPath } = require('./utils/path-setup');
@@ -14,7 +13,8 @@ const { mapAgentToOpenCode } = require('./utils/agent-mapping');
 const { writeProgress } = require('./sidecar/progress');
 const {
   appendContainedSessionFile,
-  ensureSidecarSessionDir
+  ensureSidecarSessionDir,
+  readContainedSessionFile
 } = require('./utils/sidecar-session-boundaries');
 
 /**
@@ -260,9 +260,8 @@ async function runHeadless(model, systemPrompt, userMessage, taskId, project, ti
 
       // Check for external abort signal (MCP tool or CLI command)
       try {
-        const metaCheck = path.join(sessionDir, 'metadata.json');
-        if (fs.existsSync(metaCheck)) {
-          const metaContent = fs.readFileSync(metaCheck, 'utf-8');
+        const metaContent = readContainedSessionFile(sessionDir, 'metadata.json', { optional: true });
+        if (metaContent !== null) {
           const meta = JSON.parse(metaContent);
           if (meta.status === 'aborted') {
             logger.info('External abort signal received', { taskId });

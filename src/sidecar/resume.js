@@ -20,16 +20,26 @@ const { logger } = require('../utils/logger');
 const {
   validateSidecarSessionDir,
   validateSidecarSessionMetadata,
-  readContainedSessionFile
+  readContainedSessionFile,
+  writeContainedSessionFile
 } = require('../utils/sidecar-boundaries');
 
 /** Load session metadata from session directory */
 function loadSessionMetadata(sessionDir) {
   const metaPath = SessionPaths.metadataFile(sessionDir);
-  if (!fs.existsSync(metaPath)) {
+  let metadataText;
+  try {
+    metadataText = readContainedSessionFile(sessionDir, 'metadata.json', { optional: true });
+  } catch (err) {
+    if (/Session directory .*does not exist|Session file not found/i.test(err.message)) {
+      throw new Error(`Session metadata not found: ${metaPath}`);
+    }
+    throw err;
+  }
+  if (metadataText === null) {
     throw new Error(`Session metadata not found: ${metaPath}`);
   }
-  return JSON.parse(readContainedSessionFile(sessionDir, 'metadata.json'));
+  return JSON.parse(metadataText);
 }
 
 /** Load initial context (system prompt) from session */
@@ -101,13 +111,12 @@ function buildResumeUserMessage(briefing, conversation) {
 
 /** Update session metadata status */
 function updateSessionStatus(sessionDir, status) {
-  const metaPath = SessionPaths.metadataFile(sessionDir);
-  const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+  const meta = JSON.parse(readContainedSessionFile(sessionDir, 'metadata.json'));
   meta.status = status;
   if (status === 'running') {
     meta.resumedAt = new Date().toISOString();
   }
-  fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+  writeContainedSessionFile(sessionDir, 'metadata.json', JSON.stringify(meta, null, 2), { mode: 0o600 });
   return meta;
 }
 

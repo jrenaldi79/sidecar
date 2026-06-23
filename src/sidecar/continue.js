@@ -18,9 +18,11 @@ const { runHeadless } = require('../headless');
 const { buildPrompts } = require('../prompt-builder');
 const { logger } = require('../utils/logger');
 const {
+  ensureSidecarSessionDir,
   validateSidecarSessionDir,
   validateSidecarSessionMetadata,
-  readContainedSessionFile
+  readContainedSessionFile,
+  writeContainedSessionFile
 } = require('../utils/sidecar-boundaries');
 
 /** Load previous session data (metadata, summary, conversation) */
@@ -89,8 +91,7 @@ Build on the previous sidecar's findings. The user wants to continue or extend t
 function createContinueSessionMetadata(taskId, project, options, oldTaskId) {
   const { model, briefing, headless, agent } = options;
 
-  const sessionDir = SessionPaths.sessionDir(project, taskId);
-  fs.mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
+  const sessionDir = ensureSidecarSessionDir(project, taskId);
   fs.chmodSync(sessionDir, 0o700);
 
   const metadata = {
@@ -107,7 +108,7 @@ function createContinueSessionMetadata(taskId, project, options, oldTaskId) {
   };
 
   const metaPath = SessionPaths.metadataFile(sessionDir);
-  fs.writeFileSync(metaPath, JSON.stringify(metadata, null, 2), { mode: 0o600 });
+  writeContainedSessionFile(sessionDir, 'metadata.json', JSON.stringify(metadata, null, 2), { mode: 0o600 });
   fs.chmodSync(metaPath, 0o600);
 
   return sessionDir;
@@ -201,8 +202,7 @@ async function continueSidecar(options) {
   outputSummary(summary);
 
   // Load current metadata for finalization
-  const metaPath = SessionPaths.metadataFile(sessionDir);
-  const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+  const meta = JSON.parse(readContainedSessionFile(sessionDir, 'metadata.json'));
 
   // Finalize session
   finalizeSession(sessionDir, summary, effectiveProject, meta);

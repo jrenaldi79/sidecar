@@ -95,4 +95,49 @@ describe('Continue Operations session boundary validation', () => {
     expect(fs.statSync(sessionDir).mode & 0o777).toBe(0o700);
     expect(fs.statSync(metaPath).mode & 0o777).toBe(0o600);
   });
+
+  test('createContinueSessionMetadata rejects a symlinked sessions root before writing outside metadata', () => {
+    const { createContinueSessionMetadata } = require('../../src/sidecar/continue');
+    const claudeDir = path.join(projectDir, '.claude');
+    const outsideRoot = path.join(otherProjectDir, 'outside-sessions-root');
+    fs.mkdirSync(claudeDir, { recursive: true });
+    fs.mkdirSync(outsideRoot, { recursive: true });
+    fs.symlinkSync(outsideRoot, path.join(claudeDir, 'sidecar_sessions'), 'dir');
+
+    expect(() => {
+      createContinueSessionMetadata('root-escape', projectDir, {
+        model: 'google/gemini-test',
+        briefing: 'follow up',
+        headless: true,
+        agent: 'build'
+      }, 'old-task');
+    }).toThrow(/sidecar sessions root|symbolic link|outside/i);
+
+    expect(fs.existsSync(path.join(outsideRoot, 'root-escape', 'metadata.json'))).toBe(false);
+  });
+
+  test('createContinueSessionMetadata rejects a preexisting symlinked task directory', () => {
+    const { createContinueSessionMetadata } = require('../../src/sidecar/continue');
+    const sessionsRoot = path.join(projectDir, '.claude', 'sidecar_sessions');
+    const outsideSession = path.join(otherProjectDir, 'outside-session');
+    fs.mkdirSync(sessionsRoot, { recursive: true });
+    fs.mkdirSync(outsideSession, { recursive: true });
+    fs.writeFileSync(path.join(outsideSession, 'metadata.json'), JSON.stringify({
+      taskId: 'new-task',
+      status: 'running'
+    }));
+    fs.symlinkSync(outsideSession, path.join(sessionsRoot, 'new-task'), 'dir');
+
+    expect(() => {
+      createContinueSessionMetadata('new-task', projectDir, {
+        model: 'google/gemini-test',
+        briefing: 'follow up',
+        headless: true,
+        agent: 'build'
+      }, 'old-task');
+    }).toThrow(/session directory|symbolic link|outside/i);
+
+    const outside = JSON.parse(fs.readFileSync(path.join(outsideSession, 'metadata.json'), 'utf-8'));
+    expect(outside.status).toBe('running');
+  });
 });

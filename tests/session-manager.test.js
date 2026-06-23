@@ -249,6 +249,29 @@ describe('Session Manager', () => {
         updateSession(projectDir, 'nonexistent', { status: 'complete' });
       }).toThrow(/not found/);
     });
+
+    it('rejects a metadata symlink before updating an outside target', () => {
+      const metaPath = path.join(projectDir, '.claude', 'sidecar_sessions', 'abc123', 'metadata.json');
+      const outsideMetadata = path.join(tempDir, 'outside-metadata.json');
+      fs.writeFileSync(outsideMetadata, JSON.stringify({
+        taskId: 'abc123',
+        model: 'outside/model',
+        project: projectDir,
+        status: 'running',
+        filesRead: [],
+        filesWritten: [],
+        conflicts: []
+      }));
+      fs.unlinkSync(metaPath);
+      fs.symlinkSync(outsideMetadata, metaPath);
+
+      expect(() => {
+        updateSession(projectDir, 'abc123', { status: SESSION_STATUS.COMPLETE });
+      }).toThrow(/symbolic link|session directory|outside/i);
+
+      const outside = JSON.parse(fs.readFileSync(outsideMetadata, 'utf-8'));
+      expect(outside.status).toBe('running');
+    });
   });
 
   describe('getSession', () => {
@@ -401,6 +424,19 @@ describe('Session Manager', () => {
         saveSummary(projectDir, 'nonexistent', 'Test summary');
       }).toThrow(/not found/);
     });
+
+    it('rejects a summary symlink before overwriting an outside target', () => {
+      const summaryPath = path.join(projectDir, '.claude', 'sidecar_sessions', 'abc123', 'summary.md');
+      const outsideSummary = path.join(tempDir, 'outside-summary.md');
+      fs.writeFileSync(outsideSummary, 'outside summary');
+      fs.symlinkSync(outsideSummary, summaryPath);
+
+      expect(() => {
+        saveSummary(projectDir, 'abc123', 'escaped summary');
+      }).toThrow(/symbolic link|session directory|outside/i);
+
+      expect(fs.readFileSync(outsideSummary, 'utf-8')).toBe('outside summary');
+    });
   });
 
   describe('SESSION_STATUS', () => {
@@ -495,6 +531,48 @@ describe('Session Manager', () => {
         expect(metadata.backend).toBe('codex');
         expect(metadata.sandboxMode).toBe('read-only');
         expect(metadata.pid).toBe(4321);
+      });
+
+      it('rejects a symlinked sub-agents root before writing outside metadata', () => {
+        const subagentId = 'subagent-root-escape';
+        const parentDir = path.join(projectDir, '.claude', 'sidecar_sessions', parentTaskId);
+        const subagentsRoot = path.join(parentDir, 'subagents');
+        const outsideRoot = path.join(tempDir, 'outside-subagents-root');
+        fs.mkdirSync(outsideRoot, { recursive: true });
+        fs.symlinkSync(outsideRoot, subagentsRoot, 'dir');
+
+        expect(() => {
+          createSubagentSession(projectDir, parentTaskId, subagentId, {
+            agentType: 'general',
+            briefing: 'Do work'
+          });
+        }).toThrow(/symbolic link|sub-agent|outside|session/i);
+
+        expect(fs.existsSync(path.join(outsideRoot, subagentId, 'metadata.json'))).toBe(false);
+      });
+
+      it('rejects a preexisting symlinked sub-agent directory before writing outside metadata', () => {
+        const subagentId = 'subagent-dir-escape';
+        const subagentsRoot = path.join(
+          projectDir, '.claude', 'sidecar_sessions', parentTaskId, 'subagents'
+        );
+        const outsideDir = path.join(tempDir, 'outside-subagent-dir');
+        fs.mkdirSync(subagentsRoot, { recursive: true });
+        fs.mkdirSync(outsideDir, { recursive: true });
+        fs.writeFileSync(path.join(outsideDir, 'metadata.json'), JSON.stringify({
+          status: SESSION_STATUS.RUNNING
+        }));
+        fs.symlinkSync(outsideDir, path.join(subagentsRoot, subagentId), 'dir');
+
+        expect(() => {
+          createSubagentSession(projectDir, parentTaskId, subagentId, {
+            agentType: 'general',
+            briefing: 'Do work'
+          });
+        }).toThrow(/symbolic link|sub-agent|outside|session/i);
+
+        const outside = JSON.parse(fs.readFileSync(path.join(outsideDir, 'metadata.json'), 'utf-8'));
+        expect(outside.status).toBe(SESSION_STATUS.RUNNING);
       });
     });
 

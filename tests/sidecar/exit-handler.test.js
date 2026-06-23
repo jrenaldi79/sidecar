@@ -87,4 +87,32 @@ describe('Crash Handler', () => {
     expect(updated.reason).toBeUndefined();
     expect(updated.errorAt).toBeUndefined();
   });
+
+  it('does not follow a metadata symlink to update an outside target', () => {
+    const taskId = 'task-crash-symlink';
+    const sessionDir = SessionPaths.sessionDir(tmpDir, taskId);
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'crash-handler-outside-'));
+    const outsideMetadata = path.join(outsideDir, 'metadata.json');
+
+    try {
+      fs.mkdirSync(sessionDir, { recursive: true });
+      fs.writeFileSync(outsideMetadata, JSON.stringify({
+        taskId,
+        status: 'running',
+        model: 'outside-model',
+        createdAt: new Date().toISOString()
+      }, null, 2));
+      fs.symlinkSync(outsideMetadata, SessionPaths.metadataFile(sessionDir));
+
+      const handler = installCrashHandler(taskId, tmpDir);
+      expect(() => handler(new Error('outside crash'))).not.toThrow();
+
+      const outside = JSON.parse(fs.readFileSync(outsideMetadata, 'utf-8'));
+      expect(outside.status).toBe('running');
+      expect(outside.reason).toBeUndefined();
+      expect(outside.errorAt).toBeUndefined();
+    } finally {
+      fs.rmSync(outsideDir, { recursive: true, force: true });
+    }
+  });
 });

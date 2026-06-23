@@ -8,6 +8,7 @@ const { logger } = require('./utils/logger');
 const {
   assertContextBinding,
   buildChildProcessEnv,
+  ensureSidecarSessionDir,
   openContainedSessionFileForWrite,
   readContainedSessionFile,
   validateProjectPath,
@@ -109,7 +110,6 @@ function spawnSidecarProcess(args, sessionDir) {
   let stderrFd = 'ignore';
   if (sessionDir) {
     try {
-      fs.mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
       stderrFd = openContainedSessionFileForWrite(sessionDir, 'debug.log', { mode: 0o600 });
     } catch { /* fall back to ignore */ }
   }
@@ -175,7 +175,12 @@ const handlers = {
     if (input.windowPosition)   { args.push('--position', input.windowPosition); }
     args.push('--cwd', cwd);
 
-    const sessionDir = path.join(cwd, '.claude', 'sidecar_sessions', taskId);
+    let sessionDir;
+    try {
+      sessionDir = ensureSidecarSessionDir(cwd, taskId, { allowExisting: false });
+    } catch (err) {
+      return textResult(err.message, true);
+    }
 
     if (sharedServer.enabled && input.noUi) {
       // Shared server path: headless only, delegates to runHeadless()
@@ -192,10 +197,8 @@ const handlers = {
         sessionId = await createSession(client);
 
         // Write initial metadata (MCP handler owns this, runHeadless skips it)
-        fs.mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
-        const metaPath = path.join(sessionDir, 'metadata.json');
         const serverPort = server.url ? new URL(server.url).port : null;
-        fs.writeFileSync(metaPath, JSON.stringify({
+        writeContainedSessionFile(sessionDir, 'metadata.json', JSON.stringify({
           taskId, status: 'running',
           pid: null, // Shared server path: don't store MCP server PID (abort would kill all sessions)
           opencodeSessionId: sessionId,
@@ -233,10 +236,11 @@ const handlers = {
         // Register session with idle eviction
         sharedServer.addSession(sessionId, (_evictedId) => {
           try {
-            const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+            const meta = readMetadataFromSessionDir(sessionDir);
+            if (!meta) { return; }
             meta.status = 'idle-timeout';
             meta.completedAt = new Date().toISOString();
-            fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), { mode: 0o600 });
+            writeContainedSessionFile(sessionDir, 'metadata.json', JSON.stringify(meta, null, 2), { mode: 0o600 });
           } catch (err) {
             logger.warn('Failed to update evicted session metadata', { error: err.message });
           }
@@ -254,8 +258,10 @@ const handlers = {
         ).then((result) => {
           // Session complete - finalize and remove from tracking
           try {
-            const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
-            finalizeSession(sessionDir, result.summary || '', cwd, meta);
+            const meta = readMetadataFromSessionDir(sessionDir);
+            if (meta) {
+              finalizeSession(sessionDir, result.summary || '', cwd, meta);
+            }
           } catch (finErr) {
             logger.warn('Failed to finalize session', { error: finErr.message });
           }
@@ -264,11 +270,12 @@ const handlers = {
           logger.error('Shared server session failed', { taskId, error: err.message });
           sharedServer.removeSession(sessionId);
           try {
-            const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+            const meta = readMetadataFromSessionDir(sessionDir);
+            if (!meta) { return; }
             meta.status = 'error';
             meta.reason = err.message;
             meta.completedAt = new Date().toISOString();
-            fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), { mode: 0o600 });
+            writeContainedSessionFile(sessionDir, 'metadata.json', JSON.stringify(meta, null, 2), { mode: 0o600 });
           } catch (writeErr) {
             logger.warn('Failed to write error metadata', { error: writeErr.message });
           }
@@ -297,10 +304,8 @@ const handlers = {
     }
 
     if (child && child.pid) {
-      fs.mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
-      const metaPath = path.join(sessionDir, 'metadata.json');
-      if (!fs.existsSync(metaPath)) {
-        fs.writeFileSync(metaPath, JSON.stringify({
+      if (readMetadataFromSessionDir(sessionDir) === null) {
+        writeContainedSessionFile(sessionDir, 'metadata.json', JSON.stringify({
           taskId, status: 'running', pid: child.pid, createdAt: new Date().toISOString(),
           project: cwd, projectDir: cwd,
           headless: !!input.noUi,
@@ -487,7 +492,12 @@ const handlers = {
     const cwd = resolveHandlerProject(input, project);
     const { generateTaskId } = require('./sidecar/start');
     const newTaskId = generateTaskId();
-    const sessionDir = path.join(cwd, '.claude', 'sidecar_sessions', newTaskId);
+    let sessionDir;
+    try {
+      sessionDir = ensureSidecarSessionDir(cwd, newTaskId, { allowExisting: false });
+    } catch (err) {
+      return textResult(err.message, true);
+    }
 
     const args = ['continue', input.taskId, '--prompt', input.prompt,
       '--task-id', newTaskId, '--client', 'cowork', '--cwd', cwd];

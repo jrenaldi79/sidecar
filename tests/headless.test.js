@@ -47,11 +47,13 @@ jest.mock('../src/utils/logger', () => ({
 
 const mockAppendContainedSessionFile = jest.fn();
 const mockEnsureSidecarSessionDir = jest.fn();
+const mockReadContainedSessionFile = jest.fn();
 const mockWriteContainedSessionFile = jest.fn();
 
 jest.mock('../src/utils/sidecar-session-boundaries', () => ({
   appendContainedSessionFile: (...args) => mockAppendContainedSessionFile(...args),
   ensureSidecarSessionDir: (...args) => mockEnsureSidecarSessionDir(...args),
+  readContainedSessionFile: (...args) => mockReadContainedSessionFile(...args),
   writeContainedSessionFile: (...args) => mockWriteContainedSessionFile(...args),
   resolveContainedSessionFile: jest.fn(() => null)
 }));
@@ -67,6 +69,7 @@ describe('Headless Mode Runner', () => {
     mockEnsureSidecarSessionDir.mockImplementation((project, taskId) =>
       path.join(project, '.claude', 'sidecar_sessions', taskId)
     );
+    mockReadContainedSessionFile.mockReturnValue(null);
     mockAppendContainedSessionFile.mockImplementation((sessionDir, filename, data, options) => {
       fs.appendFileSync(path.join(sessionDir, filename), data, options);
     });
@@ -624,22 +627,11 @@ describe('Headless Mode Runner', () => {
         }]);
       });
 
-      // On second poll, simulate metadata.status = 'aborted'
-      const originalReadFileSync = fs.readFileSync;
-      fs.readFileSync = jest.fn((filePath, encoding) => {
-        if (typeof filePath === 'string' && filePath.includes('metadata.json') && pollCount >= 2) {
+      mockReadContainedSessionFile.mockImplementation((_sessionDir, filename) => {
+        if (filename === 'metadata.json' && pollCount >= 2) {
           return JSON.stringify({ status: 'aborted' });
         }
-        // For other reads, return empty string
-        return '';
-      });
-
-      // existsSync should return true for metadata check
-      fs.existsSync.mockImplementation((p) => {
-        if (typeof p === 'string' && p.includes('metadata.json')) {
-          return pollCount >= 2;
-        }
-        return true;
+        return null;
       });
 
       const result = await runHeadless(
@@ -650,9 +642,6 @@ describe('Headless Mode Runner', () => {
       // Should have detected external abort
       expect(result.aborted).toBe(true);
       expect(mockServerClose).toHaveBeenCalled();
-
-      // Restore
-      fs.readFileSync = originalReadFileSync;
     }, 15000);
   });
 

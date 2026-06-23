@@ -70,9 +70,9 @@ function ensureContainedDir(parentDir, dirname, label, options = {}) {
 function validateSidecarSessionsRoot(projectRoot) {
   const canonicalProjectRoot = canonicalizeExistingDir(path.resolve(projectRoot), 'Project root');
   const sessionsRoot = path.join(canonicalProjectRoot, '.claude', 'sidecar_sessions');
+  rejectSymlink(sessionsRoot, 'Sidecar sessions root');
   if (!fs.existsSync(sessionsRoot)) { throw new Error(`Sidecar sessions root does not exist: ${sessionsRoot}`); }
 
-  rejectSymlink(sessionsRoot, 'Sidecar sessions root');
   const canonicalSessionsRoot = canonicalizeExistingDir(sessionsRoot, 'Sidecar sessions root');
   if (!isPathInside(canonicalProjectRoot, canonicalSessionsRoot)) {
     throw new Error(`Sidecar sessions root is outside the project root: ${canonicalSessionsRoot}`);
@@ -110,10 +110,12 @@ function validateSidecarSessionDir(projectRoot, taskId) {
   assertTaskId(taskId);
   const canonicalProjectRoot = canonicalizeExistingDir(path.resolve(projectRoot), 'Project root');
   const requestedSessionsRoot = path.join(canonicalProjectRoot, '.claude', 'sidecar_sessions');
+  rejectSymlink(requestedSessionsRoot, 'Sidecar sessions root');
   if (!fs.existsSync(requestedSessionsRoot)) { throw new Error(`Session ${taskId} not found`); }
 
   const canonicalSessionsRoot = validateSidecarSessionsRoot(projectRoot);
   const sessionDir = path.join(canonicalSessionsRoot, taskId);
+  rejectSymlink(sessionDir, 'Session directory inside project session root');
   if (!fs.existsSync(sessionDir)) { throw new Error(`Session ${taskId} not found`); }
 
   const canonicalSessionDir = realpathSync(sessionDir);
@@ -125,10 +127,27 @@ function validateSidecarSessionDir(projectRoot, taskId) {
   return canonicalSessionDir;
 }
 
+function ensureSidecarSubagentSessionDir(projectRoot, parentTaskId, subagentId, options = {}) {
+  assertTaskId(subagentId);
+  const canonicalParentSessionDir = validateSidecarSessionDir(projectRoot, parentTaskId);
+  const subagentsRoot = ensureContainedDir(
+    canonicalParentSessionDir,
+    'subagents',
+    'Sub-agent sessions root'
+  );
+  return ensureContainedDir(
+    subagentsRoot,
+    subagentId,
+    'Sub-agent session directory',
+    { allowExisting: options.allowExisting, mode: options.mode === undefined ? 0o700 : options.mode }
+  );
+}
+
 function validateSidecarSubagentSessionDir(projectRoot, parentTaskId, subagentId) {
   assertTaskId(subagentId);
   const canonicalParentSessionDir = validateSidecarSessionDir(projectRoot, parentTaskId);
   const subagentsRoot = path.join(canonicalParentSessionDir, 'subagents');
+  rejectSymlink(subagentsRoot, 'Sub-agent sessions root');
   if (!fs.existsSync(subagentsRoot)) {
     throw new Error(`Sub-agent ${subagentId} not found under parent ${parentTaskId}`);
   }
@@ -139,6 +158,7 @@ function validateSidecarSubagentSessionDir(projectRoot, parentTaskId, subagentId
   }
 
   const subagentDir = path.join(canonicalSubagentsRoot, subagentId);
+  rejectSymlink(subagentDir, 'Sub-agent session directory');
   if (!fs.existsSync(subagentDir)) {
     throw new Error(`Sub-agent ${subagentId} not found under parent ${parentTaskId}`);
   }
@@ -169,6 +189,7 @@ function resolveContainedSessionFile(sessionDir, filename, options = {}) {
   assertSafeSessionFilename(filename);
   const canonicalSessionDir = canonicalizeExistingDir(path.resolve(sessionDir), 'Session directory');
   const filePath = path.join(canonicalSessionDir, filename);
+  rejectSymlink(filePath, 'Session file');
 
   if (!fs.existsSync(filePath)) {
     if (options.optional) { return null; }
@@ -261,6 +282,7 @@ module.exports = {
   validateSidecarSessionsRoot,
   ensureSidecarSessionDir,
   validateSidecarSessionDir,
+  ensureSidecarSubagentSessionDir,
   validateSidecarSubagentSessionDir,
   validateSidecarSessionMetadata,
   resolveContainedSessionFile,

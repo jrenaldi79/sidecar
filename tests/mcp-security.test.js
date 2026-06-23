@@ -260,6 +260,91 @@ describe('sidecar MCP handler boundaries', () => {
     const outsideMetadata = JSON.parse(fs.readFileSync(path.join(outsideSession, 'metadata.json'), 'utf-8'));
     expect(outsideMetadata.status).toBe('running');
   });
+
+  test('sidecar_start rejects a symlinked sessions root before spawning or writing outside metadata', async () => {
+    const originalSharedServer = process.env.SIDECAR_SHARED_SERVER;
+    const claudeDir = path.join(tmpProject, '.claude');
+    const outsideRoot = path.join(outsideDir, 'outside-sessions-root');
+    let spawnMock;
+
+    try {
+      process.env.SIDECAR_SHARED_SERVER = '0';
+      fs.mkdirSync(claudeDir, { recursive: true });
+      fs.mkdirSync(outsideRoot, { recursive: true });
+      fs.symlinkSync(outsideRoot, path.join(claudeDir, 'sidecar_sessions'), 'dir');
+
+      await jest.isolateModulesAsync(async () => {
+        jest.doMock('child_process', () => ({
+          spawn: jest.fn(() => ({ pid: 12345, unref: jest.fn() })),
+        }));
+        jest.doMock('../src/sidecar/start', () => ({
+          generateTaskId: jest.fn(() => 'root-escape')
+        }));
+
+        const { handlers } = require('../src/mcp-server');
+        const result = await handlers.sidecar_start({
+          prompt: 'test task',
+          noUi: true,
+          model: 'google/gemini-test'
+        }, tmpProject);
+        spawnMock = require('child_process').spawn;
+
+        expect(result.isError).toBe(true);
+        expect(result.content[0].text).toMatch(/sidecar sessions root|symbolic link|outside/i);
+      });
+
+      expect(spawnMock).not.toHaveBeenCalled();
+      expect(fs.existsSync(path.join(outsideRoot, 'root-escape', 'metadata.json'))).toBe(false);
+    } finally {
+      if (originalSharedServer === undefined) {
+        delete process.env.SIDECAR_SHARED_SERVER;
+      } else {
+        process.env.SIDECAR_SHARED_SERVER = originalSharedServer;
+      }
+    }
+  });
+
+  test('sidecar_continue rejects a preexisting symlinked new task directory before stderr capture', async () => {
+    const originalSharedServer = process.env.SIDECAR_SHARED_SERVER;
+    const sessionsRoot = path.join(tmpProject, '.claude', 'sidecar_sessions');
+    const outsideSession = path.join(outsideDir, 'outside-new-session');
+    let spawnMock;
+
+    try {
+      process.env.SIDECAR_SHARED_SERVER = '0';
+      fs.mkdirSync(sessionsRoot, { recursive: true });
+      fs.mkdirSync(outsideSession, { recursive: true });
+      fs.symlinkSync(outsideSession, path.join(sessionsRoot, 'new-task'), 'dir');
+
+      await jest.isolateModulesAsync(async () => {
+        jest.doMock('child_process', () => ({
+          spawn: jest.fn(() => ({ pid: 12345, unref: jest.fn() })),
+        }));
+        jest.doMock('../src/sidecar/start', () => ({
+          generateTaskId: jest.fn(() => 'new-task')
+        }));
+
+        const { handlers } = require('../src/mcp-server');
+        const result = await handlers.sidecar_continue({
+          taskId: 'old-task',
+          prompt: 'follow up'
+        }, tmpProject);
+        spawnMock = require('child_process').spawn;
+
+        expect(result.isError).toBe(true);
+        expect(result.content[0].text).toMatch(/session directory|symbolic link|outside/i);
+      });
+
+      expect(spawnMock).not.toHaveBeenCalled();
+      expect(fs.existsSync(path.join(outsideSession, 'debug.log'))).toBe(false);
+    } finally {
+      if (originalSharedServer === undefined) {
+        delete process.env.SIDECAR_SHARED_SERVER;
+      } else {
+        process.env.SIDECAR_SHARED_SERVER = originalSharedServer;
+      }
+    }
+  });
 });
 
 describe('sidecar context boundaries', () => {

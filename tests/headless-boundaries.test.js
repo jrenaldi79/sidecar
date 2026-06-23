@@ -96,4 +96,26 @@ describe('Headless session boundary containment', () => {
 
     expect(fs.existsSync(outsideTarget)).toBe(false);
   });
+
+  it('ignores a symlinked metadata abort signal outside the session directory', async () => {
+    const taskId = 'metadata-abort-escape';
+    const sessionDir = path.join(projectDir, '.claude', 'sidecar_sessions', taskId);
+    const outsideMetadata = path.join(outsideDir, 'metadata.json');
+    fs.mkdirSync(sessionDir, { recursive: true });
+    fs.writeFileSync(outsideMetadata, JSON.stringify({ status: 'aborted' }));
+    fs.symlinkSync(outsideMetadata, path.join(sessionDir, 'metadata.json'));
+
+    const result = await runHeadless(
+      'test-model',
+      'system prompt',
+      'user message',
+      taskId,
+      projectDir,
+      5000
+    );
+
+    expect(result.aborted).toBe(false);
+    expect(result.completed).toBe(true);
+    expect(mockAbortSession).not.toHaveBeenCalled();
+  });
 });

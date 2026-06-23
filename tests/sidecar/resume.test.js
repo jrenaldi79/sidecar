@@ -141,6 +141,28 @@ describe('Resume Operations', () => {
       expect(updated.status).toBe('running');
       expect(updated.resumedAt).toBeDefined();
     });
+
+    it('rejects a metadata symlink before updating an outside target', () => {
+      const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-resume-meta-outside-'));
+      const outsideMetadata = path.join(outsideDir, 'metadata.json');
+
+      try {
+        fs.writeFileSync(outsideMetadata, JSON.stringify({
+          taskId: 'abc123',
+          status: 'complete'
+        }));
+        fs.symlinkSync(outsideMetadata, path.join(tmpDir, 'metadata.json'));
+
+        expect(() => updateSessionStatus(tmpDir, 'running'))
+          .toThrow(/symbolic link|session directory|outside/i);
+
+        const outside = JSON.parse(fs.readFileSync(outsideMetadata, 'utf-8'));
+        expect(outside.status).toBe('complete');
+        expect(outside.resumedAt).toBeUndefined();
+      } finally {
+        fs.rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
   });
 
   describe('buildResumeUserMessage', () => {
