@@ -27,6 +27,39 @@ async function getCreateOpencodeServer() {
   return sdk.createOpencodeServer;
 }
 
+function normalizeMcpCommand(serverConfig) {
+  if (Array.isArray(serverConfig.command)) {
+    return serverConfig.command.map(String);
+  }
+
+  const cmd = typeof serverConfig.command === 'string'
+    ? serverConfig.command
+    : String(serverConfig.command);
+  const args = Array.isArray(serverConfig.args) ? serverConfig.args.map(String) : [];
+  return [cmd, ...args];
+}
+
+function normalizeLocalMcpConfig(serverConfig) {
+  const { buildMcpServerEnvironment } = require('./utils/sidecar-env');
+  const rest = { ...serverConfig };
+  delete rest.args;
+  delete rest.command;
+  delete rest.env;
+  delete rest.environment;
+  delete rest.type;
+
+  const { env, environment } = serverConfig;
+  const explicitEnvironment = environment !== undefined ? environment : env;
+
+  return {
+    ...rest,
+    type: 'local',
+    enabled: serverConfig.enabled === undefined ? true : serverConfig.enabled,
+    command: normalizeMcpCommand(serverConfig),
+    environment: buildMcpServerEnvironment(explicitEnvironment)
+  };
+}
+
 /**
  * Parse a model string into SDK format
  *
@@ -308,26 +341,22 @@ function buildServerOptions(options = {}) {
   if (options.mcp) {
     // Normalize MCP configs for OpenCode SDK format.
     // Claude Desktop uses {command: "cmd", args: ["a","b"], env: {...}}
-    // OpenCode expects  {type: "local", enabled: true, command: ["cmd","a","b"], env: {...}}
+    // OpenCode expects  {type: "local", enabled: true, command: ["cmd","a","b"], environment: {...}}
     // Key differences:
     //   1. type: "local" (discriminated union, required)
     //   2. enabled: true (required boolean)
     //   3. command: array that includes the binary AND args (merged)
+    //   4. environment: MCP-specific env plus masks for inherited secrets
     const normalized = {};
     for (const [name, serverConfig] of Object.entries(options.mcp)) {
-      if (serverConfig.command && !serverConfig.type) {
+      if (!serverConfig || typeof serverConfig !== 'object') {
+        normalized[name] = serverConfig;
+      } else if (serverConfig.command && (!serverConfig.type || serverConfig.type === 'local')) {
         // Claude Desktop format → OpenCode format
-        const cmd = typeof serverConfig.command === 'string' ? serverConfig.command : String(serverConfig.command);
-        const args = Array.isArray(serverConfig.args) ? serverConfig.args : [];
-        // Note: OpenCode's "local" schema does NOT support an `env` field.
-        // Environment variables from the Claude Desktop config are intentionally
-        // dropped here. The MCP servers inherit the parent process environment
-        // which is usually sufficient.
-        normalized[name] = {
-          type: 'local',
-          enabled: true,
-          command: [cmd, ...args]
-        };
+        // OpenCode merges `environment` over process.env for local MCP servers,
+        // so include explicit masks for ambient secret keys instead of relying
+        // on omitted keys to prevent inheritance.
+        normalized[name] = normalizeLocalMcpConfig(serverConfig);
       } else {
         normalized[name] = serverConfig;
       }

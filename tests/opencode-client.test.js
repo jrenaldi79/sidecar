@@ -27,7 +27,8 @@ const {
   sendPrompt,
   createSession,
   getMessages,
-  checkHealth
+  checkHealth,
+  buildServerOptions
 } = require('../src/opencode-client');
 
 describe('OpenCode Client Wrapper', () => {
@@ -555,6 +556,72 @@ describe('OpenCode Client Wrapper', () => {
     it('should be the same function as sendPrompt', () => {
       const { sendPrompt, sendPromptAsync } = require('../src/opencode-client');
       expect(sendPromptAsync).toBe(sendPrompt);
+    });
+  });
+
+  describe('buildServerOptions MCP environment safety', () => {
+    let originalEnv;
+
+    beforeEach(() => {
+      originalEnv = { ...process.env };
+      process.env.OPENAI_API_KEY = 'openai-secret';
+      process.env.ANTHROPIC_API_KEY = 'anthropic-secret';
+      process.env.OPENROUTER_API_KEY = 'openrouter-secret';
+      process.env.AWS_SECRET_ACCESS_KEY = 'aws-secret';
+      process.env.SERVICE_TOKEN = 'service-token';
+      process.env.LOG_LEVEL = 'debug';
+      process.env.SIDECAR_ENV_DIR = '/tmp/sidecar-env-dir';
+    });
+
+    afterEach(() => {
+      process.env = originalEnv;
+    });
+
+    it('masks ambient secret env for local MCP commands', () => {
+      const opts = buildServerOptions({
+        mcp: {
+          'local-server': {
+            command: 'node',
+            args: ['server.js']
+          }
+        }
+      });
+
+      const local = opts.config.mcp['local-server'];
+      expect(local).toMatchObject({
+        type: 'local',
+        enabled: true,
+        command: ['node', 'server.js']
+      });
+      expect(local.environment).toBeDefined();
+      expect(local.environment.OPENAI_API_KEY).toBe('');
+      expect(local.environment.ANTHROPIC_API_KEY).toBe('');
+      expect(local.environment.OPENROUTER_API_KEY).toBe('');
+      expect(local.environment.AWS_SECRET_ACCESS_KEY).toBe('');
+      expect(local.environment.SERVICE_TOKEN).toBe('');
+    });
+
+    it('preserves nonsecret MCP environment while masking ambient secrets', () => {
+      const opts = buildServerOptions({
+        mcp: {
+          'local-server': {
+            type: 'local',
+            command: ['node', 'server.js'],
+            environment: {
+              MCP_MODE: 'stdio',
+              LOCAL_FLAG: 'enabled'
+            }
+          }
+        }
+      });
+
+      const localEnv = opts.config.mcp['local-server'].environment;
+      expect(localEnv.MCP_MODE).toBe('stdio');
+      expect(localEnv.LOCAL_FLAG).toBe('enabled');
+      expect(localEnv.LOG_LEVEL).toBe('debug');
+      expect(localEnv.SIDECAR_ENV_DIR).toBe('/tmp/sidecar-env-dir');
+      expect(localEnv.OPENAI_API_KEY).toBe('');
+      expect(localEnv.AWS_SECRET_ACCESS_KEY).toBe('');
     });
   });
 

@@ -67,4 +67,28 @@ function buildChildProcessEnv(extra = {}) {
   return env;
 }
 
-module.exports = { buildChildProcessEnv };
+function normalizeExtraEnv(extra) {
+  if (!extra || typeof extra !== 'object' || Array.isArray(extra)) {
+    return {};
+  }
+  return extra;
+}
+
+function buildMcpServerEnvironment(extra = {}) {
+  const explicit = normalizeExtraEnv(extra);
+  const env = buildChildProcessEnv(explicit);
+
+  for (const [key, value] of Object.entries(process.env)) {
+    if (
+      value !== undefined &&
+      isSecretEnvKey(key) &&
+      !Object.prototype.hasOwnProperty.call(explicit, key)
+    ) {
+      env[key] = '';
+    }
+  }
+
+  return env;
+}
+
+module.exports = { buildChildProcessEnv, buildMcpServerEnvironment };
