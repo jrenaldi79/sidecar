@@ -17,6 +17,10 @@ const {
 const { acquireLock, releaseLock } = require('../utils/session-lock');
 const { runHeadless } = require('../headless');
 const { logger } = require('../utils/logger');
+const {
+  validateSidecarSessionDir,
+  validateSidecarSessionMetadata
+} = require('../utils/sidecar-boundaries');
 
 /** Load session metadata from session directory */
 function loadSessionMetadata(sessionDir) {
@@ -117,13 +121,11 @@ async function resumeSidecar(options) {
     mcp, mcpConfig, client, noMcp, excludeMcp
   } = options;
 
-  const sessionDir = SessionPaths.sessionDir(project, taskId);
-  if (!fs.existsSync(sessionDir)) {
-    throw new Error(`Session ${taskId} not found`);
-  }
+  const sessionDir = validateSidecarSessionDir(project, taskId);
 
   // Load previous session data
-  const metadata = loadSessionMetadata(sessionDir);
+  const metadata = validateSidecarSessionMetadata(loadSessionMetadata(sessionDir), project);
+  const effectiveProject = metadata.projectDir;
   const systemPrompt = loadInitialContext(sessionDir);
 
   // Dead-process detection: log if the previous process is no longer alive
@@ -143,7 +145,7 @@ async function resumeSidecar(options) {
     logger.info('Resuming session', { taskId, model: metadata.model, briefing: metadata.briefing });
 
     // Check for file drift
-    const drift = checkFileDrift(metadata, project);
+    const drift = checkFileDrift(metadata, effectiveProject);
     let resumePrompt = systemPrompt;
 
     if (drift.hasChanges) {
@@ -171,7 +173,7 @@ async function resumeSidecar(options) {
       const userMessage = buildResumeUserMessage(metadata.briefing || '', existingConversation);
       const result = await runHeadless(
         metadata.model, resumePrompt, userMessage,
-        taskId, project, timeout * 60 * 1000, effectiveAgent, { mcp: mcpServers }
+        taskId, effectiveProject, timeout * 60 * 1000, effectiveAgent, { mcp: mcpServers }
       );
       summary = result.summary || '## Sidecar Results: No Output\n\nResumed session completed without summary.';
 
@@ -182,7 +184,7 @@ async function resumeSidecar(options) {
 
       const result = await runInteractive(
         metadata.model, resumePrompt, metadata.briefing || '',
-        taskId, project,
+        taskId, effectiveProject,
         {
           agent: effectiveAgent,
           isResume: true,
@@ -199,7 +201,7 @@ async function resumeSidecar(options) {
     outputSummary(summary);
 
     // Finalize session (use updatedMetadata which has resumedAt)
-    finalizeSession(sessionDir, summary, project, updatedMetadata);
+    finalizeSession(sessionDir, summary, effectiveProject, updatedMetadata);
   } finally {
     if (heartbeat) { heartbeat.stop(); }
     releaseLock(sessionDir);

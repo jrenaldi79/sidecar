@@ -9,6 +9,7 @@ const {
   validateSessionDir,
   validateSubagentParent,
   defaultIncludeContext,
+  resolveExactSessionFile,
   validateSubagentLaunchProject
 } = require('../src/utils/sidecar-boundaries');
 const { buildContext } = require('../src/sidecar/context-builder');
@@ -27,6 +28,31 @@ describe('sidecar workspace boundaries', () => {
     expect(() => validateProjectPath('/tmp', options)).toThrow(/not allowed|unsafe/i);
     expect(() => validateProjectPath('/', options)).toThrow(/not allowed|unsafe/i);
     expect(() => validateProjectPath(os.homedir(), options)).toThrow(/not allowed|unsafe/i);
+  });
+
+  test('validateProjectPath rejects broad user and volume roots by default', () => {
+    for (const broadRoot of ['/Users', '/Volumes']) {
+      if (!fs.existsSync(broadRoot)) {
+        continue;
+      }
+
+      expect(() => validateProjectPath(broadRoot, {
+        cwd: repoRoot,
+        allowedRoots: [broadRoot]
+      })).toThrow(/not allowed|unsafe|broad/i);
+    }
+  });
+
+  test('validateProjectPath does not let a broad parent root authorize descendants', () => {
+    const usersRoot = '/Users';
+    if (!fs.existsSync(usersRoot) || !repoRoot.startsWith(`${usersRoot}${path.sep}`)) {
+      return;
+    }
+
+    expect(() => validateProjectPath(repoRoot, {
+      cwd: usersRoot,
+      allowedRoots: [usersRoot]
+    })).toThrow(/not allowed|unsafe|broad/i);
   });
 
   test('validateProjectPath accepts and canonicalizes a descendant of the repo root', () => {
@@ -174,6 +200,36 @@ describe('sidecar context boundaries', () => {
       path.join('/other/project', '.claude', 'sidecar_sessions', 'session-a'),
       repoRoot
     )).toThrow(/project|outside/i);
+  });
+
+  test('resolveExactSessionFile rejects symlinked session files that escape the session directory', () => {
+    const sessionDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-exact-session-'));
+    const externalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-exact-outside-'));
+    const externalSession = path.join(externalDir, 'target.jsonl');
+
+    try {
+      fs.writeFileSync(externalSession, '{"type":"user","message":{"content":"outside"}}\n');
+      fs.symlinkSync(externalSession, path.join(sessionDir, 'escape.jsonl'));
+
+      expect(() => resolveExactSessionFile(sessionDir, 'escape'))
+        .toThrow(/outside|session directory/i);
+    } finally {
+      fs.rmSync(sessionDir, { recursive: true, force: true });
+      fs.rmSync(externalDir, { recursive: true, force: true });
+    }
+  });
+
+  test('resolveExactSessionFile rejects exact session targets that are not regular files', () => {
+    const sessionDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-exact-session-'));
+
+    try {
+      fs.mkdirSync(path.join(sessionDir, 'directory-session.jsonl'));
+
+      expect(() => resolveExactSessionFile(sessionDir, 'directory-session'))
+        .toThrow(/regular file/i);
+    } finally {
+      fs.rmSync(sessionDir, { recursive: true, force: true });
+    }
   });
 
   test('validateSubagentParent rejects parent metadata for a different project', () => {

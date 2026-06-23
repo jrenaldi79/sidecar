@@ -404,6 +404,21 @@ describe('Context Builder', () => {
       fs.rmSync(tmpHome, { recursive: true });
     });
 
+    it('should reject a missing coworkProcess match when exactSession is required', () => {
+      const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-cowork-'));
+
+      try {
+        expect(() => buildContext('/Users/john_renaldi', null, {
+          client: 'cowork',
+          coworkProcess: 'fake-process',
+          exactSession: true,
+          _homeDir: tmpHome
+        })).toThrow(/Cowork session.*fake-process.*not found/i);
+      } finally {
+        fs.rmSync(tmpHome, { recursive: true, force: true });
+      }
+    });
+
     it('should match correct session when coworkProcess is provided', () => {
       const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-cowork-'));
       const sessRoot = path.join(tmpHome, 'Library', 'Application Support', 'Claude', 'local-agent-mode-sessions');

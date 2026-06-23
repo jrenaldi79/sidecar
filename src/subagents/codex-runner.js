@@ -13,7 +13,7 @@ const {
   appendSubagentConversation
 } = require('../session-manager');
 const { writeProgress } = require('../sidecar/progress');
-const { validateSubagentLaunchProject } = require('../utils/sidecar-boundaries');
+const { buildChildProcessEnv, validateSubagentLaunchProject } = require('../utils/sidecar-boundaries');
 const {
   parseCodexJsonLine,
   normalizeCodexEvent
@@ -245,7 +245,8 @@ async function startCodexSubagent({
 
   const child = spawn('codex', args, {
     cwd: validatedProjectDir,
-    stdio: ['pipe', 'pipe', 'pipe']
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: buildChildProcessEnv()
   });
 
   updateSubagentSession(validatedProjectDir, parentTaskId, subagentId, {

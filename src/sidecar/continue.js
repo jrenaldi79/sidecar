@@ -17,18 +17,21 @@ const { acquireLock, releaseLock } = require('../utils/session-lock');
 const { runHeadless } = require('../headless');
 const { buildPrompts } = require('../prompt-builder');
 const { logger } = require('../utils/logger');
+const {
+  validateSidecarSessionDir,
+  validateSidecarSessionMetadata
+} = require('../utils/sidecar-boundaries');
 
 /** Load previous session data (metadata, summary, conversation) */
 function loadPreviousSession(taskId, project) {
-  const sessionDir = SessionPaths.sessionDir(project, taskId);
-
-  if (!fs.existsSync(sessionDir)) {
-    throw new Error(`Session ${taskId} not found`);
-  }
+  const sessionDir = validateSidecarSessionDir(project, taskId);
 
   // Load metadata
   const metaPath = SessionPaths.metadataFile(sessionDir);
-  const metadata = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+  const metadata = validateSidecarSessionMetadata(
+    JSON.parse(fs.readFileSync(metaPath, 'utf-8')),
+    project
+  );
 
   // Load summary if available
   const summaryPath = SessionPaths.summaryFile(sessionDir);
@@ -50,7 +53,7 @@ function loadPreviousSession(taskId, project) {
     }).join('\n\n');
   }
 
-  return { metadata, summary, conversation };
+  return { metadata, summary, conversation, sessionDir };
 }
 
 /** Build continuation context from previous session data */
@@ -94,6 +97,7 @@ function createContinueSessionMetadata(taskId, project, options, oldTaskId) {
     taskId,
     model,
     project,
+    projectDir: project,
     briefing,
     mode: headless ? 'headless' : 'interactive',
     agent: agent || (headless ? 'build' : 'chat'),
@@ -121,11 +125,16 @@ async function continueSidecar(options) {
   } = options;
 
   // Load previous session data
-  const { metadata: oldMetadata, summary: previousSummary, conversation: previousConversation } =
+  const {
+    metadata: oldMetadata,
+    summary: previousSummary,
+    conversation: previousConversation,
+    sessionDir: prevSessionDir
+  } =
     loadPreviousSession(oldTaskId, project);
+  const effectiveProject = oldMetadata.projectDir;
 
   // Lock the previous session directory to prevent concurrent continue operations from the same source
-  const prevSessionDir = SessionPaths.sessionDir(project, oldTaskId);
   acquireLock(prevSessionDir, headless ? 'headless' : 'interactive');
 
   const model = options.model || oldMetadata.model;
@@ -143,14 +152,14 @@ async function continueSidecar(options) {
 
   // Build system prompt and user message
   const { system: systemPrompt, userMessage } = buildPrompts(
-    briefing, fullContext, project, headless, effectiveAgent, 'normal', client
+    briefing, fullContext, effectiveProject, headless, effectiveAgent, 'normal', client
   );
 
   // Use provided task ID (from MCP server) or generate a new one
   const newTaskId = options.newTaskId || generateTaskId();
   logger.info('New continuation task', { newTaskId, oldTaskId });
 
-  const sessionDir = createContinueSessionMetadata(newTaskId, project, {
+  const sessionDir = createContinueSessionMetadata(newTaskId, effectiveProject, {
     model, briefing, headless, agent: effectiveAgent
   }, oldTaskId);
 
@@ -164,7 +173,7 @@ async function continueSidecar(options) {
   try {
     if (headless) {
       const result = await runHeadless(
-        model, systemPrompt, userMessage, newTaskId, project,
+        model, systemPrompt, userMessage, newTaskId, effectiveProject,
         timeout * 60 * 1000, effectiveAgent, { mcp: mcpServers }
       );
       summary = result.summary ||
@@ -175,7 +184,7 @@ async function continueSidecar(options) {
     } else {
       logger.info('Launching interactive continue', { taskId: newTaskId, model });
       const result = await runInteractive(
-        model, systemPrompt, userMessage, newTaskId, project,
+        model, systemPrompt, userMessage, newTaskId, effectiveProject,
         { agent: effectiveAgent, mcp: mcpServers }
       );
       summary = result.summary || '';
@@ -194,7 +203,7 @@ async function continueSidecar(options) {
   const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
 
   // Finalize session
-  finalizeSession(sessionDir, summary, project, meta);
+  finalizeSession(sessionDir, summary, effectiveProject, meta);
 }
 
 module.exports = {

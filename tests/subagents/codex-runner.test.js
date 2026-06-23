@@ -103,6 +103,53 @@ describe('codex-runner', () => {
     ]));
   });
 
+  test('spawns codex with sanitized env instead of inheriting ambient secrets', async () => {
+    const originalEnv = { ...process.env };
+    let capturedEnv;
+    writeParentMetadata();
+
+    try {
+      process.env.AWS_SECRET_ACCESS_KEY = 'aws-secret';
+      process.env.OPENAI_API_KEY = 'openai-secret';
+      process.env.ANTHROPIC_API_KEY = 'anthropic-secret';
+      process.env.SIDECAR_ENV_DIR = path.join(os.tmpdir(), 'sidecar-env-dir');
+
+      await jest.isolateModulesAsync(async () => {
+        jest.doMock('child_process', () => ({
+          spawn: jest.fn((cmd, args, options) => {
+            capturedEnv = options.env;
+            const child = new EventEmitter();
+            child.stdout = new EventEmitter();
+            child.stderr = new EventEmitter();
+            child.stdin = { end: jest.fn() };
+            process.nextTick(() => child.emit('close', 1));
+            return child;
+          }),
+          execFile: jest.fn((cmd, args, cb) => cb(null, '', '')),
+        }));
+
+        const { runCodexSubagent } = require('../../src/subagents/codex-runner');
+        await runCodexSubagent({
+          projectDir,
+          parentTaskId: 'parent-task',
+          subagentId: 'subagent-env',
+          briefing: 'Inspect auth flow',
+          agentType: 'explore'
+        });
+      });
+
+      expect(capturedEnv).toBeDefined();
+      expect(capturedEnv.PATH).toBe(process.env.PATH);
+      expect(capturedEnv.HOME).toBe(process.env.HOME);
+      expect(capturedEnv.SIDECAR_ENV_DIR).toBe(process.env.SIDECAR_ENV_DIR);
+      expect(capturedEnv.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+      expect(capturedEnv.OPENAI_API_KEY).toBeUndefined();
+      expect(capturedEnv.ANTHROPIC_API_KEY).toBeUndefined();
+    } finally {
+      process.env = originalEnv;
+    }
+  });
+
   test('rejects parent session directories without metadata', async () => {
     await jest.isolateModulesAsync(async () => {
       jest.doMock('child_process', () => ({

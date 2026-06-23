@@ -205,6 +205,7 @@ function buildContext(project, session, options = {}) {
     }
     const auditPath = findCoworkSession(homeDir, coworkProcess);
     if (!auditPath) {
+      if (exactSession) { throw new Error(`Cowork session for process ${coworkProcess} not found`); }
       logger.warn('No Cowork session found in local-agent-mode-sessions', { project: validatedProject });
       return '[No Claude Code conversation history found]';
     }

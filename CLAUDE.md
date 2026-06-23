@@ -86,7 +86,7 @@ src/
 ├── prompts/
 │   └── cowork-agent-prompt.js  # Cowork Agent Prompt
 ├── sidecar/
-│   ├── context-builder.js  # Context Builder Module
+│   ├── context-builder.js  # Resolve a session file, optionally requiring an exact match.
 │   ├── continue.js  # Load previous session data (metadata, summary, conversation)
 │   ├── crash-handler.js  # Crash Handler - Updates metadata to 'error' on uncaught exceptions
 │   ├── interactive.js  # Check if Electron is available (lazy loading guard)
@@ -99,7 +99,7 @@ src/
 │   └── start.js  # Generate a unique 8-character hex task ID
 ├── subagents/
 │   ├── codex-event-normalizer.js  # Parse a single Codex JSONL line.
-│   └── codex-runner.js  # Map Sidecar agent types onto Codex sandbox modes.
+│   └── codex-runner.js  # Start a Codex-backed subagent and return once the subprocess is running.
 ├── utils/
 │   ├── agent-mapping.js  # * All OpenCode native agent names (lowercase)
 │   ├── alias-resolver.js  # Alias Resolver Utilities
@@ -119,6 +119,9 @@ src/
 │   ├── server-setup.js  # Server Setup Utilities
 │   ├── session-lock.js  # Atomic session lock files to prevent concurrent resume/continue.
 │   ├── shared-server.js  # Manages a single shared OpenCode server for MCP sessions.
+│   ├── sidecar-boundaries.js
+│   ├── sidecar-env.js
+│   ├── sidecar-session-boundaries.js
 │   ├── start-helpers.js  # Start Command Helpers
 │   ├── thinking-validators.js  # Thinking Level Validators
 │   ├── updater.js  # @type {import('update-notifier').UpdateNotifier|null}
@@ -216,7 +219,7 @@ evals/
 | `session-manager.js` | * Session status constants | `createSession()`, `updateSession()`, `getSession()`, `saveConversation()`, `saveSummary()` |
 | `session.js` | Session Resolver | `encodeProjectPath()`, `decodeProjectPath()`, `getSessionDirectory()`, `getSessionId()`, `resolveSession()` |
 | `prompts/cowork-agent-prompt.js` | Cowork Agent Prompt | `buildCoworkAgentPrompt()` |
-| `sidecar/context-builder.js` | Context Builder Module | `buildContext()`, `parseDuration()`, `resolveSessionFile()`, `applyContextFilters()`, `findCoworkSession()` |
+| `sidecar/context-builder.js` | Resolve a session file, optionally requiring an exact match. | `buildContext()`, `parseDuration()`, `resolveSessionFile()`, `resolveExactSessionFile()`, `applyContextFilters()` |
 | `sidecar/continue.js` | Load previous session data (metadata, summary, conversation) | `loadPreviousSession()`, `buildContinuationContext()`, `createContinueSessionMetadata()`, `continueSidecar()` |
 | `sidecar/crash-handler.js` | Crash Handler - Updates metadata to 'error' on uncaught exceptions | `installCrashHandler()` |
 | `sidecar/interactive.js` | Check if Electron is available (lazy loading guard) | `getElectronPath()`, `checkElectronAvailable()`, `buildElectronEnv()`, `handleElectronProcess()`, `runInteractive()` |
@@ -228,7 +231,7 @@ evals/
 | `sidecar/setup.js` | Sidecar Setup Wizard | `addAlias()`, `createDefaultConfig()`, `detectApiKeys()`, `runInteractiveSetup()`, `runReadlineSetup()` |
 | `sidecar/start.js` | Generate a unique 8-character hex task ID | `generateTaskId()`, `createSessionMetadata()`, `buildMcpConfig()`, `checkElectronAvailable()`, `runInteractive()` |
 | `subagents/codex-event-normalizer.js` | Parse a single Codex JSONL line. | `parseCodexJsonLine()`, `normalizeCodexEvent()`, `getFinalSummary()` |
-| `subagents/codex-runner.js` | Map Sidecar agent types onto Codex sandbox modes. | `runCodexSubagent()`, `startCodexSubagent()`, `resolveSandboxMode()`, `addRolePreamble()`, `assertCodexAvailable()` |
+| `subagents/codex-runner.js` | Start a Codex-backed subagent and return once the subprocess is running. | `runCodexSubagent()`, `startCodexSubagent()`, `resolveSandboxMode()`, `addRolePreamble()`, `assertCodexAvailable()` |
 | `utils/agent-mapping.js` | * All OpenCode native agent names (lowercase) | `PRIMARY_AGENTS()`, `OPENCODE_AGENTS()`, `HEADLESS_SAFE_AGENTS()`, `mapAgentToOpenCode()`, `isValidAgent()` |
 | `utils/alias-resolver.js` | Alias Resolver Utilities | `applyDirectApiFallback()`, `autoRepairAlias()` |
 | `utils/api-key-store.js` | Maps provider IDs to environment variable names | `getEnvPath()`, `loadEnvEntries()`, `readApiKeys()`, `readApiKeyHints()`, `readApiKeyValues()` |
@@ -247,6 +250,9 @@ evals/
 | `utils/server-setup.js` | Server Setup Utilities | `DEFAULT_PORT()`, `isPortInUse()`, `getPortPid()`, `killPortProcess()`, `ensurePortAvailable()` |
 | `utils/session-lock.js` | Atomic session lock files to prevent concurrent resume/continue. | `acquireLock()`, `releaseLock()`, `isLockStale()`, `isPidAlive()` |
 | `utils/shared-server.js` | Manages a single shared OpenCode server for MCP sessions. | `SharedServerManager()` |
+| `utils/sidecar-boundaries.js` |  | `parseAllowedRoots()`, `validateProjectPath()`, `validateSessionDir()`, `validateSubagentParent()`, `validateSidecarSessionDir()` |
+| `utils/sidecar-env.js` |  | `buildChildProcessEnv()` |
+| `utils/sidecar-session-boundaries.js` |  | `validateSidecarSessionDir()`, `validateSidecarSessionMetadata()` |
 | `utils/start-helpers.js` | Start Command Helpers | `resolveModelFromArgs()`, `validateFallbackModel()` |
 | `utils/thinking-validators.js` | Thinking Level Validators | `MODEL_THINKING_SUPPORT()`, `getSupportedThinkingLevels()`, `validateThinkingLevel()` |
 | `utils/updater.js` | @type {import('update-notifier').UpdateNotifier|null} | `initUpdateCheck()`, `getUpdateInfo()`, `notifyUpdate()`, `performUpdate()` |

@@ -3,6 +3,11 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { buildChildProcessEnv } = require('./sidecar-env');
+const {
+  validateSidecarSessionDir,
+  validateSidecarSessionMetadata
+} = require('./sidecar-session-boundaries');
 const { validateTaskId } = require('./validators');
 
 function realpathSync(targetPath) {
@@ -74,7 +79,17 @@ function parseAllowedRoots(value) {
 
 function restrictedRootSet() {
   const roots = new Set();
-  for (const candidate of ['/', os.homedir(), os.tmpdir(), '/tmp']) {
+  for (const candidate of [
+    '/',
+    os.homedir(),
+    os.tmpdir(),
+    '/tmp',
+    '/Users',
+    '/Volumes',
+    '/System',
+    '/System/Volumes',
+    '/System/Volumes/Data'
+  ]) {
     try {
       roots.add(realpathSync(candidate));
     } catch {
@@ -109,6 +124,11 @@ function validateProjectPath(project, options = {}) {
   const configuredRoots = options.allowedRoots !== undefined
     ? parseAllowedRoots(options.allowedRoots)
     : parseAllowedRoots(process.env.SIDECAR_ALLOWED_ROOTS);
+  for (const root of configuredRoots) {
+    if (isRestrictedRoot(root)) {
+      throw new Error(`Allowed root is unsafe by default: ${root}`);
+    }
+  }
   const allowedRoots = isRestrictedRoot(canonicalCwd)
     ? configuredRoots
     : [canonicalCwd, ...configuredRoots];
@@ -182,7 +202,18 @@ function resolveExactSessionFile(sessionDir, session) {
   if (!fs.existsSync(sessionPath)) {
     throw new Error(`Exact session ${session} not found`);
   }
-  return { path: sessionPath, method: 'explicit' };
+
+  const canonicalSessionDir = canonicalizeExistingDir(path.resolve(sessionDir), 'Session directory');
+  const canonicalSessionPath = realpathSync(sessionPath);
+  if (!isPathInside(canonicalSessionDir, canonicalSessionPath)) {
+    throw new Error(`Exact session file is outside the session directory: ${canonicalSessionPath}`);
+  }
+  const stat = fs.statSync(canonicalSessionPath);
+  if (!stat.isFile()) {
+    throw new Error(`Exact session target is not a regular file: ${sessionPath}`);
+  }
+
+  return { path: canonicalSessionPath, method: 'explicit' };
 }
 
 function hasContextBinding(options = {}) {
@@ -240,6 +271,8 @@ module.exports = {
   validateProjectPath,
   validateSessionDir,
   validateSubagentParent,
+  validateSidecarSessionDir,
+  validateSidecarSessionMetadata,
   defaultIncludeContext,
   hasContextBinding,
   assertContextBinding,
@@ -247,5 +280,6 @@ module.exports = {
   resolveExactSessionFile,
   resolveContextSessionScope,
   validateSubagentLaunchProject,
+  buildChildProcessEnv,
   isPathInside
 };
