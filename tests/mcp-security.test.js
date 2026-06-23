@@ -3,11 +3,13 @@ const os = require('os');
 const path = require('path');
 
 const {
+  assertContextBinding,
   parseAllowedRoots,
   validateProjectPath,
   validateSessionDir,
   validateSubagentParent,
-  defaultIncludeContext
+  defaultIncludeContext,
+  validateSubagentLaunchProject
 } = require('../src/utils/sidecar-boundaries');
 const { buildContext } = require('../src/sidecar/context-builder');
 const { saveApiKey } = require('../src/utils/api-key-store');
@@ -36,6 +38,47 @@ describe('sidecar workspace boundaries', () => {
     })).toBe(expected);
   });
 
+  test('validateProjectPath rejects descendants when cwd is root unless explicitly allowed', () => {
+    expect(() => validateProjectPath(repoRoot, {
+      cwd: '/',
+      allowedRoots: []
+    })).toThrow(/not allowed|unsafe/i);
+
+    expect(validateProjectPath(repoRoot, {
+      cwd: '/',
+      allowedRoots: [repoRoot]
+    })).toBe(repoRoot);
+  });
+
+  test('validateProjectPath rejects descendants when cwd is home unless explicitly allowed', () => {
+    const homeDir = fs.realpathSync(os.homedir());
+    if (!repoRoot.startsWith(homeDir + path.sep)) {
+      return;
+    }
+
+    expect(() => validateProjectPath(repoRoot, {
+      cwd: homeDir,
+      allowedRoots: []
+    })).toThrow(/not allowed|unsafe/i);
+  });
+
+  test('validateProjectPath allows broad cwd descendants with unsafe override only', () => {
+    const original = process.env.SIDECAR_ALLOW_UNSAFE_PROJECT;
+    try {
+      process.env.SIDECAR_ALLOW_UNSAFE_PROJECT = '1';
+      expect(validateProjectPath(repoRoot, {
+        cwd: '/',
+        allowedRoots: []
+      })).toBe(repoRoot);
+    } finally {
+      if (original === undefined) {
+        delete process.env.SIDECAR_ALLOW_UNSAFE_PROJECT;
+      } else {
+        process.env.SIDECAR_ALLOW_UNSAFE_PROJECT = original;
+      }
+    }
+  });
+
   test('validateProjectPath rejects a symlink inside an allowed root resolving outside that root', () => {
     const allowedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-allowed-'));
     const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-outside-'));
@@ -57,6 +100,38 @@ describe('sidecar workspace boundaries', () => {
   test('defaultIncludeContext returns false', () => {
     expect(defaultIncludeContext()).toBe(false);
   });
+
+  test('includeContext rejects missing, default, or current session bindings', () => {
+    expect(() => assertContextBinding({})).toThrow(/includeContext/i);
+    expect(() => assertContextBinding({ session: 'current' })).toThrow(/exact/i);
+    expect(() => assertContextBinding({ sessionId: 'current' })).toThrow(/exact/i);
+    expect(() => assertContextBinding({ parentSession: 'current' })).toThrow(/exact/i);
+  });
+
+  test('includeContext accepts exact session, sessionDir, or coworkProcess bindings', () => {
+    expect(() => assertContextBinding({ session: 'session-a' })).not.toThrow();
+    expect(() => assertContextBinding({ sessionDir: path.join(repoRoot, '.claude', 'sidecar_sessions', 'session-a') })).not.toThrow();
+    expect(() => assertContextBinding({ client: 'cowork', coworkProcess: 'exact-process' })).not.toThrow();
+  });
+
+  test('validateSubagentLaunchProject rejects parent directories without metadata', () => {
+    const tmpProject = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-subagent-parent-'));
+    const parentTaskId = 'parent-task';
+    const parentDir = path.join(tmpProject, '.claude', 'sidecar_sessions', parentTaskId);
+
+    try {
+      fs.mkdirSync(parentDir, { recursive: true });
+
+      expect(() => validateSubagentLaunchProject({
+        projectDir: tmpProject,
+        parentTaskId,
+        getSession: () => null,
+        getSessionDir: () => parentDir
+      })).toThrow(/metadata|parent session/i);
+    } finally {
+      fs.rmSync(tmpProject, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('sidecar context boundaries', () => {
@@ -66,6 +141,24 @@ describe('sidecar context boundaries', () => {
     expect(() => buildContext('/other/project', 'session-a', {
       parentProject: repoRoot
     })).toThrow(/project/i);
+  });
+
+  test('buildContext rejects explicit code-web sessionDir outside the project root', () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-codeweb-project-'));
+    const externalSessionDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-codeweb-session-'));
+
+    try {
+      fs.writeFileSync(path.join(externalSessionDir, 'session-a.jsonl'), '');
+
+      expect(() => buildContext(projectRoot, 'session-a', {
+        client: 'code-web',
+        sessionDir: externalSessionDir,
+        parentProject: projectRoot
+      })).toThrow(/outside|project root/i);
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+      fs.rmSync(externalSessionDir, { recursive: true, force: true });
+    }
   });
 
   test('validateSessionDir rejects session directories outside the project root', () => {

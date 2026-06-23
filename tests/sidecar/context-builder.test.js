@@ -2,8 +2,8 @@
  * Context Builder Tests
  *
  * Tests for buildContext() with multi-environment support.
- * Validates that context can be built from arbitrary session directories
- * (not just the default ~/.claude/projects/ path).
+ * Validates that context can be built from explicit session directories
+ * when they remain inside the validated project boundary.
  */
 
 const path = require('path');

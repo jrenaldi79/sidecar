@@ -247,6 +247,77 @@ describe('createSessionMetadata PID preservation', () => {
   });
 });
 
+describe('startSidecar context binding validation', () => {
+  let tmpDir;
+  let mockSessionDir;
+  const repoRoot = fs.realpathSync(path.resolve(__dirname, '../..'));
+
+  beforeEach(() => {
+    jest.resetModules();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'start-context-binding-'));
+    mockSessionDir = path.join(tmpDir, 'session');
+
+    jest.doMock('../../src/sidecar/context-builder', () => ({
+      buildContext: jest.fn(() => 'mocked context')
+    }));
+    jest.doMock('../../src/prompt-builder', () => ({
+      buildPrompts: jest.fn(() => ({
+        system: 'sys',
+        userMessage: 'user'
+      }))
+    }));
+    jest.doMock('../../src/sidecar/session-utils', () => ({
+      SessionPaths: {
+        sessionDir: jest.fn(() => mockSessionDir),
+        metadataFile: jest.fn((sessionDir) => path.join(sessionDir, 'metadata.json'))
+      },
+      saveInitialContext: jest.fn(),
+      finalizeSession: jest.fn(),
+      outputSummary: jest.fn(),
+      createHeartbeat: jest.fn(() => ({ stop: jest.fn() })),
+      HEARTBEAT_INTERVAL: 5000
+    }));
+    jest.doMock('../../src/sidecar/interactive', () => ({
+      runInteractive: jest.fn(() => ({ summary: 'done' })),
+      checkElectronAvailable: jest.fn()
+    }));
+    jest.doMock('../../src/headless', () => ({
+      runHeadless: jest.fn(() => ({ summary: 'done' }))
+    }));
+    jest.doMock('../../src/opencode-client', () => ({
+      loadMcpConfig: jest.fn(() => null),
+      parseMcpSpec: jest.fn(() => null)
+    }));
+    jest.doMock('../../src/utils/agent-mapping', () => ({
+      mapAgentToOpenCode: jest.fn(() => ({ agent: 'Build' }))
+    }));
+    jest.doMock('../../src/utils/mcp-discovery', () => ({
+      discoverParentMcps: jest.fn(() => null)
+    }));
+    jest.doMock('../../src/utils/session-lock', () => ({
+      acquireLock: jest.fn(),
+      releaseLock: jest.fn()
+    }));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    jest.resetModules();
+  });
+
+  it('rejects includeContext true with the default current session', async () => {
+    const { startSidecar } = require('../../src/sidecar/start');
+
+    await expect(startSidecar({
+      model: 'gemini',
+      prompt: 'test',
+      noUi: true,
+      cwd: repoRoot,
+      includeContext: true
+    })).rejects.toThrow(/exact/i);
+  });
+});
+
 describe('startSidecar includeContext option', () => {
   let buildContextMock;
 
@@ -307,7 +378,7 @@ describe('startSidecar includeContext option', () => {
   it('calls buildContext when includeContext is true', async () => {
     const { startSidecar } = require('../../src/sidecar/start');
     await startSidecar({
-      model: 'gemini', prompt: 'test', noUi: true, includeContext: true
+      model: 'gemini', prompt: 'test', noUi: true, includeContext: true, sessionId: 'session-a'
     });
     expect(buildContextMock).toHaveBeenCalled();
   });

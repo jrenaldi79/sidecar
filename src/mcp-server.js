@@ -48,8 +48,7 @@ function readValidatedParentMetadata(taskId, project) {
   if (!metadata) { return null; }
   validateSubagentParent({
     ...metadata,
-    taskId: metadata.taskId || taskId,
-    projectDir: metadata.projectDir || metadata.project || project
+    taskId: metadata.taskId || taskId
   }, project);
   return metadata;
 }
@@ -151,6 +150,7 @@ const handlers = {
     if (input.contextSince)     { args.push('--context-since', input.contextSince); }
     if (input.contextMaxTokens) { args.push('--context-max-tokens', String(input.contextMaxTokens)); }
     if (input.summaryLength)    { args.push('--summary-length', input.summaryLength); }
+    if (includeContext) { args.push('--include-context'); }
     if (!includeContext) { args.push('--no-context'); }
     if (input.coworkProcess)    { args.push('--cowork-process', input.coworkProcess); }
     if (input.parentSession)    { args.push('--session-id', input.parentSession); }

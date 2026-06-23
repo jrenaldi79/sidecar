@@ -21,6 +21,18 @@ describe('codex-runner', () => {
     jest.clearAllMocks();
   });
 
+  function writeParentMetadata() {
+    fs.writeFileSync(
+      path.join(projectDir, '.claude', 'sidecar_sessions', 'parent-task', 'metadata.json'),
+      JSON.stringify({
+        taskId: 'parent-task',
+        project: fs.realpathSync(projectDir),
+        projectDir: fs.realpathSync(projectDir),
+        status: 'running'
+      })
+    );
+  }
+
   test('maps plan to read-only sandbox', () => {
     const { resolveSandboxMode } = require('../../src/subagents/codex-runner');
     expect(resolveSandboxMode('plan')).toBe('read-only');
@@ -54,6 +66,7 @@ describe('codex-runner', () => {
 
   test('spawns codex exec with the expected args for explore', async () => {
     let capturedArgs;
+    writeParentMetadata();
 
     await jest.isolateModulesAsync(async () => {
       jest.doMock('child_process', () => ({
@@ -90,7 +103,33 @@ describe('codex-runner', () => {
     ]));
   });
 
+  test('rejects parent session directories without metadata', async () => {
+    await jest.isolateModulesAsync(async () => {
+      jest.doMock('child_process', () => ({
+        spawn: jest.fn(() => {
+          const child = new EventEmitter();
+          child.stdout = new EventEmitter();
+          child.stderr = new EventEmitter();
+          child.stdin = { end: jest.fn() };
+          return child;
+        }),
+        execFile: jest.fn((cmd, args, cb) => cb(null, '', '')),
+      }));
+
+      const { startCodexSubagent } = require('../../src/subagents/codex-runner');
+      await expect(startCodexSubagent({
+        projectDir,
+        parentTaskId: 'parent-task',
+        subagentId: 'subagent-no-parent-metadata',
+        briefing: 'Inspect auth flow',
+        agentType: 'explore'
+      })).rejects.toThrow(/metadata|parent session/i);
+    });
+  });
+
   test('writes summary.md and marks metadata complete on a successful final event', async () => {
+    writeParentMetadata();
+
     await jest.isolateModulesAsync(async () => {
       jest.doMock('child_process', () => ({
         spawn: jest.fn(() => {
@@ -129,6 +168,8 @@ describe('codex-runner', () => {
   });
 
   test('marks metadata error when codex exits non-zero', async () => {
+    writeParentMetadata();
+
     await jest.isolateModulesAsync(async () => {
       jest.doMock('child_process', () => ({
         spawn: jest.fn(() => {

@@ -22,6 +22,35 @@ describe('codex subagent MCP handlers', () => {
     return parentDir;
   }
 
+  function createParentSessionWithoutProject(taskId = 'parent123') {
+    const parentDir = path.join(projectDir, '.claude', 'sidecar_sessions', taskId);
+    fs.mkdirSync(parentDir, { recursive: true });
+    fs.writeFileSync(path.join(parentDir, 'metadata.json'), JSON.stringify({
+      taskId,
+      status: 'running',
+      createdAt: new Date().toISOString()
+    }));
+    return parentDir;
+  }
+
+  function createSubagentSession(parentTaskId, subagentId, status = 'running') {
+    const subagentDir = path.join(
+      projectDir, '.claude', 'sidecar_sessions', parentTaskId, 'subagents', subagentId
+    );
+    fs.mkdirSync(subagentDir, { recursive: true });
+    fs.writeFileSync(path.join(subagentDir, 'metadata.json'), JSON.stringify({
+      subagentId,
+      parentTaskId,
+      agentType: 'general',
+      backend: 'codex',
+      status,
+      pid: status === 'running' ? 43210 : null,
+      createdAt: new Date().toISOString()
+    }));
+    fs.writeFileSync(path.join(subagentDir, 'summary.md'), 'Updated auth validation.');
+    return subagentDir;
+  }
+
   beforeEach(() => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-codex-subagent-'));
     projectDir = tempDir;
@@ -63,6 +92,26 @@ describe('codex subagent MCP handlers', () => {
         briefing: 'Inspect auth flow',
         agentType: 'explore'
       }));
+    });
+  });
+
+  test.each([
+    ['sidecar_subagent_start', { parentTaskId: 'parent123', prompt: 'Inspect auth flow', agentType: 'explore' }],
+    ['sidecar_subagent_status', { parentTaskId: 'parent123', subagentId: 'sub1' }],
+    ['sidecar_subagent_read', { parentTaskId: 'parent123', subagentId: 'sub1' }],
+    ['sidecar_subagent_abort', { parentTaskId: 'parent123', subagentId: 'sub1' }]
+  ])('%s rejects parent metadata without project binding', async (handlerName, input) => {
+    createParentSessionWithoutProject('parent123');
+    if (handlerName !== 'sidecar_subagent_start') {
+      createSubagentSession('parent123', 'sub1');
+    }
+
+    await jest.isolateModulesAsync(async () => {
+      jest.doMock('../src/subagents/codex-runner', () => ({
+        startCodexSubagent: jest.fn()
+      }));
+      const { handlers } = require('../src/mcp-server');
+      await expect(handlers[handlerName](input, projectDir)).rejects.toThrow(/project binding/i);
     });
   });
 

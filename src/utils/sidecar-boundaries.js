@@ -84,6 +84,10 @@ function restrictedRootSet() {
   return roots;
 }
 
+function isRestrictedRoot(canonicalPath) {
+  return restrictedRootSet().has(canonicalPath);
+}
+
 function defaultIncludeContext() {
   return false;
 }
@@ -98,14 +102,16 @@ function validateProjectPath(project, options = {}) {
     return canonicalProject;
   }
 
-  if (restrictedRootSet().has(canonicalProject)) {
+  if (isRestrictedRoot(canonicalProject)) {
     throw new Error(`Project path is unsafe by default: ${canonicalProject}`);
   }
 
   const configuredRoots = options.allowedRoots !== undefined
     ? parseAllowedRoots(options.allowedRoots)
     : parseAllowedRoots(process.env.SIDECAR_ALLOWED_ROOTS);
-  const allowedRoots = [canonicalCwd, ...configuredRoots];
+  const allowedRoots = isRestrictedRoot(canonicalCwd)
+    ? configuredRoots
+    : [canonicalCwd, ...configuredRoots];
 
   if (!allowedRoots.some((root) => isPathInside(root, canonicalProject))) {
     throw new Error(`Project path is not allowed: ${canonicalProject}`);
@@ -154,11 +160,19 @@ function validateSubagentParent(metadata, projectRoot) {
   };
 }
 
+function isExactSessionBinding(value) {
+  if (typeof value !== 'string') {
+    return false;
+  }
+  const session = value.trim();
+  return session !== '' && session !== 'current';
+}
+
 function hasContextBinding(options = {}) {
   return Boolean(
-    options.parentSession ||
-    options.sessionId ||
-    options.session ||
+    isExactSessionBinding(options.parentSession) ||
+    isExactSessionBinding(options.sessionId) ||
+    isExactSessionBinding(options.session) ||
     options.sessionDir ||
     options.coworkProcess
   );
@@ -166,7 +180,7 @@ function hasContextBinding(options = {}) {
 
 function assertContextBinding(options = {}) {
   if (!hasContextBinding(options)) {
-    throw new Error('includeContext requires parentSession, session, sessionDir, or coworkProcess');
+    throw new Error('includeContext requires an exact parentSession/session, sessionDir, or coworkProcess');
   }
   if (options.client === 'cowork' && !options.sessionDir && !options.coworkProcess) {
     throw new Error('Cowork context requires coworkProcess for exact session matching');
@@ -193,14 +207,13 @@ function validateSubagentLaunchProject({ projectDir, parentTaskId, getSession, g
   if (!fs.existsSync(parentDir)) {
     throw new Error(`Parent session ${parentTaskId} not found`);
   }
-  const parentMetadata = getSession(validatedProjectDir, parentTaskId) || {
-    taskId: parentTaskId,
-    projectDir: validatedProjectDir
-  };
+  const parentMetadata = getSession(validatedProjectDir, parentTaskId);
+  if (!parentMetadata) {
+    throw new Error(`Parent session ${parentTaskId} metadata not found`);
+  }
   validateSubagentParent({
     ...parentMetadata,
-    taskId: parentMetadata.taskId || parentTaskId,
-    projectDir: parentMetadata.projectDir || parentMetadata.project || validatedProjectDir
+    taskId: parentMetadata.taskId || parentTaskId
   }, validatedProjectDir);
 
   return validatedProjectDir;

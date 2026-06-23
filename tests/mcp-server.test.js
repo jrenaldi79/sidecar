@@ -70,6 +70,31 @@ describe('MCP spawn arg building', () => {
     });
   });
 
+  test('sidecar_start passes --include-context when includeContext is true', async () => {
+    let capturedArgs;
+    await jest.isolateModulesAsync(async () => {
+      jest.doMock('child_process', () => ({
+        spawn: jest.fn((cmd, args) => {
+          capturedArgs = args;
+          return { pid: 12345, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
+        }),
+      }));
+      const { handlers: h } = require('../src/mcp-server');
+      await h.sidecar_start({
+        prompt: 'test task',
+        noUi: true,
+        model: 'google/gemini-test',
+        includeContext: true,
+        parentSession: 'f58f2782-fc8c-41bc-afbc-e0c130b91aaf'
+      }, repoRoot);
+
+      expect(capturedArgs).toContain('--include-context');
+      expect(capturedArgs).not.toContain('--no-context');
+      const idx = capturedArgs.indexOf('--session-id');
+      expect(capturedArgs[idx + 1]).toBe('f58f2782-fc8c-41bc-afbc-e0c130b91aaf');
+    });
+  });
+
   test('sidecar_start passes --timeout when provided', async () => {
     let capturedArgs;
     await jest.isolateModulesAsync(async () => {
