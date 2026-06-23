@@ -143,20 +143,25 @@ function ensureSidecarSubagentSessionDir(projectRoot, parentTaskId, subagentId, 
   );
 }
 
-function validateSidecarSubagentSessionDir(projectRoot, parentTaskId, subagentId) {
-  assertTaskId(subagentId);
+function validateSidecarSubagentsRoot(projectRoot, parentTaskId, options = {}) {
   const canonicalParentSessionDir = validateSidecarSessionDir(projectRoot, parentTaskId);
   const subagentsRoot = path.join(canonicalParentSessionDir, 'subagents');
   rejectSymlink(subagentsRoot, 'Sub-agent sessions root');
   if (!fs.existsSync(subagentsRoot)) {
-    throw new Error(`Sub-agent ${subagentId} not found under parent ${parentTaskId}`);
+    if (options.optional) { return null; }
+    throw new Error(`Sub-agent sessions root not found under parent ${parentTaskId}`);
   }
-
   const canonicalSubagentsRoot = canonicalizeExistingDir(subagentsRoot, 'Sub-agent sessions root');
   if (!isPathInside(canonicalParentSessionDir, canonicalSubagentsRoot)) {
     throw new Error(`Sub-agent sessions root is outside the parent session directory: ${canonicalSubagentsRoot}`);
   }
+  return canonicalSubagentsRoot;
+}
 
+function validateSidecarSubagentSessionDir(projectRoot, parentTaskId, subagentId) {
+  assertTaskId(subagentId);
+  const canonicalSubagentsRoot = validateSidecarSubagentsRoot(projectRoot, parentTaskId, { optional: true });
+  if (!canonicalSubagentsRoot) { throw new Error(`Sub-agent ${subagentId} not found under parent ${parentTaskId}`); }
   const subagentDir = path.join(canonicalSubagentsRoot, subagentId);
   rejectSymlink(subagentDir, 'Sub-agent session directory');
   if (!fs.existsSync(subagentDir)) {
@@ -283,6 +288,7 @@ module.exports = {
   ensureSidecarSessionDir,
   validateSidecarSessionDir,
   ensureSidecarSubagentSessionDir,
+  validateSidecarSubagentsRoot,
   validateSidecarSubagentSessionDir,
   validateSidecarSessionMetadata,
   resolveContainedSessionFile,

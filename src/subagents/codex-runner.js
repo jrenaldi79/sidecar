@@ -1,6 +1,5 @@
 'use strict';
 
-const fs = require('fs');
 const path = require('path');
 const { execFile, spawn } = require('child_process');
 const {
@@ -9,11 +8,11 @@ const {
   saveSubagentSummary,
   getSession,
   getSessionDir,
-  getSubagentDir,
   appendSubagentConversation
 } = require('../session-manager');
 const { writeProgress } = require('../sidecar/progress');
 const { buildChildProcessEnv, validateSubagentLaunchProject } = require('../utils/sidecar-boundaries');
+const { appendContainedSessionFile } = require('../utils/sidecar-session-boundaries');
 const {
   parseCodexJsonLine,
   normalizeCodexEvent
@@ -96,12 +95,14 @@ function monitorCodexSubagent({
   subagentDir,
   child
 }) {
-  const stderrPath = path.join(subagentDir, 'codex-stderr.log');
+  const stderrFilename = 'codex-stderr.log';
+  const stderrPath = path.join(subagentDir, stderrFilename);
 
   return new Promise((resolve) => {
     let stderr = '';
     let stdoutBuffer = '';
     let finalSummary = null;
+    let stderrWriteError = null;
 
     child.stdout.on('data', (chunk) => {
       stdoutBuffer += String(chunk);
@@ -148,7 +149,11 @@ function monitorCodexSubagent({
     child.stderr.on('data', (chunk) => {
       const text = String(chunk);
       stderr += text;
-      fs.appendFileSync(stderrPath, text, { mode: 0o600 });
+      try {
+        appendContainedSessionFile(subagentDir, stderrFilename, text, { mode: 0o600 });
+      } catch (err) {
+        stderrWriteError = err;
+      }
     });
 
     child.on('error', (error) => {
@@ -195,7 +200,7 @@ function monitorCodexSubagent({
         status: 'error',
         exitCode: code,
         stderrPath,
-        reason: stderr.trim() || `codex exited with code ${code}`,
+        reason: stderr.trim() || (stderrWriteError && stderrWriteError.message) || `codex exited with code ${code}`,
         completedAt: new Date().toISOString(),
         pid: null
       });
@@ -225,15 +230,13 @@ async function startCodexSubagent({
   const sandboxMode = resolveSandboxMode(agentType);
   const fullBriefing = addRolePreamble(agentType, briefing);
 
-  createSubagentSession(validatedProjectDir, parentTaskId, subagentId, {
+  const subagentDir = createSubagentSession(validatedProjectDir, parentTaskId, subagentId, {
     agentType,
     briefing,
     backend: 'codex',
     sandboxMode,
     projectDir: validatedProjectDir
   });
-
-  const subagentDir = getSubagentDir(validatedProjectDir, parentTaskId, subagentId);
   writeProgress(subagentDir, 'prompt_sent', {
     stageLabel: 'Launching Codex subagent...'
   });

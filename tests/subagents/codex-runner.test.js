@@ -301,4 +301,64 @@ describe('codex-runner', () => {
     expect(metadata.status).toBe('error');
     expect(metadata.reason).toContain('codex failed');
   });
+
+  test('does not append codex stderr through a symlinked stderr log', async () => {
+    writeParentMetadata();
+    const outsideTarget = path.join(tempDir, 'outside-codex-stderr.log');
+    fs.writeFileSync(outsideTarget, 'outside-original');
+
+    await jest.isolateModulesAsync(async () => {
+      jest.doMock('child_process', () => ({
+        spawn: jest.fn(() => {
+          const child = new EventEmitter();
+          child.stdout = new EventEmitter();
+          child.stderr = new EventEmitter();
+          child.stdin = { end: jest.fn() };
+          process.nextTick(() => {
+            const stderrPath = path.join(
+              projectDir,
+              '.claude',
+              'sidecar_sessions',
+              'parent-task',
+              'subagents',
+              'subagent-stderr-symlink',
+              'codex-stderr.log'
+            );
+            fs.symlinkSync(outsideTarget, stderrPath);
+            child.stderr.emit('data', Buffer.from('codex failed'));
+            child.emit('close', 1);
+          });
+          return child;
+        }),
+        execFile: jest.fn((cmd, args, options, cb) => {
+          const callback = typeof options === 'function' ? options : cb;
+          callback(null, '', '');
+        }),
+      }));
+
+      const { runCodexSubagent } = require('../../src/subagents/codex-runner');
+      await runCodexSubagent({
+        projectDir,
+        parentTaskId: 'parent-task',
+        subagentId: 'subagent-stderr-symlink',
+        briefing: 'Fix auth flow',
+        agentType: 'build'
+      });
+    });
+
+    const metadataPath = path.join(
+      projectDir,
+      '.claude',
+      'sidecar_sessions',
+      'parent-task',
+      'subagents',
+      'subagent-stderr-symlink',
+      'metadata.json'
+    );
+
+    expect(fs.readFileSync(outsideTarget, 'utf-8')).toBe('outside-original');
+    const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf-8'));
+    expect(metadata.status).toBe('error');
+    expect(metadata.reason).toContain('codex failed');
+  });
 });

@@ -13,6 +13,7 @@ const {
   ensureSidecarSubagentSessionDir,
   readContainedSessionFile,
   validateSidecarSessionDir,
+  validateSidecarSubagentsRoot,
   validateSidecarSubagentSessionDir,
   writeContainedSessionFile
 } = require('./utils/sidecar-session-boundaries');
@@ -345,15 +346,14 @@ function getSubagentSession(projectDir, parentTaskId, subagentId) {
  * @returns {object[]} Array of sub-agent metadata
  */
 function listSubagents(projectDir, parentTaskId, filter = {}) {
-  let parentDir;
+  let subagentsDir;
   try {
-    parentDir = validateSidecarSessionDir(projectDir, parentTaskId);
+    subagentsDir = validateSidecarSubagentsRoot(projectDir, parentTaskId, { optional: true });
   } catch {
     return [];
   }
-  const subagentsDir = path.join(parentDir, 'subagents');
 
-  if (!fs.existsSync(subagentsDir)) {
+  if (subagentsDir === null) {
     return [];
   }
 

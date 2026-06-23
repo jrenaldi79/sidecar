@@ -655,6 +655,38 @@ describe('Session Manager', () => {
         expect(subagents).toEqual([]);
       });
 
+      it('should return empty array without reading a symlinked sub-agents root', () => {
+        const parentDir = path.join(projectDir, '.claude', 'sidecar_sessions', parentTaskId);
+        const subagentsRoot = path.join(parentDir, 'subagents');
+        const outsideRoot = path.join(tempDir, 'outside-list-subagents-root');
+        fs.mkdirSync(path.join(outsideRoot, 'outside-subagent'), { recursive: true });
+        fs.writeFileSync(path.join(outsideRoot, 'outside-subagent', 'metadata.json'), JSON.stringify({
+          subagentId: 'outside-subagent',
+          parentTaskId,
+          agentType: 'general',
+          briefing: 'outside',
+          status: SESSION_STATUS.RUNNING
+        }));
+        fs.symlinkSync(outsideRoot, subagentsRoot, 'dir');
+
+        const readdirSpy = jest.spyOn(fs, 'readdirSync');
+        try {
+          const subagents = listSubagents(projectDir, parentTaskId);
+          const readOutsideRoot = readdirSpy.mock.calls.some(([candidate]) => {
+            try {
+              return fs.realpathSync(candidate) === fs.realpathSync(outsideRoot);
+            } catch {
+              return false;
+            }
+          });
+
+          expect(subagents).toEqual([]);
+          expect(readOutsideRoot).toBe(false);
+        } finally {
+          readdirSpy.mockRestore();
+        }
+      });
+
       it('should list all sub-agents', () => {
         createSubagentSession(projectDir, parentTaskId, 'subagent-1', {
           agentType: 'general',
