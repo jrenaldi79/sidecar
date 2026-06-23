@@ -493,6 +493,35 @@ describe('Session Manager', () => {
           updateSubagentSession(projectDir, parentTaskId, 'non-existent', {});
         }).toThrow('Sub-agent non-existent not found');
       });
+
+      it('should reject a symlinked sub-agent directory before writing outside metadata', () => {
+        const subagentId = 'subagent-escape';
+        const subagentsRoot = path.join(
+          projectDir, '.claude', 'sidecar_sessions', parentTaskId, 'subagents'
+        );
+        const outsideDir = path.join(tempDir, 'outside-subagent-metadata');
+        fs.mkdirSync(subagentsRoot, { recursive: true });
+        fs.mkdirSync(outsideDir, { recursive: true });
+        fs.writeFileSync(path.join(outsideDir, 'metadata.json'), JSON.stringify({
+          subagentId,
+          parentTaskId,
+          agentType: 'general',
+          briefing: 'outside',
+          status: SESSION_STATUS.RUNNING
+        }));
+        fs.symlinkSync(outsideDir, path.join(subagentsRoot, subagentId), 'dir');
+
+        expect(() => {
+          updateSubagentSession(projectDir, parentTaskId, subagentId, {
+            status: SESSION_STATUS.ABORTED
+          });
+        }).toThrow(/outside|sub-agent|session/i);
+
+        const outsideMetadata = JSON.parse(
+          fs.readFileSync(path.join(outsideDir, 'metadata.json'), 'utf-8')
+        );
+        expect(outsideMetadata.status).toBe(SESSION_STATUS.RUNNING);
+      });
     });
 
     describe('getSubagentSession', () => {

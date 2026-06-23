@@ -6,8 +6,12 @@
  */
 
 const fs = require('fs');
-const path = require('path');
-const { safeSessionDir, TASK_ID_PATTERN } = require('../utils/validators');
+const { TASK_ID_PATTERN } = require('../utils/validators');
+const {
+  readContainedSessionFile,
+  validateSidecarSessionDir,
+  validateSidecarSessionsRoot
+} = require('../utils/sidecar-session-boundaries');
 
 /**
  * Format a timestamp as relative age
@@ -40,24 +44,28 @@ function formatAge(dateStr) {
 async function listSidecars(options) {
   const { status, json, project = process.cwd() } = options;
 
-  const sessionsDir = path.join(project, '.claude', 'sidecar_sessions');
+  let sessionsDir;
+  try {
+    sessionsDir = validateSidecarSessionsRoot(project);
+  } catch (err) {
+    if (!/does not exist/i.test(err.message)) {
+      throw err;
+    }
+  }
 
-  if (!fs.existsSync(sessionsDir)) {
+  if (!sessionsDir) {
     console.log('No sidecar sessions found.');
     return;
   }
 
   let sessions = fs.readdirSync(sessionsDir)
     .filter(d => TASK_ID_PATTERN.test(d))
-    .filter(d => {
-      const metaPath = path.join(sessionsDir, d, 'metadata.json');
-      return fs.existsSync(metaPath);
-    })
     .map(d => {
       try {
-        const meta = JSON.parse(
-          fs.readFileSync(path.join(sessionsDir, d, 'metadata.json'), 'utf-8')
-        );
+        const sessionDir = validateSidecarSessionDir(project, d);
+        const metadataText = readContainedSessionFile(sessionDir, 'metadata.json', { optional: true });
+        if (metadataText === null) { return null; }
+        const meta = JSON.parse(metadataText);
         return {
           id: d, model: meta.model, status: meta.status, agent: meta.agent,
           briefing: meta.briefing, createdAt: meta.createdAt,
@@ -112,16 +120,12 @@ async function listSidecars(options) {
 async function readSidecar(options) {
   const { taskId, conversation, metadata, project = process.cwd() } = options;
 
-  const sessionDir = safeSessionDir(project, taskId);
-
-  if (!fs.existsSync(sessionDir)) {
-    throw new Error(`Session ${taskId} not found`);
-  }
+  const sessionDir = validateSidecarSessionDir(project, taskId);
 
   if (conversation) {
-    const convPath = path.join(sessionDir, 'conversation.jsonl');
-    if (fs.existsSync(convPath)) {
-      const lines = fs.readFileSync(convPath, 'utf-8').split('\n').filter(Boolean);
+    const conversationText = readContainedSessionFile(sessionDir, 'conversation.jsonl', { optional: true });
+    if (conversationText !== null) {
+      const lines = conversationText.split('\n').filter(Boolean);
       lines.forEach(line => {
         try {
           const msg = JSON.parse(line);
@@ -135,13 +139,12 @@ async function readSidecar(options) {
       console.log('No conversation recorded.');
     }
   } else if (metadata) {
-    const metaPath = path.join(sessionDir, 'metadata.json');
-    console.log(fs.readFileSync(metaPath, 'utf-8'));
+    console.log(readContainedSessionFile(sessionDir, 'metadata.json'));
   } else {
     // Default: show summary
-    const summaryPath = path.join(sessionDir, 'summary.md');
-    if (fs.existsSync(summaryPath)) {
-      console.log(fs.readFileSync(summaryPath, 'utf-8'));
+    const summaryText = readContainedSessionFile(sessionDir, 'summary.md', { optional: true });
+    if (summaryText !== null) {
+      console.log(summaryText);
     } else {
       console.log('No summary available (session may not have been folded).');
     }

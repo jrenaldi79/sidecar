@@ -27,6 +27,22 @@ function canonicalizeExistingDir(targetPath, label) {
   return canonical;
 }
 
+function validateSidecarSessionsRoot(projectRoot) {
+  const canonicalProjectRoot = canonicalizeExistingDir(path.resolve(projectRoot), 'Project root');
+  const sessionsRoot = path.join(canonicalProjectRoot, '.claude', 'sidecar_sessions');
+
+  if (!fs.existsSync(sessionsRoot)) {
+    throw new Error(`Sidecar sessions root does not exist: ${sessionsRoot}`);
+  }
+
+  const canonicalSessionsRoot = canonicalizeExistingDir(sessionsRoot, 'Sidecar sessions root');
+  if (!isPathInside(canonicalProjectRoot, canonicalSessionsRoot)) {
+    throw new Error(`Sidecar sessions root is outside the project root: ${canonicalSessionsRoot}`);
+  }
+
+  return canonicalSessionsRoot;
+}
+
 function validateSidecarSessionDir(projectRoot, taskId) {
   const taskCheck = validateTaskId(taskId);
   if (!taskCheck.valid) {
@@ -34,16 +50,16 @@ function validateSidecarSessionDir(projectRoot, taskId) {
   }
 
   const canonicalProjectRoot = canonicalizeExistingDir(path.resolve(projectRoot), 'Project root');
-  const sessionsRoot = path.join(canonicalProjectRoot, '.claude', 'sidecar_sessions');
-  const sessionDir = path.join(sessionsRoot, taskId);
-
-  if (!fs.existsSync(sessionDir)) {
+  const requestedSessionsRoot = path.join(canonicalProjectRoot, '.claude', 'sidecar_sessions');
+  if (!fs.existsSync(requestedSessionsRoot)) {
     throw new Error(`Session ${taskId} not found`);
   }
 
-  const canonicalSessionsRoot = canonicalizeExistingDir(sessionsRoot, 'Sidecar sessions root');
-  if (!isPathInside(canonicalProjectRoot, canonicalSessionsRoot)) {
-    throw new Error(`Sidecar sessions root is outside the project root: ${canonicalSessionsRoot}`);
+  const canonicalSessionsRoot = validateSidecarSessionsRoot(projectRoot);
+  const sessionDir = path.join(canonicalSessionsRoot, taskId);
+
+  if (!fs.existsSync(sessionDir)) {
+    throw new Error(`Session ${taskId} not found`);
   }
 
   const canonicalSessionDir = realpathSync(sessionDir);
@@ -56,6 +72,40 @@ function validateSidecarSessionDir(projectRoot, taskId) {
   }
 
   return canonicalSessionDir;
+}
+
+function validateSidecarSubagentSessionDir(projectRoot, parentTaskId, subagentId) {
+  const subagentCheck = validateTaskId(subagentId);
+  if (!subagentCheck.valid) {
+    throw new Error(subagentCheck.error);
+  }
+
+  const canonicalParentSessionDir = validateSidecarSessionDir(projectRoot, parentTaskId);
+  const subagentsRoot = path.join(canonicalParentSessionDir, 'subagents');
+  if (!fs.existsSync(subagentsRoot)) {
+    throw new Error(`Sub-agent ${subagentId} not found under parent ${parentTaskId}`);
+  }
+
+  const canonicalSubagentsRoot = canonicalizeExistingDir(subagentsRoot, 'Sub-agent sessions root');
+  if (!isPathInside(canonicalParentSessionDir, canonicalSubagentsRoot)) {
+    throw new Error(`Sub-agent sessions root is outside the parent session directory: ${canonicalSubagentsRoot}`);
+  }
+
+  const subagentDir = path.join(canonicalSubagentsRoot, subagentId);
+  if (!fs.existsSync(subagentDir)) {
+    throw new Error(`Sub-agent ${subagentId} not found under parent ${parentTaskId}`);
+  }
+
+  const canonicalSubagentDir = realpathSync(subagentDir);
+  const stat = fs.statSync(canonicalSubagentDir);
+  if (!stat.isDirectory()) {
+    throw new Error(`Sub-agent path is not a directory: ${subagentDir}`);
+  }
+  if (!isPathInside(canonicalSubagentsRoot, canonicalSubagentDir)) {
+    throw new Error(`Sub-agent session directory is outside the parent session tree: ${canonicalSubagentDir}`);
+  }
+
+  return canonicalSubagentDir;
 }
 
 function validateSidecarSessionMetadata(metadata, projectRoot) {
@@ -90,7 +140,7 @@ function assertSafeSessionFilename(filename) {
   }
 }
 
-function readContainedSessionFile(sessionDir, filename, options = {}) {
+function resolveContainedSessionFile(sessionDir, filename, options = {}) {
   assertSafeSessionFilename(filename);
   const canonicalSessionDir = canonicalizeExistingDir(path.resolve(sessionDir), 'Session directory');
   const filePath = path.join(canonicalSessionDir, filename);
@@ -112,11 +162,38 @@ function readContainedSessionFile(sessionDir, filename, options = {}) {
     throw new Error(`Session file is not a regular file: ${filename}`);
   }
 
-  return fs.readFileSync(canonicalFilePath, 'utf-8');
+  return { path: canonicalFilePath, stat };
+}
+
+function readContainedSessionFile(sessionDir, filename, options = {}) {
+  const resolved = resolveContainedSessionFile(sessionDir, filename, options);
+  if (resolved === null) {
+    return null;
+  }
+
+  return fs.readFileSync(resolved.path, 'utf-8');
+}
+
+function writeContainedSessionFile(sessionDir, filename, data, options = {}) {
+  assertSafeSessionFilename(filename);
+  const canonicalSessionDir = canonicalizeExistingDir(path.resolve(sessionDir), 'Session directory');
+  const filePath = path.join(canonicalSessionDir, filename);
+
+  let targetPath = filePath;
+  if (fs.existsSync(filePath)) {
+    const resolved = resolveContainedSessionFile(canonicalSessionDir, filename);
+    targetPath = resolved.path;
+  }
+
+  fs.writeFileSync(targetPath, data, options);
 }
 
 module.exports = {
+  validateSidecarSessionsRoot,
   validateSidecarSessionDir,
+  validateSidecarSubagentSessionDir,
   validateSidecarSessionMetadata,
-  readContainedSessionFile
+  resolveContainedSessionFile,
+  readContainedSessionFile,
+  writeContainedSessionFile
 };

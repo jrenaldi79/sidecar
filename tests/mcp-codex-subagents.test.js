@@ -177,6 +177,36 @@ describe('codex subagent MCP handlers', () => {
     expect(result.content[0].text).toContain('Updated auth validation.');
   });
 
+  test('read rejects a symlinked subagent directory before reading outside summary', async () => {
+    createParentSession('parent123');
+    const subagentsRoot = path.join(
+      projectDir, '.claude', 'sidecar_sessions', 'parent123', 'subagents'
+    );
+    const outsideDir = path.join(tempDir, 'outside-subagent');
+    fs.mkdirSync(subagentsRoot, { recursive: true });
+    fs.mkdirSync(outsideDir, { recursive: true });
+    fs.writeFileSync(path.join(outsideDir, 'metadata.json'), JSON.stringify({
+      subagentId: 'sub1',
+      parentTaskId: 'parent123',
+      agentType: 'general',
+      backend: 'codex',
+      status: 'complete',
+      createdAt: new Date().toISOString()
+    }));
+    fs.writeFileSync(path.join(outsideDir, 'summary.md'), 'outside secret summary');
+    fs.symlinkSync(outsideDir, path.join(subagentsRoot, 'sub1'), 'dir');
+
+    const { handlers } = require('../src/mcp-server');
+    const result = await handlers.sidecar_subagent_read({
+      parentTaskId: 'parent123',
+      subagentId: 'sub1'
+    }, projectDir);
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/outside|subagent|session/i);
+    expect(result.content[0].text).not.toContain('outside secret summary');
+  });
+
   test('abort marks subagent aborted and terminates pid', async () => {
     const killSpy = jest.spyOn(process, 'kill').mockImplementation(() => true);
     createParentSession('parent123');
@@ -207,5 +237,39 @@ describe('codex subagent MCP handlers', () => {
     const metadata = JSON.parse(fs.readFileSync(path.join(subagentDir, 'metadata.json'), 'utf-8'));
     expect(metadata.status).toBe('aborted');
     expect(metadata.pid).toBeNull();
+  });
+
+  test('abort rejects a symlinked subagent directory before writing outside metadata or signaling pid', async () => {
+    const killSpy = jest.spyOn(process, 'kill').mockImplementation(() => true);
+    createParentSession('parent123');
+    const subagentsRoot = path.join(
+      projectDir, '.claude', 'sidecar_sessions', 'parent123', 'subagents'
+    );
+    const outsideDir = path.join(tempDir, 'outside-running-subagent');
+    fs.mkdirSync(subagentsRoot, { recursive: true });
+    fs.mkdirSync(outsideDir, { recursive: true });
+    fs.writeFileSync(path.join(outsideDir, 'metadata.json'), JSON.stringify({
+      subagentId: 'sub4',
+      parentTaskId: 'parent123',
+      agentType: 'general',
+      backend: 'codex',
+      status: 'running',
+      pid: 43210,
+      createdAt: new Date().toISOString()
+    }));
+    fs.symlinkSync(outsideDir, path.join(subagentsRoot, 'sub4'), 'dir');
+
+    const { handlers } = require('../src/mcp-server');
+    const result = await handlers.sidecar_subagent_abort({
+      parentTaskId: 'parent123',
+      subagentId: 'sub4'
+    }, projectDir);
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/outside|subagent|session/i);
+    expect(killSpy).not.toHaveBeenCalled();
+    const metadata = JSON.parse(fs.readFileSync(path.join(outsideDir, 'metadata.json'), 'utf-8'));
+    expect(metadata.status).toBe('running');
+    expect(metadata.pid).toBe(43210);
   });
 });

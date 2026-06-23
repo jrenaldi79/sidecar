@@ -11,7 +11,10 @@ const {
   readContainedSessionFile,
   validateProjectPath,
   validateSidecarSessionDir,
-  validateSubagentParent
+  validateSidecarSessionsRoot,
+  validateSidecarSubagentSessionDir,
+  validateSubagentParent,
+  writeContainedSessionFile,
 } = require('./utils/sidecar-boundaries');
 const { readProgress } = require('./sidecar/progress');
 const { SharedServerManager } = require('./utils/shared-server');
@@ -67,16 +70,15 @@ function readValidatedParentMetadata(taskId, project) {
 
 /** Resolve a subagent session directory safely beneath a parent sidecar task. */
 function getSubagentSessionDir(project, parentTaskId, subagentId) {
-  const { getSubagentDir } = require('./session-manager');
-  return getSubagentDir(project, parentTaskId, subagentId);
+  return validateSidecarSubagentSessionDir(project, parentTaskId, subagentId);
 }
 
 /** Read subagent metadata from disk, or null if not found. */
 function readSubagentMetadata(project, parentTaskId, subagentId) {
   const sessionDir = getSubagentSessionDir(project, parentTaskId, subagentId);
-  const metaPath = path.join(sessionDir, 'metadata.json');
-  if (!fs.existsSync(metaPath)) { return null; }
-  return JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+  const metadataText = readContainedSessionFile(sessionDir, 'metadata.json', { optional: true });
+  if (metadataText === null) { return null; }
+  return JSON.parse(metadataText);
 }
 
 /** Build an MCP text response */
@@ -338,8 +340,8 @@ const handlers = {
           status: 'crashed', crashedAt: new Date().toISOString(),
           reason: 'Process exited unexpectedly',
         });
-        fs.writeFileSync(path.join(sessionDir, 'metadata.json'),
-          JSON.stringify(metadata, null, 2));
+        writeContainedSessionFile(sessionDir, 'metadata.json',
+          JSON.stringify(metadata, null, 2), { mode: 0o600 });
       }
     }
 
@@ -416,15 +418,23 @@ const handlers = {
 
   async sidecar_list(input, project) {
     const cwd = resolveHandlerProject(input, project);
-    const sessionsDir = path.join(cwd, '.claude', 'sidecar_sessions');
-    if (!fs.existsSync(sessionsDir)) { return textResult('No sidecar sessions found.'); }
+    let sessionsDir;
+    try {
+      sessionsDir = validateSidecarSessionsRoot(cwd);
+    } catch (err) {
+      if (/does not exist/i.test(err.message)) {
+        return textResult('No sidecar sessions found.');
+      }
+      return textResult(err.message, true);
+    }
 
     let sessions = fs.readdirSync(sessionsDir)
       .filter(d => /^[a-zA-Z0-9_-]{1,64}$/.test(d))
-      .filter(d => fs.existsSync(path.join(sessionsDir, d, 'metadata.json')))
       .map(d => {
         try {
-          const meta = JSON.parse(fs.readFileSync(path.join(sessionsDir, d, 'metadata.json'), 'utf-8'));
+          const sessionDir = validateSidecarSessionDir(cwd, d);
+          const meta = readMetadataFromSessionDir(sessionDir);
+          if (!meta) { return null; }
           return {
             id: d, model: meta.model, status: meta.status, agent: meta.agent,
             briefing: (String(meta.briefing || '')).slice(0, 80),
@@ -516,10 +526,14 @@ const handlers = {
         }
       }
     }
-    const metaPath = path.join(sessionDir, 'metadata.json');
     metadata.status = 'aborted';
     metadata.abortedAt = new Date().toISOString();
-    fs.writeFileSync(metaPath, JSON.stringify(metadata, null, 2));
+    writeContainedSessionFile(
+      sessionDir,
+      'metadata.json',
+      JSON.stringify(metadata, null, 2),
+      { mode: 0o600 }
+    );
 
     return textResult(JSON.stringify({
       taskId: input.taskId, status: 'aborted',
@@ -570,8 +584,14 @@ const handlers = {
     if (!parentMetadata) {
       return textResult(`Parent session ${input.parentTaskId} not found.`, true);
     }
-    const subagentDir = getSubagentSessionDir(cwd, input.parentTaskId, input.subagentId);
-    const metadata = readSubagentMetadata(cwd, input.parentTaskId, input.subagentId);
+    let subagentDir;
+    let metadata;
+    try {
+      subagentDir = getSubagentSessionDir(cwd, input.parentTaskId, input.subagentId);
+      metadata = readSubagentMetadata(cwd, input.parentTaskId, input.subagentId);
+    } catch (err) {
+      return textResult(err.message, true);
+    }
     if (!metadata) {
       return textResult(`Sub-agent ${input.subagentId} not found under parent ${input.parentTaskId}.`, true);
     }
@@ -615,26 +635,40 @@ const handlers = {
     if (!parentMetadata) {
       return textResult(`Parent session ${input.parentTaskId} not found.`, true);
     }
-    const subagentDir = getSubagentSessionDir(cwd, input.parentTaskId, input.subagentId);
-    if (!fs.existsSync(subagentDir)) {
-      return textResult(`Sub-agent ${input.subagentId} not found under parent ${input.parentTaskId}.`, true);
+    let subagentDir;
+    try {
+      subagentDir = getSubagentSessionDir(cwd, input.parentTaskId, input.subagentId);
+    } catch (err) {
+      return textResult(err.message, true);
     }
 
     const mode = input.mode || 'summary';
     if (mode === 'metadata') {
-      return textResult(fs.readFileSync(path.join(subagentDir, 'metadata.json'), 'utf-8'));
+      const metadataText = readContainedSessionFile(subagentDir, 'metadata.json', { optional: true });
+      if (metadataText === null) {
+        return textResult(`Sub-agent ${input.subagentId} not found under parent ${input.parentTaskId}.`, true);
+      }
+      return textResult(metadataText);
     }
     if (mode === 'conversation') {
-      const convPath = path.join(subagentDir, 'conversation.jsonl');
-      if (!fs.existsSync(convPath)) { return textResult('No conversation recorded.'); }
-      return textResult(fs.readFileSync(convPath, 'utf-8'));
+      try {
+        const conversation = readContainedSessionFile(subagentDir, 'conversation.jsonl', { optional: true });
+        if (conversation === null) { return textResult('No conversation recorded.'); }
+        return textResult(conversation);
+      } catch (err) {
+        return textResult(err.message, true);
+      }
     }
 
-    const summaryPath = path.join(subagentDir, 'summary.md');
-    if (!fs.existsSync(summaryPath)) {
-      return textResult('No summary available (subagent may still be running).');
+    try {
+      const summary = readContainedSessionFile(subagentDir, 'summary.md', { optional: true });
+      if (summary === null) {
+        return textResult('No summary available (subagent may still be running).');
+      }
+      return textResult(summary);
+    } catch (err) {
+      return textResult(err.message, true);
     }
-    return textResult(fs.readFileSync(summaryPath, 'utf-8'));
   },
 
   async sidecar_subagent_abort(input, project) {
@@ -643,7 +677,12 @@ const handlers = {
     if (!parentMetadata) {
       return textResult(`Parent session ${input.parentTaskId} not found.`, true);
     }
-    const metadata = readSubagentMetadata(cwd, input.parentTaskId, input.subagentId);
+    let metadata;
+    try {
+      metadata = readSubagentMetadata(cwd, input.parentTaskId, input.subagentId);
+    } catch (err) {
+      return textResult(err.message, true);
+    }
     if (!metadata) {
       return textResult(`Sub-agent ${input.subagentId} not found under parent ${input.parentTaskId}.`, true);
     }

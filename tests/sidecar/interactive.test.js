@@ -38,12 +38,37 @@ describe('buildElectronEnv - window position', () => {
     const env = buildElectronEnv(...BASE_ARGS, {});
     expect(env.SIDECAR_WINDOW_POSITION).toBeUndefined();
   });
+
+  it('does not copy ambient API credentials into the Electron process env', () => {
+    const originalEnv = { ...process.env };
+    try {
+      process.env.OPENAI_API_KEY = 'openai-secret';
+      process.env.ANTHROPIC_API_KEY = 'anthropic-secret';
+      process.env.SIDECAR_ENV_DIR = '/tmp/sidecar-env-dir';
+      process.env.LOG_LEVEL = 'debug';
+
+      const env = buildElectronEnv(...BASE_ARGS, {});
+
+      expect(env.PATH).toBe('/bin:/usr/bin');
+      expect(env.SIDECAR_ENV_DIR).toBe('/tmp/sidecar-env-dir');
+      expect(env.LOG_LEVEL).toBe('debug');
+      expect(env.OPENAI_API_KEY).toBeUndefined();
+      expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+    } finally {
+      process.env = originalEnv;
+    }
+  });
 });
 
 describe('getElectronPath', () => {
   it('returns the path from require("electron") instead of hardcoded relative path', () => {
-    const { getElectronPath } = require('../../src/sidecar/interactive');
+    const { checkElectronAvailable, getElectronPath } = require('../../src/sidecar/interactive');
     const result = getElectronPath();
+
+    if (result === null) {
+      expect(checkElectronAvailable()).toBe(false);
+      return;
+    }
 
     // Should NOT be a hardcoded node_modules/.bin/electron path
     expect(result).not.toContain('node_modules/.bin/electron');

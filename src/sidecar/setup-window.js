@@ -10,6 +10,7 @@ const { spawn } = require('child_process');
 const path = require('path');
 const { logger } = require('../utils/logger');
 const { getElectronPath } = require('./interactive');
+const { buildChildProcessEnv } = require('../utils/sidecar-env');
 
 /**
  * Launch the Electron setup window for API key entry
@@ -24,10 +25,9 @@ function launchSetupWindow() {
     }
     const mainPath = path.join(__dirname, '..', '..', 'electron', 'main.js');
 
-    const env = {
-      ...process.env,
+    const env = buildChildProcessEnv({
       SIDECAR_MODE: 'setup'
-    };
+    });
 
     const debugPort = process.env.SIDECAR_DEBUG_PORT;
     const args = debugPort

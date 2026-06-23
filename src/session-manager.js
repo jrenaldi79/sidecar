@@ -7,6 +7,13 @@
 
 const fs = require('fs');
 const path = require('path');
+const {
+  readContainedSessionFile,
+  resolveContainedSessionFile,
+  validateSidecarSessionDir,
+  validateSidecarSubagentSessionDir,
+  writeContainedSessionFile
+} = require('./utils/sidecar-session-boundaries');
 
 /**
  * Session status constants
@@ -289,16 +296,21 @@ function createSubagentSession(projectDir, parentTaskId, subagentId, metadata) {
  * @param {object} updates - Fields to update
  */
 function updateSubagentSession(projectDir, parentTaskId, subagentId, updates) {
-  const subagentDir = getSubagentDir(projectDir, parentTaskId, subagentId);
-  const metadataPath = path.join(subagentDir, 'metadata.json');
+  const subagentDir = validateSidecarSubagentSessionDir(projectDir, parentTaskId, subagentId);
+  const metadataText = readContainedSessionFile(subagentDir, 'metadata.json', { optional: true });
 
-  if (!fs.existsSync(metadataPath)) {
+  if (metadataText === null) {
     throw new Error(`Sub-agent ${subagentId} not found`);
   }
 
-  const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf-8'));
+  const metadata = JSON.parse(metadataText);
   const updated = { ...metadata, ...updates };
-  fs.writeFileSync(metadataPath, JSON.stringify(updated, null, 2), { mode: 0o600 });
+  writeContainedSessionFile(
+    subagentDir,
+    'metadata.json',
+    JSON.stringify(updated, null, 2),
+    { mode: 0o600 }
+  );
 }
 
 /**
@@ -310,13 +322,22 @@ function updateSubagentSession(projectDir, parentTaskId, subagentId, updates) {
  * @returns {object|null} Sub-agent metadata or null if not found
  */
 function getSubagentSession(projectDir, parentTaskId, subagentId) {
-  const metadataPath = path.join(getSubagentDir(projectDir, parentTaskId, subagentId), 'metadata.json');
+  let subagentDir;
+  try {
+    subagentDir = validateSidecarSubagentSessionDir(projectDir, parentTaskId, subagentId);
+  } catch (err) {
+    if (/not found/i.test(err.message)) {
+      return null;
+    }
+    throw err;
+  }
 
-  if (!fs.existsSync(metadataPath)) {
+  const metadataText = readContainedSessionFile(subagentDir, 'metadata.json', { optional: true });
+  if (metadataText === null) {
     return null;
   }
 
-  return JSON.parse(fs.readFileSync(metadataPath, 'utf-8'));
+  return JSON.parse(metadataText);
 }
 
 /**
@@ -330,20 +351,24 @@ function getSubagentSession(projectDir, parentTaskId, subagentId) {
  * @returns {object[]} Array of sub-agent metadata
  */
 function listSubagents(projectDir, parentTaskId, filter = {}) {
-  const subagentsDir = path.join(getSessionDir(projectDir, parentTaskId), 'subagents');
+  let parentDir;
+  try {
+    parentDir = validateSidecarSessionDir(projectDir, parentTaskId);
+  } catch {
+    return [];
+  }
+  const subagentsDir = path.join(parentDir, 'subagents');
 
   if (!fs.existsSync(subagentsDir)) {
     return [];
   }
 
-  const subagentIds = fs.readdirSync(subagentsDir).filter(name => {
-    const stat = fs.statSync(path.join(subagentsDir, name));
-    return stat.isDirectory();
-  });
-
-  let subagents = subagentIds.map(id => {
-    const metadata = getSubagentSession(projectDir, parentTaskId, id);
-    return metadata;
+  let subagents = fs.readdirSync(subagentsDir).map(id => {
+    try {
+      return getSubagentSession(projectDir, parentTaskId, id);
+    } catch {
+      return null;
+    }
   }).filter(Boolean);
 
   // Apply filters
@@ -366,10 +391,9 @@ function listSubagents(projectDir, parentTaskId, filter = {}) {
  * @param {string} summary - Summary content
  */
 function saveSubagentSummary(projectDir, parentTaskId, subagentId, summary) {
-  const subagentDir = getSubagentDir(projectDir, parentTaskId, subagentId);
-  const summaryPath = path.join(subagentDir, 'summary.md');
+  const subagentDir = validateSidecarSubagentSessionDir(projectDir, parentTaskId, subagentId);
 
-  fs.writeFileSync(summaryPath, summary, { mode: 0o600 });
+  writeContainedSessionFile(subagentDir, 'summary.md', summary, { mode: 0o600 });
 
   // Update sub-agent status
   updateSubagentSession(projectDir, parentTaskId, subagentId, {
@@ -387,18 +411,17 @@ function saveSubagentSummary(projectDir, parentTaskId, subagentId, summary) {
  * @param {object} message - Message to append
  */
 function appendSubagentConversation(projectDir, parentTaskId, subagentId, message) {
-  const subagentDir = getSubagentDir(projectDir, parentTaskId, subagentId);
-  const convPath = path.join(subagentDir, 'conversation.jsonl');
-
-  if (!fs.existsSync(subagentDir)) {
-    throw new Error(`Sub-agent ${subagentId} not found`);
-  }
+  const subagentDir = validateSidecarSubagentSessionDir(projectDir, parentTaskId, subagentId);
 
   const payload = {
     ...message,
     timestamp: message.timestamp || new Date().toISOString()
   };
-  fs.appendFileSync(convPath, JSON.stringify(payload) + '\n', { mode: 0o600 });
+  const conversationPath = path.join(subagentDir, 'conversation.jsonl');
+  const targetPath = fs.existsSync(conversationPath)
+    ? resolveContainedSessionFile(subagentDir, 'conversation.jsonl').path
+    : conversationPath;
+  fs.appendFileSync(targetPath, JSON.stringify(payload) + '\n', { mode: 0o600 });
 }
 
 module.exports = {

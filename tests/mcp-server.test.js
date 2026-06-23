@@ -470,6 +470,41 @@ describe('MCP Server Handlers', () => {
       }
     });
 
+    test('skips symlinked session entries that resolve outside the sidecar sessions root', async () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-list-symlink-'));
+      const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-list-outside-'));
+      const sessionsBase = path.join(tmpDir, '.claude', 'sidecar_sessions');
+      const validDir = path.join(sessionsBase, 'inside1');
+      fs.mkdirSync(validDir, { recursive: true });
+      fs.writeFileSync(path.join(validDir, 'metadata.json'), JSON.stringify({
+        taskId: 'inside1',
+        status: 'complete',
+        model: 'gemini',
+        briefing: 'inside session',
+        createdAt: '2026-03-04T00:00:00.000Z',
+      }));
+      fs.writeFileSync(path.join(outsideDir, 'metadata.json'), JSON.stringify({
+        taskId: 'leak',
+        status: 'complete',
+        model: 'outside-model',
+        briefing: 'outside secret briefing',
+        createdAt: '2026-03-05T00:00:00.000Z',
+      }));
+      fs.symlinkSync(outsideDir, path.join(sessionsBase, 'leak'), 'dir');
+
+      try {
+        const result = await handlers.sidecar_list({}, tmpDir);
+        const parsed = JSON.parse(result.content[0].text);
+        expect(parsed).toHaveLength(1);
+        expect(parsed[0].id).toBe('inside1');
+        expect(result.content[0].text).not.toContain('outside secret briefing');
+        expect(result.content[0].text).not.toContain('outside-model');
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        fs.rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
+
     test('filters sessions by status', async () => {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-test-'));
       const sessionsBase = path.join(tmpDir, '.claude', 'sidecar_sessions');
@@ -559,6 +594,51 @@ describe('MCP Server Handlers', () => {
         expect(parsed).toHaveProperty('latest');
       } finally {
         fs.rmSync(tmpDir, { recursive: true });
+      }
+    });
+
+    test('does not expose progress from symlinked files outside a valid session directory', async () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-progress-symlink-'));
+      const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-progress-outside-'));
+      const sessDir = path.join(tmpDir, '.claude', 'sidecar_sessions', 'progx');
+      fs.mkdirSync(sessDir, { recursive: true });
+      fs.writeFileSync(path.join(sessDir, 'metadata.json'), JSON.stringify({
+        taskId: 'progx',
+        status: 'running',
+        pid: process.pid,
+        model: 'gemini',
+        headless: true,
+        createdAt: new Date().toISOString(),
+      }));
+      fs.writeFileSync(
+        path.join(outsideDir, 'conversation.jsonl'),
+        JSON.stringify({ role: 'assistant', content: 'outside secret progress' }) + '\n'
+      );
+      fs.writeFileSync(
+        path.join(outsideDir, 'progress.json'),
+        JSON.stringify({
+          stage: 'receiving',
+          stageLabel: 'outside secret stage',
+          updatedAt: new Date().toISOString()
+        })
+      );
+      fs.symlinkSync(path.join(outsideDir, 'conversation.jsonl'), path.join(sessDir, 'conversation.jsonl'));
+      fs.symlinkSync(path.join(outsideDir, 'progress.json'), path.join(sessDir, 'progress.json'));
+
+      try {
+        const result = await handlers.sidecar_status({ taskId: 'progx' }, tmpDir);
+        expect(result.isError).toBeUndefined();
+        const text = result.content.map(c => c.text).join('\n');
+        const parsed = JSON.parse(result.content[0].text);
+        expect(parsed.status).toBe('running');
+        expect(parsed.latest).toBe('Starting up...');
+        expect(parsed.messages).toBe(0);
+        expect(parsed.stage).toBeUndefined();
+        expect(text).not.toContain('outside secret progress');
+        expect(text).not.toContain('outside secret stage');
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        fs.rmSync(outsideDir, { recursive: true, force: true });
       }
     });
 

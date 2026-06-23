@@ -5,9 +5,13 @@ const os = require('os');
 const path = require('path');
 const { buildChildProcessEnv } = require('./sidecar-env');
 const {
+  validateSidecarSessionsRoot,
   validateSidecarSessionDir,
+  validateSidecarSubagentSessionDir,
   validateSidecarSessionMetadata,
-  readContainedSessionFile
+  resolveContainedSessionFile,
+  readContainedSessionFile,
+  writeContainedSessionFile
 } = require('./sidecar-session-boundaries');
 const { validateTaskId } = require('./validators');
 
@@ -273,9 +277,13 @@ module.exports = {
   validateProjectPath,
   validateSessionDir,
   validateSubagentParent,
+  validateSidecarSessionsRoot,
   validateSidecarSessionDir,
+  validateSidecarSubagentSessionDir,
   validateSidecarSessionMetadata,
+  resolveContainedSessionFile,
   readContainedSessionFile,
+  writeContainedSessionFile,
   defaultIncludeContext,
   hasContextBinding,
   assertContextBinding,

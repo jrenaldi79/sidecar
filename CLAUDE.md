@@ -250,9 +250,9 @@ evals/
 | `utils/server-setup.js` | Server Setup Utilities | `DEFAULT_PORT()`, `isPortInUse()`, `getPortPid()`, `killPortProcess()`, `ensurePortAvailable()` |
 | `utils/session-lock.js` | Atomic session lock files to prevent concurrent resume/continue. | `acquireLock()`, `releaseLock()`, `isLockStale()`, `isPidAlive()` |
 | `utils/shared-server.js` | Manages a single shared OpenCode server for MCP sessions. | `SharedServerManager()` |
-| `utils/sidecar-boundaries.js` |  | `parseAllowedRoots()`, `validateProjectPath()`, `validateSessionDir()`, `validateSubagentParent()`, `validateSidecarSessionDir()` |
+| `utils/sidecar-boundaries.js` |  | `parseAllowedRoots()`, `validateProjectPath()`, `validateSessionDir()`, `validateSubagentParent()`, `validateSidecarSessionsRoot()` |
 | `utils/sidecar-env.js` |  | `buildChildProcessEnv()` |
-| `utils/sidecar-session-boundaries.js` |  | `validateSidecarSessionDir()`, `validateSidecarSessionMetadata()` |
+| `utils/sidecar-session-boundaries.js` |  | `validateSidecarSessionsRoot()`, `validateSidecarSessionDir()`, `validateSidecarSubagentSessionDir()`, `validateSidecarSessionMetadata()`, `resolveContainedSessionFile()` |
 | `utils/start-helpers.js` | Start Command Helpers | `resolveModelFromArgs()`, `validateFallbackModel()` |
 | `utils/thinking-validators.js` | Thinking Level Validators | `MODEL_THINKING_SUPPORT()`, `getSupportedThinkingLevels()`, `validateThinkingLevel()` |
 | `utils/updater.js` | @type {import('update-notifier').UpdateNotifier|null} | `initUpdateCheck()`, `getUpdateInfo()`, `notifyUpdate()`, `performUpdate()` |
