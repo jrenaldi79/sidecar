@@ -187,6 +187,35 @@ describe('CLI Handler Integration: path traversal safety', () => {
     }
   });
 
+  it('abort rejects a symlinked metadata file without modifying the outside target', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-abort-meta-'));
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-abort-outside-'));
+    try {
+      const sessDir = path.join(tmpDir, '.claude', 'sidecar_sessions', 'abort-meta');
+      fs.mkdirSync(sessDir, { recursive: true });
+      const outsideMetadata = path.join(outsideDir, 'metadata.json');
+      fs.writeFileSync(outsideMetadata, JSON.stringify({
+        taskId: 'abort-meta',
+        model: 'gemini',
+        status: 'running',
+        briefing: 'outside metadata',
+        createdAt: '2026-03-04T00:00:00Z'
+      }));
+      fs.symlinkSync(outsideMetadata, path.join(sessDir, 'metadata.json'));
+
+      const { stderr, code } = await runCli(['abort', 'abort-meta', '--cwd', tmpDir]);
+
+      expect(code).toBe(1);
+      expect(stderr.toLowerCase()).toMatch(/outside|session directory/);
+      const parsed = JSON.parse(fs.readFileSync(outsideMetadata, 'utf-8'));
+      expect(parsed.status).toBe('running');
+      expect(parsed.abortedAt).toBeUndefined();
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(outsideDir, { recursive: true, force: true });
+    }
+  });
+
   it('rejects path traversal in task ID for read', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-safety-'));
     try {

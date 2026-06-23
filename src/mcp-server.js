@@ -8,6 +8,7 @@ const { logger } = require('./utils/logger');
 const {
   assertContextBinding,
   buildChildProcessEnv,
+  openContainedSessionFileForWrite,
   readContainedSessionFile,
   validateProjectPath,
   validateSidecarSessionDir,
@@ -109,7 +110,7 @@ function spawnSidecarProcess(args, sessionDir) {
   if (sessionDir) {
     try {
       fs.mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
-      stderrFd = fs.openSync(path.join(sessionDir, 'debug.log'), 'w');
+      stderrFd = openContainedSessionFileForWrite(sessionDir, 'debug.log', { mode: 0o600 });
     } catch { /* fall back to ignore */ }
   }
   const child = spawn('node', [sidecarBin, ...args], {

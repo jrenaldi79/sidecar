@@ -7,6 +7,7 @@
 
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
 jest.mock('../../src/conflict', () => ({
   detectConflicts: jest.fn().mockReturnValue([]),
@@ -104,21 +105,22 @@ describe('Session Utils', () => {
   });
 
   describe('finalizeSession', () => {
-    let writeFileSyncSpy;
+    let project;
+    let sessDir;
 
     beforeEach(() => {
-      writeFileSyncSpy = jest.spyOn(fs, 'writeFileSync').mockImplementation(() => {});
+      project = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-finalize-project-'));
+      sessDir = path.join(project, '.claude', 'sidecar_sessions', 'task-1');
+      fs.mkdirSync(sessDir, { recursive: true });
       detectConflicts.mockReturnValue([]);
     });
 
     afterEach(() => {
-      writeFileSyncSpy.mockRestore();
+      fs.rmSync(project, { recursive: true, force: true });
     });
 
     it('should save summary and update metadata to complete', () => {
-      const sessDir = '/tmp/test-session';
       const summary = '## Results\n\nDone';
-      const project = '/test/project';
       const metadata = {
         taskId: 'task-1',
         filesWritten: [],
@@ -127,19 +129,8 @@ describe('Session Utils', () => {
 
       finalizeSession(sessDir, summary, project, metadata);
 
-      // Should write summary.md
-      expect(writeFileSyncSpy).toHaveBeenCalledWith(
-        path.join(sessDir, 'summary.md'),
-        summary,
-        { mode: 0o600 }
-      );
-
-      // Should write metadata.json with status=complete
-      const metaCall = writeFileSyncSpy.mock.calls.find(
-        c => c[0] === path.join(sessDir, 'metadata.json')
-      );
-      expect(metaCall).toBeTruthy();
-      const savedMeta = JSON.parse(metaCall[1]);
+      expect(fs.readFileSync(path.join(sessDir, 'summary.md'), 'utf-8')).toBe(summary);
+      const savedMeta = JSON.parse(fs.readFileSync(path.join(sessDir, 'metadata.json'), 'utf-8'));
       expect(savedMeta.status).toBe('complete');
       expect(savedMeta.completedAt).toBeDefined();
     });
@@ -148,7 +139,6 @@ describe('Session Utils', () => {
       const conflicts = [{ file: 'src/foo.js', type: 'external_edit' }];
       detectConflicts.mockReturnValue(conflicts);
 
-      const sessDir = '/tmp/test-session';
       const metadata = {
         taskId: 'task-2',
         filesWritten: ['src/foo.js'],
@@ -156,10 +146,30 @@ describe('Session Utils', () => {
       };
 
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
-      finalizeSession(sessDir, 'summary', '/project', metadata);
+      finalizeSession(sessDir, 'summary', project, metadata);
       consoleSpy.mockRestore();
 
       expect(metadata.conflicts).toEqual(conflicts);
+    });
+
+    it('rejects a summary symlink that escapes the session directory without modifying the target', () => {
+      const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-finalize-outside-'));
+      const outsideSummary = path.join(outsideDir, 'summary.md');
+
+      try {
+        fs.writeFileSync(outsideSummary, 'outside summary untouched');
+        fs.symlinkSync(outsideSummary, path.join(sessDir, 'summary.md'));
+
+        expect(() => finalizeSession(sessDir, 'new summary', project, {
+          taskId: 'summary-link',
+          filesWritten: [],
+          createdAt: new Date().toISOString()
+        })).toThrow(/outside|session directory/i);
+
+        expect(fs.readFileSync(outsideSummary, 'utf-8')).toBe('outside summary untouched');
+      } finally {
+        fs.rmSync(outsideDir, { recursive: true, force: true });
+      }
     });
   });
 

@@ -174,18 +174,43 @@ function readContainedSessionFile(sessionDir, filename, options = {}) {
   return fs.readFileSync(resolved.path, 'utf-8');
 }
 
-function writeContainedSessionFile(sessionDir, filename, data, options = {}) {
+function openContainedSessionFileForWrite(sessionDir, filename, options = {}) {
   assertSafeSessionFilename(filename);
   const canonicalSessionDir = canonicalizeExistingDir(path.resolve(sessionDir), 'Session directory');
   const filePath = path.join(canonicalSessionDir, filename);
+  const mode = options.mode === undefined ? 0o600 : options.mode;
+  const flags = fs.constants.O_WRONLY |
+    fs.constants.O_CREAT |
+    fs.constants.O_TRUNC |
+    (fs.constants.O_NOFOLLOW || 0);
 
-  let targetPath = filePath;
-  if (fs.existsSync(filePath)) {
-    const resolved = resolveContainedSessionFile(canonicalSessionDir, filename);
-    targetPath = resolved.path;
+  try {
+    return fs.openSync(filePath, flags, mode);
+  } catch (err) {
+    if (err && err.code === 'ELOOP') {
+      throw new Error(`Session file is a symbolic link and cannot be written safely inside the session directory: ${filename}`);
+    }
+    throw err;
   }
+}
 
-  fs.writeFileSync(targetPath, data, options);
+function normalizeWriteOptions(options) {
+  if (typeof options === 'string') {
+    return { encoding: options };
+  }
+  const normalized = { ...options };
+  delete normalized.flag;
+  delete normalized.mode;
+  return normalized;
+}
+
+function writeContainedSessionFile(sessionDir, filename, data, options = {}) {
+  const fd = openContainedSessionFileForWrite(sessionDir, filename, options);
+  try {
+    fs.writeFileSync(fd, data, normalizeWriteOptions(options));
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 module.exports = {
@@ -195,5 +220,6 @@ module.exports = {
   validateSidecarSessionMetadata,
   resolveContainedSessionFile,
   readContainedSessionFile,
+  openContainedSessionFileForWrite,
   writeContainedSessionFile
 };

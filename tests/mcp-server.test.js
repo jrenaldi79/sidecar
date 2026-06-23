@@ -1235,6 +1235,42 @@ describe('MCP Server Handlers', () => {
     test('handler is an async function', () => {
       expect(typeof handlers.sidecar_resume).toBe('function');
     });
+
+    test('does not truncate an outside debug.log target when debug.log is a symlink', async () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-resume-debug-'));
+      const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-resume-outside-'));
+      const sessionDir = path.join(tmpDir, '.claude', 'sidecar_sessions', 'resume-debug');
+      const outsideDebug = path.join(outsideDir, 'debug.log');
+
+      try {
+        fs.mkdirSync(sessionDir, { recursive: true });
+        fs.writeFileSync(path.join(sessionDir, 'metadata.json'), JSON.stringify({
+          taskId: 'resume-debug',
+          status: 'running',
+          model: 'gemini',
+          project: tmpDir,
+          projectDir: tmpDir,
+          createdAt: new Date().toISOString()
+        }));
+        fs.writeFileSync(outsideDebug, 'outside debug content');
+        fs.symlinkSync(outsideDebug, path.join(sessionDir, 'debug.log'));
+
+        await jest.isolateModulesAsync(async () => {
+          jest.doMock('child_process', () => ({
+            spawn: jest.fn(() => {
+              return { pid: 12345, unref: jest.fn() };
+            }),
+          }));
+          const { handlers: h } = require('../src/mcp-server');
+          await h.sidecar_resume({ taskId: 'resume-debug', noUi: true }, tmpDir);
+        });
+
+        expect(fs.readFileSync(outsideDebug, 'utf-8')).toBe('outside debug content');
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        fs.rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
   });
 
   describe('sidecar_continue', () => {

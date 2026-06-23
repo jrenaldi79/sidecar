@@ -11,6 +11,7 @@ const {
   validateSidecarSessionMetadata,
   resolveContainedSessionFile,
   readContainedSessionFile,
+  openContainedSessionFileForWrite,
   writeContainedSessionFile
 } = require('./sidecar-session-boundaries');
 const { validateTaskId } = require('./validators');
@@ -283,6 +284,7 @@ module.exports = {
   validateSidecarSessionMetadata,
   resolveContainedSessionFile,
   readContainedSessionFile,
+  openContainedSessionFileForWrite,
   writeContainedSessionFile,
   defaultIncludeContext,
   hasContextBinding,

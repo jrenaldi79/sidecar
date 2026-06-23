@@ -8,6 +8,7 @@ const path = require('path');
 
 const { detectConflicts, formatConflictWarning } = require('../conflict');
 const { logger } = require('../utils/logger');
+const { writeContainedSessionFile } = require('../utils/sidecar-session-boundaries');
 
 /** Standard heartbeat interval in milliseconds */
 const HEARTBEAT_INTERVAL = 15000;
@@ -53,8 +54,6 @@ function saveInitialContext(sessionDir, systemPrompt, userMessage) {
 
 /** Finalize session - detect conflicts, save summary, update metadata */
 function finalizeSession(sessionDir, summary, project, metadata) {
-  const metaPath = SessionPaths.metadataFile(sessionDir);
-
   // Detect file conflicts
   const conflicts = detectConflicts(
     { written: metadata.filesWritten },
@@ -69,12 +68,12 @@ function finalizeSession(sessionDir, summary, project, metadata) {
   }
 
   // Save summary
-  fs.writeFileSync(SessionPaths.summaryFile(sessionDir), summary, { mode: 0o600 });
+  writeContainedSessionFile(sessionDir, 'summary.md', summary, { mode: 0o600 });
 
   // Update metadata to complete
   metadata.status = 'complete';
   metadata.completedAt = new Date().toISOString();
-  fs.writeFileSync(metaPath, JSON.stringify(metadata, null, 2), { mode: 0o600 });
+  writeContainedSessionFile(sessionDir, 'metadata.json', JSON.stringify(metadata, null, 2), { mode: 0o600 });
 
   logger.info('Session complete', { taskId: metadata.taskId });
 }
