@@ -18,7 +18,7 @@ function resolveModelFromArgs(args) {
   try {
     model = resolveModel(args.model);
   } catch (err) {
-    console.error(err.message);
+    process.stderr.write(`${err.message}\n`);
     process.exit(1);
   }
 
@@ -51,7 +51,7 @@ async function validateFallbackModel(args, alias) {
       headless: args['no-ui'] || !process.stdin.isTTY
     });
   } catch (err) {
-    console.error(err.message);
+    process.stderr.write(`${err.message}\n`);
     process.exit(1);
   }
 }
