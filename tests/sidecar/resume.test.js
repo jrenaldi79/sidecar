@@ -71,6 +71,20 @@ describe('Resume Operations', () => {
       const context = loadInitialContext(tmpDir);
       expect(context).toBe('');
     });
+
+    it('should reject an initial context symlink that escapes the session directory', () => {
+      const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-resume-outside-'));
+      const outsideContext = path.join(outsideDir, 'initial_context.md');
+
+      try {
+        fs.writeFileSync(outsideContext, 'external secret context');
+        fs.symlinkSync(outsideContext, path.join(tmpDir, 'initial_context.md'));
+
+        expect(() => loadInitialContext(tmpDir)).toThrow(/outside|session directory/i);
+      } finally {
+        fs.rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
   });
 
   describe('checkFileDrift', () => {
@@ -263,6 +277,18 @@ describe('Resume Operations', () => {
       writeSession(sessionDir, fs.realpathSync(otherProjectDir));
 
       await expectResumeRejected(/project/i);
+    });
+
+    it('rejects a conversation file symlink that escapes the session directory', async () => {
+      const sessionDir = path.join(projectDir, '.claude', 'sidecar_sessions', 'resume-task');
+      const outsideConversation = path.join(otherProjectDir, 'conversation.jsonl');
+      writeSession(sessionDir, fs.realpathSync(projectDir));
+      fs.writeFileSync(outsideConversation,
+        JSON.stringify({ role: 'assistant', content: 'external secret conversation' }) + '\n');
+      fs.unlinkSync(path.join(sessionDir, 'conversation.jsonl'));
+      fs.symlinkSync(outsideConversation, path.join(sessionDir, 'conversation.jsonl'));
+
+      await expectResumeRejected(/outside|session directory/i);
     });
   });
 });

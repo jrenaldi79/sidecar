@@ -166,6 +166,100 @@ describe('sidecar workspace boundaries', () => {
       fs.rmSync(tmpProject, { recursive: true, force: true });
     }
   });
+
+  test('validateSubagentLaunchProject rejects symlinked parent sessions outside the project sessions root', () => {
+    const tmpProject = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-subagent-project-'));
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-subagent-outside-'));
+    const parentTaskId = 'parent-task';
+    const sessionsRoot = path.join(tmpProject, '.claude', 'sidecar_sessions');
+    const parentLink = path.join(sessionsRoot, parentTaskId);
+    const outsideParent = path.join(outsideDir, 'outside-session');
+
+    try {
+      fs.mkdirSync(sessionsRoot, { recursive: true });
+      fs.mkdirSync(outsideParent, { recursive: true });
+      fs.writeFileSync(path.join(outsideParent, 'metadata.json'), JSON.stringify({
+        taskId: parentTaskId,
+        project: fs.realpathSync(tmpProject),
+        projectDir: fs.realpathSync(tmpProject),
+        status: 'running'
+      }));
+      fs.symlinkSync(outsideParent, parentLink, 'dir');
+
+      expect(() => validateSubagentLaunchProject({
+        projectDir: tmpProject,
+        parentTaskId,
+        getSession: (_projectDir, taskId) => JSON.parse(fs.readFileSync(
+          path.join(tmpProject, '.claude', 'sidecar_sessions', taskId, 'metadata.json'),
+          'utf-8'
+        )),
+        getSessionDir: (_projectDir, taskId) => path.join(
+          tmpProject, '.claude', 'sidecar_sessions', taskId
+        )
+      })).toThrow(/outside|session root/i);
+    } finally {
+      fs.rmSync(tmpProject, { recursive: true, force: true });
+      fs.rmSync(outsideDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('sidecar MCP handler boundaries', () => {
+  let tmpProject;
+  let outsideDir;
+
+  beforeEach(() => {
+    tmpProject = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-mcp-project-'));
+    outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-mcp-outside-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpProject, { recursive: true, force: true });
+    fs.rmSync(outsideDir, { recursive: true, force: true });
+    jest.restoreAllMocks();
+  });
+
+  function linkOutsideSession(metadata) {
+    const sessionsRoot = path.join(tmpProject, '.claude', 'sidecar_sessions');
+    const outsideSession = path.join(outsideDir, 'outside-session');
+    fs.mkdirSync(sessionsRoot, { recursive: true });
+    fs.mkdirSync(outsideSession, { recursive: true });
+    fs.writeFileSync(path.join(outsideSession, 'metadata.json'), JSON.stringify(metadata));
+    fs.writeFileSync(path.join(outsideSession, 'summary.md'), 'external secret summary');
+    fs.writeFileSync(path.join(outsideSession, 'conversation.jsonl'), 'external secret conversation\n');
+    fs.symlinkSync(outsideSession, path.join(sessionsRoot, 'leak'), 'dir');
+    return outsideSession;
+  }
+
+  test('sidecar_read rejects a task directory symlink before reading outside content', async () => {
+    linkOutsideSession({ taskId: 'leak', status: 'complete' });
+
+    const { handlers } = require('../src/mcp-server');
+    const result = await handlers.sidecar_read({ taskId: 'leak' }, tmpProject);
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/outside|session root/i);
+    expect(result.content[0].text).not.toContain('external secret summary');
+  });
+
+  test('sidecar_abort rejects a task directory symlink before signaling the outside pid', async () => {
+    const outsideSession = linkOutsideSession({
+      taskId: 'leak',
+      status: 'running',
+      pid: 424242,
+      createdAt: new Date().toISOString()
+    });
+    const killSpy = jest.spyOn(process, 'kill').mockImplementation(() => {});
+
+    const { handlers } = require('../src/mcp-server');
+    const result = await handlers.sidecar_abort({ taskId: 'leak' }, tmpProject);
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/outside|session root/i);
+    expect(killSpy).not.toHaveBeenCalled();
+    const outsideMetadata = JSON.parse(fs.readFileSync(path.join(outsideSession, 'metadata.json'), 'utf-8'));
+    expect(outsideMetadata.status).toBe('running');
+  });
 });
 
 describe('sidecar context boundaries', () => {

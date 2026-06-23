@@ -79,7 +79,10 @@ describe('codex-runner', () => {
           process.nextTick(() => child.emit('close', 1));
           return child;
         }),
-        execFile: jest.fn((cmd, args, cb) => cb(null, '', '')),
+        execFile: jest.fn((cmd, args, options, cb) => {
+          const callback = typeof options === 'function' ? options : cb;
+          callback(null, '', '');
+        }),
       }));
 
       jest.doMock('readline', () => ({
@@ -125,7 +128,10 @@ describe('codex-runner', () => {
             process.nextTick(() => child.emit('close', 1));
             return child;
           }),
-          execFile: jest.fn((cmd, args, cb) => cb(null, '', '')),
+          execFile: jest.fn((cmd, args, options, cb) => {
+            const callback = typeof options === 'function' ? options : cb;
+            callback(null, '', '');
+          }),
         }));
 
         const { runCodexSubagent } = require('../../src/subagents/codex-runner');
@@ -150,6 +156,41 @@ describe('codex-runner', () => {
     }
   });
 
+  test('checks codex availability with sanitized env instead of ambient secrets', async () => {
+    const originalEnv = { ...process.env };
+    let capturedOptions;
+
+    try {
+      process.env.AWS_SECRET_ACCESS_KEY = 'aws-secret';
+      process.env.OPENAI_API_KEY = 'openai-secret';
+      process.env.SIDECAR_ENV_DIR = path.join(os.tmpdir(), 'sidecar-env-dir');
+
+      await jest.isolateModulesAsync(async () => {
+        jest.doMock('child_process', () => ({
+          spawn: jest.fn(),
+          execFile: jest.fn((_cmd, _args, options, cb) => {
+            capturedOptions = options;
+            const callback = typeof options === 'function' ? options : cb;
+            callback(null, '', '');
+          }),
+        }));
+
+        const { assertCodexAvailable } = require('../../src/subagents/codex-runner');
+        await assertCodexAvailable();
+      });
+
+      expect(capturedOptions).toEqual(expect.objectContaining({
+        env: expect.any(Object)
+      }));
+      expect(capturedOptions.env.PATH).toBe(process.env.PATH);
+      expect(capturedOptions.env.SIDECAR_ENV_DIR).toBe(process.env.SIDECAR_ENV_DIR);
+      expect(capturedOptions.env.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+      expect(capturedOptions.env.OPENAI_API_KEY).toBeUndefined();
+    } finally {
+      process.env = originalEnv;
+    }
+  });
+
   test('rejects parent session directories without metadata', async () => {
     await jest.isolateModulesAsync(async () => {
       jest.doMock('child_process', () => ({
@@ -160,7 +201,10 @@ describe('codex-runner', () => {
           child.stdin = { end: jest.fn() };
           return child;
         }),
-        execFile: jest.fn((cmd, args, cb) => cb(null, '', '')),
+        execFile: jest.fn((cmd, args, options, cb) => {
+          const callback = typeof options === 'function' ? options : cb;
+          callback(null, '', '');
+        }),
       }));
 
       const { startCodexSubagent } = require('../../src/subagents/codex-runner');
@@ -190,7 +234,10 @@ describe('codex-runner', () => {
           });
           return child;
         }),
-        execFile: jest.fn((cmd, args, cb) => cb(null, '', '')),
+        execFile: jest.fn((cmd, args, options, cb) => {
+          const callback = typeof options === 'function' ? options : cb;
+          callback(null, '', '');
+        }),
       }));
 
       const { runCodexSubagent } = require('../../src/subagents/codex-runner');
@@ -230,7 +277,10 @@ describe('codex-runner', () => {
           });
           return child;
         }),
-        execFile: jest.fn((cmd, args, cb) => cb(null, '', '')),
+        execFile: jest.fn((cmd, args, options, cb) => {
+          const callback = typeof options === 'function' ? options : cb;
+          callback(null, '', '');
+        }),
       }));
 
       const { runCodexSubagent } = require('../../src/subagents/codex-runner');

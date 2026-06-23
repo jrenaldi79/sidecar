@@ -52,4 +52,47 @@ describe('Continue Operations session boundary validation', () => {
 
     expect(() => loadPreviousSession('old-task', projectDir)).toThrow(/project/i);
   });
+
+  test('loadPreviousSession rejects a summary file symlink that escapes the session directory', () => {
+    const sessionDir = path.join(projectDir, '.claude', 'sidecar_sessions', 'old-task');
+    const outsideSummary = path.join(otherProjectDir, 'summary.md');
+    writeSession(sessionDir, fs.realpathSync(projectDir));
+    fs.writeFileSync(outsideSummary, 'external secret summary');
+    fs.unlinkSync(path.join(sessionDir, 'summary.md'));
+    fs.symlinkSync(outsideSummary, path.join(sessionDir, 'summary.md'));
+
+    expect(() => loadPreviousSession('old-task', projectDir)).toThrow(/outside|session directory/i);
+  });
+
+  test('loadPreviousSession rejects a conversation file symlink that escapes the session directory', () => {
+    const sessionDir = path.join(projectDir, '.claude', 'sidecar_sessions', 'old-task');
+    const outsideConversation = path.join(otherProjectDir, 'conversation.jsonl');
+    writeSession(sessionDir, fs.realpathSync(projectDir));
+    fs.writeFileSync(outsideConversation,
+      JSON.stringify({ role: 'assistant', content: 'external secret conversation' }) + '\n');
+    fs.unlinkSync(path.join(sessionDir, 'conversation.jsonl'));
+    fs.symlinkSync(outsideConversation, path.join(sessionDir, 'conversation.jsonl'));
+
+    expect(() => loadPreviousSession('old-task', projectDir)).toThrow(/outside|session directory/i);
+  });
+
+  test('createContinueSessionMetadata enforces private directory and metadata modes for existing paths', () => {
+    const { createContinueSessionMetadata } = require('../../src/sidecar/continue');
+    const sessionDir = path.join(projectDir, '.claude', 'sidecar_sessions', 'new-task');
+    const metaPath = path.join(sessionDir, 'metadata.json');
+    fs.mkdirSync(sessionDir, { recursive: true, mode: 0o755 });
+    fs.chmodSync(sessionDir, 0o755);
+    fs.writeFileSync(metaPath, '{}', { mode: 0o644 });
+    fs.chmodSync(metaPath, 0o644);
+
+    createContinueSessionMetadata('new-task', projectDir, {
+      model: 'google/gemini-test',
+      briefing: 'follow up',
+      headless: true,
+      agent: 'build'
+    }, 'old-task');
+
+    expect(fs.statSync(sessionDir).mode & 0o777).toBe(0o700);
+    expect(fs.statSync(metaPath).mode & 0o777).toBe(0o600);
+  });
 });

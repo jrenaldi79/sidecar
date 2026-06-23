@@ -6,7 +6,8 @@ const path = require('path');
 const { buildChildProcessEnv } = require('./sidecar-env');
 const {
   validateSidecarSessionDir,
-  validateSidecarSessionMetadata
+  validateSidecarSessionMetadata,
+  readContainedSessionFile
 } = require('./sidecar-session-boundaries');
 const { validateTaskId } = require('./validators');
 
@@ -254,6 +255,7 @@ function validateSubagentLaunchProject({ projectDir, parentTaskId, getSession, g
   if (!fs.existsSync(parentDir)) {
     throw new Error(`Parent session ${parentTaskId} not found`);
   }
+  validateSidecarSessionDir(validatedProjectDir, parentTaskId);
   const parentMetadata = getSession(validatedProjectDir, parentTaskId);
   if (!parentMetadata) {
     throw new Error(`Parent session ${parentTaskId} metadata not found`);
@@ -273,6 +275,7 @@ module.exports = {
   validateSubagentParent,
   validateSidecarSessionDir,
   validateSidecarSessionMetadata,
+  readContainedSessionFile,
   defaultIncludeContext,
   hasContextBinding,
   assertContextBinding,

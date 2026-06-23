@@ -19,7 +19,8 @@ const { runHeadless } = require('../headless');
 const { logger } = require('../utils/logger');
 const {
   validateSidecarSessionDir,
-  validateSidecarSessionMetadata
+  validateSidecarSessionMetadata,
+  readContainedSessionFile
 } = require('../utils/sidecar-boundaries');
 
 /** Load session metadata from session directory */
@@ -28,16 +29,12 @@ function loadSessionMetadata(sessionDir) {
   if (!fs.existsSync(metaPath)) {
     throw new Error(`Session metadata not found: ${metaPath}`);
   }
-  return JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+  return JSON.parse(readContainedSessionFile(sessionDir, 'metadata.json'));
 }
 
 /** Load initial context (system prompt) from session */
 function loadInitialContext(sessionDir) {
-  const contextPath = SessionPaths.contextFile(sessionDir);
-  if (fs.existsSync(contextPath)) {
-    return fs.readFileSync(contextPath, 'utf-8');
-  }
-  return '';
+  return readContainedSessionFile(sessionDir, 'initial_context.md', { optional: true }) || '';
 }
 
 /** Check for file drift - files that were read may have changed */
@@ -164,10 +161,8 @@ async function resumeSidecar(options) {
     const effectiveAgent = metadata.agent || 'Build';
 
     // Load conversation for both paths (interactive already did this, headless didn't)
-    const conversationPath = SessionPaths.conversationFile(sessionDir);
-    const existingConversation = fs.existsSync(conversationPath)
-      ? fs.readFileSync(conversationPath, 'utf-8')
-      : '';
+    const existingConversation =
+      readContainedSessionFile(sessionDir, 'conversation.jsonl', { optional: true }) || '';
 
     if (headless) {
       const userMessage = buildResumeUserMessage(metadata.briefing || '', existingConversation);

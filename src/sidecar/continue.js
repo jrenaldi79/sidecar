@@ -19,7 +19,8 @@ const { buildPrompts } = require('../prompt-builder');
 const { logger } = require('../utils/logger');
 const {
   validateSidecarSessionDir,
-  validateSidecarSessionMetadata
+  validateSidecarSessionMetadata,
+  readContainedSessionFile
 } = require('../utils/sidecar-boundaries');
 
 /** Load previous session data (metadata, summary, conversation) */
@@ -27,22 +28,20 @@ function loadPreviousSession(taskId, project) {
   const sessionDir = validateSidecarSessionDir(project, taskId);
 
   // Load metadata
-  const metaPath = SessionPaths.metadataFile(sessionDir);
   const metadata = validateSidecarSessionMetadata(
-    JSON.parse(fs.readFileSync(metaPath, 'utf-8')),
+    JSON.parse(readContainedSessionFile(sessionDir, 'metadata.json')),
     project
   );
 
   // Load summary if available
-  const summaryPath = SessionPaths.summaryFile(sessionDir);
-  const summary = fs.existsSync(summaryPath) ? fs.readFileSync(summaryPath, 'utf-8') : '';
+  const summary = readContainedSessionFile(sessionDir, 'summary.md', { optional: true }) || '';
 
   // Load and format conversation if available
-  const convPath = SessionPaths.conversationFile(sessionDir);
+  const conversationText = readContainedSessionFile(sessionDir, 'conversation.jsonl', { optional: true });
   let conversation = '';
 
-  if (fs.existsSync(convPath)) {
-    const lines = fs.readFileSync(convPath, 'utf-8').split('\n').filter(Boolean);
+  if (conversationText !== null) {
+    const lines = conversationText.split('\n').filter(Boolean);
     const messages = lines.map(line => {
       try { return JSON.parse(line); } catch { return null; }
     }).filter(Boolean);
@@ -91,7 +90,8 @@ function createContinueSessionMetadata(taskId, project, options, oldTaskId) {
   const { model, briefing, headless, agent } = options;
 
   const sessionDir = SessionPaths.sessionDir(project, taskId);
-  fs.mkdirSync(sessionDir, { recursive: true });
+  fs.mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
+  fs.chmodSync(sessionDir, 0o700);
 
   const metadata = {
     taskId,
@@ -106,7 +106,9 @@ function createContinueSessionMetadata(taskId, project, options, oldTaskId) {
     continuesFrom: oldTaskId
   };
 
-  fs.writeFileSync(SessionPaths.metadataFile(sessionDir), JSON.stringify(metadata, null, 2));
+  const metaPath = SessionPaths.metadataFile(sessionDir);
+  fs.writeFileSync(metaPath, JSON.stringify(metadata, null, 2), { mode: 0o600 });
+  fs.chmodSync(metaPath, 0o600);
 
   return sessionDir;
 }

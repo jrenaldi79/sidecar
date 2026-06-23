@@ -68,7 +68,7 @@ function addRolePreamble(agentType, briefing) {
  */
 function assertCodexAvailable() {
   return new Promise((resolve, reject) => {
-    execFile('codex', ['exec', '--help'], (error) => {
+    execFile('codex', ['exec', '--help'], { env: buildChildProcessEnv() }, (error) => {
       if (error) {
         reject(error);
         return;
