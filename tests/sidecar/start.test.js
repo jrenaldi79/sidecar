@@ -245,6 +245,32 @@ describe('createSessionMetadata PID preservation', () => {
     expect(result.status).toBe('running');
     expect(result.createdAt).toBeDefined();
   });
+
+  it('rejects a symlinked sessions root before writing metadata outside the project', () => {
+    const { createSessionMetadata } = require('../../src/sidecar/start');
+    const projectDir = path.join(tmpDir, 'project');
+    const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'start-outside-sessions-'));
+    const claudeDir = path.join(projectDir, '.claude');
+
+    try {
+      fs.mkdirSync(claudeDir, { recursive: true });
+      fs.symlinkSync(outsideRoot, path.join(claudeDir, 'sidecar_sessions'), 'dir');
+
+      expect(() => {
+        createSessionMetadata('root-escape', projectDir, {
+          model: 'opus',
+          prompt: 'review code',
+          noUi: true,
+          agent: 'build',
+          thinking: 'medium'
+        });
+      }).toThrow(/sidecar sessions root|symbolic link|outside/i);
+
+      expect(fs.existsSync(path.join(outsideRoot, 'root-escape', 'metadata.json'))).toBe(false);
+    } finally {
+      fs.rmSync(outsideRoot, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('startSidecar context binding validation', () => {
@@ -390,6 +416,11 @@ describe('startSidecar includeContext option', () => {
       assertContextBinding: jest.fn(),
       defaultIncludeContext: jest.fn(() => false),
       validateProjectPath: jest.fn((project) => project)
+    }));
+    jest.mock('../../src/utils/sidecar-session-boundaries', () => ({
+      ensureSidecarSessionDir: jest.fn(() => '/tmp/test-session'),
+      readContainedSessionFile: jest.fn(() => '{}'),
+      writeContainedSessionFile: jest.fn()
     }));
     jest.mock('fs', () => ({
       ...jest.requireActual('fs'),

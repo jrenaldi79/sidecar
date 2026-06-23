@@ -89,18 +89,56 @@ describe('Session Utils', () => {
 
   describe('saveInitialContext', () => {
     it('should write system prompt and user message to initial_context.md', () => {
-      const sessDir = '/tmp/test-session';
-      const spy = jest.spyOn(fs, 'writeFileSync').mockImplementation(() => {});
+      const sessDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-context-session-'));
 
-      saveInitialContext(sessDir, 'System prompt here', 'User message here');
+      try {
+        saveInitialContext(sessDir, 'System prompt here', 'User message here');
 
-      expect(spy).toHaveBeenCalledWith(
-        path.join(sessDir, 'initial_context.md'),
-        '# System Prompt\n\nSystem prompt here\n\n# User Message (Task)\n\nUser message here',
-        { mode: 0o600 }
-      );
+        expect(fs.readFileSync(path.join(sessDir, 'initial_context.md'), 'utf-8')).toBe(
+          '# System Prompt\n\nSystem prompt here\n\n# User Message (Task)\n\nUser message here'
+        );
+      } finally {
+        fs.rmSync(sessDir, { recursive: true, force: true });
+      }
+    });
 
-      spy.mockRestore();
+    it('rejects an initial_context.md symlink without modifying the outside target', () => {
+      const sessDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-context-session-'));
+      const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-context-outside-'));
+      const outsideContext = path.join(outsideDir, 'initial_context.md');
+
+      try {
+        fs.writeFileSync(outsideContext, 'outside context untouched');
+        fs.symlinkSync(outsideContext, path.join(sessDir, 'initial_context.md'));
+
+        expect(() => {
+          saveInitialContext(sessDir, 'System prompt here', 'User message here');
+        }).toThrow(/symbolic link|session directory|outside/i);
+
+        expect(fs.readFileSync(outsideContext, 'utf-8')).toBe('outside context untouched');
+      } finally {
+        fs.rmSync(sessDir, { recursive: true, force: true });
+        fs.rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
+
+    it('rejects a dangling initial_context.md symlink before creating the outside target', () => {
+      const sessDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-context-session-'));
+      const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-context-outside-'));
+      const outsideContext = path.join(outsideDir, 'new-initial-context.md');
+
+      try {
+        fs.symlinkSync(outsideContext, path.join(sessDir, 'initial_context.md'));
+
+        expect(() => {
+          saveInitialContext(sessDir, 'System prompt here', 'User message here');
+        }).toThrow(/symbolic link|session directory|outside/i);
+
+        expect(fs.existsSync(outsideContext)).toBe(false);
+      } finally {
+        fs.rmSync(sessDir, { recursive: true, force: true });
+        fs.rmSync(outsideDir, { recursive: true, force: true });
+      }
     });
   });
 

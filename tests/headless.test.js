@@ -5,6 +5,7 @@
  */
 
 const fs = require('fs');
+const path = require('path');
 
 // Mock fs
 jest.mock('fs', () => ({
@@ -44,6 +45,17 @@ jest.mock('../src/utils/logger', () => ({
   }
 }));
 
+const mockAppendContainedSessionFile = jest.fn();
+const mockEnsureSidecarSessionDir = jest.fn();
+const mockWriteContainedSessionFile = jest.fn();
+
+jest.mock('../src/utils/sidecar-session-boundaries', () => ({
+  appendContainedSessionFile: (...args) => mockAppendContainedSessionFile(...args),
+  ensureSidecarSessionDir: (...args) => mockEnsureSidecarSessionDir(...args),
+  writeContainedSessionFile: (...args) => mockWriteContainedSessionFile(...args),
+  resolveContainedSessionFile: jest.fn(() => null)
+}));
+
 const { runHeadless, extractSummary, COMPLETE_MARKER, FOLD_MARKER, formatFoldOutput, DEFAULT_TIMEOUT } = require('../src/headless');
 
 describe('Headless Mode Runner', () => {
@@ -52,6 +64,15 @@ describe('Headless Mode Runner', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockEnsureSidecarSessionDir.mockImplementation((project, taskId) =>
+      path.join(project, '.claude', 'sidecar_sessions', taskId)
+    );
+    mockAppendContainedSessionFile.mockImplementation((sessionDir, filename, data, options) => {
+      fs.appendFileSync(path.join(sessionDir, filename), data, options);
+    });
+    mockWriteContainedSessionFile.mockImplementation((sessionDir, filename, data, options) => {
+      fs.writeFileSync(path.join(sessionDir, filename), data, options);
+    });
 
     // Setup fs mocks
     fs.existsSync.mockReturnValue(true);
@@ -293,10 +314,7 @@ describe('Headless Mode Runner', () => {
 
         await runHeadless(testModel, testSystemPrompt, testUserMessage, testTaskId, testProject, 5000);
 
-        expect(fs.mkdirSync).toHaveBeenCalledWith(
-          expect.stringContaining(testTaskId),
-          { recursive: true, mode: 0o700 }
-        );
+        expect(mockEnsureSidecarSessionDir).toHaveBeenCalledWith(testProject, testTaskId);
       });
 
       it('should log system prompt as first message', async () => {

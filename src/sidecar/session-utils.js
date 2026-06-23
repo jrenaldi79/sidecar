@@ -3,7 +3,6 @@
  * Consolidates duplicated code from start.js, resume.js, continue.js
  */
 
-const fs = require('fs');
 const path = require('path');
 
 const { detectConflicts, formatConflictWarning } = require('../conflict');
@@ -49,7 +48,7 @@ const SessionPaths = {
 /** Save system prompt and user message to initial_context.md */
 function saveInitialContext(sessionDir, systemPrompt, userMessage) {
   const content = `# System Prompt\n\n${systemPrompt}\n\n# User Message (Task)\n\n${userMessage}`;
-  fs.writeFileSync(SessionPaths.contextFile(sessionDir), content, { mode: 0o600 });
+  writeContainedSessionFile(sessionDir, 'initial_context.md', content, { mode: 0o600 });
 }
 
 /** Finalize session - detect conflicts, save summary, update metadata */

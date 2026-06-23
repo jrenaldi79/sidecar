@@ -8,8 +8,9 @@
 const fs = require('fs');
 const path = require('path');
 const {
+  appendContainedSessionFile,
+  ensureSidecarSessionDir,
   readContainedSessionFile,
-  resolveContainedSessionFile,
   validateSidecarSessionDir,
   validateSidecarSubagentSessionDir,
   writeContainedSessionFile
@@ -63,15 +64,7 @@ function getSessionDir(projectDir, taskId) {
  * @throws {Error} If session already exists
  */
 function createSession(projectDir, taskId, metadata) {
-  const sessionDir = getSessionDir(projectDir, taskId);
-
-  // Check if session already exists
-  if (fs.existsSync(sessionDir)) {
-    throw new Error(`Session ${taskId} already exists`);
-  }
-
-  // Create session directory
-  fs.mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
+  const sessionDir = ensureSidecarSessionDir(projectDir, taskId, { allowExisting: false });
 
   // Build metadata per spec §7.4
   const sessionMetadata = {
@@ -92,14 +85,15 @@ function createSession(projectDir, taskId, metadata) {
   };
 
   // Write metadata.json
-  fs.writeFileSync(
-    path.join(sessionDir, 'metadata.json'),
+  writeContainedSessionFile(
+    sessionDir,
+    'metadata.json',
     JSON.stringify(sessionMetadata, null, 2),
     { mode: 0o600 }
   );
 
   // Create empty conversation.jsonl
-  fs.writeFileSync(path.join(sessionDir, 'conversation.jsonl'), '', { mode: 0o600 });
+  writeContainedSessionFile(sessionDir, 'conversation.jsonl', '', { mode: 0o600 });
 }
 
 /**
@@ -174,12 +168,7 @@ function getSession(projectDir, taskId) {
  * @throws {Error} If session not found
  */
 function saveConversation(projectDir, taskId, message) {
-  const sessionDir = getSessionDir(projectDir, taskId);
-  const convPath = path.join(sessionDir, 'conversation.jsonl');
-
-  if (!fs.existsSync(sessionDir)) {
-    throw new Error(`Session ${taskId} not found`);
-  }
+  const sessionDir = validateSidecarSessionDir(projectDir, taskId);
 
   // Ensure timestamp is present
   const messageWithTimestamp = {
@@ -188,7 +177,12 @@ function saveConversation(projectDir, taskId, message) {
   };
 
   // Append to conversation.jsonl
-  fs.appendFileSync(convPath, JSON.stringify(messageWithTimestamp) + '\n', { mode: 0o600 });
+  appendContainedSessionFile(
+    sessionDir,
+    'conversation.jsonl',
+    JSON.stringify(messageWithTimestamp) + '\n',
+    { mode: 0o600 }
+  );
 }
 
 /**
@@ -417,11 +411,12 @@ function appendSubagentConversation(projectDir, parentTaskId, subagentId, messag
     ...message,
     timestamp: message.timestamp || new Date().toISOString()
   };
-  const conversationPath = path.join(subagentDir, 'conversation.jsonl');
-  const targetPath = fs.existsSync(conversationPath)
-    ? resolveContainedSessionFile(subagentDir, 'conversation.jsonl').path
-    : conversationPath;
-  fs.appendFileSync(targetPath, JSON.stringify(payload) + '\n', { mode: 0o600 });
+  appendContainedSessionFile(
+    subagentDir,
+    'conversation.jsonl',
+    JSON.stringify(payload) + '\n',
+    { mode: 0o600 }
+  );
 }
 
 module.exports = {

@@ -122,6 +122,21 @@ describe('Session Manager', () => {
       }).toThrow(/already exists/);
     });
 
+    it('rejects a symlinked sessions root before creating a session outside the project', () => {
+      const taskId = 'root-escape';
+      const claudeDir = path.join(projectDir, '.claude');
+      const outsideSessionsRoot = path.join(tempDir, 'outside-sessions-root');
+      fs.mkdirSync(claudeDir, { recursive: true });
+      fs.mkdirSync(outsideSessionsRoot, { recursive: true });
+      fs.symlinkSync(outsideSessionsRoot, path.join(claudeDir, 'sidecar_sessions'), 'dir');
+
+      expect(() => {
+        createSession(projectDir, taskId, { model: 'test/model', project: projectDir });
+      }).toThrow(/sidecar sessions root|symbolic link|outside/i);
+
+      expect(fs.existsSync(path.join(outsideSessionsRoot, taskId, 'metadata.json'))).toBe(false);
+    });
+
     it('should save thinking level in metadata', () => {
       const taskId = 'thinking-test';
       createSession(projectDir, taskId, {
@@ -312,6 +327,19 @@ describe('Session Manager', () => {
       expect(() => {
         saveConversation(projectDir, 'nonexistent', { role: 'user', content: 'Test' });
       }).toThrow(/not found/);
+    });
+
+    it('rejects a dangling conversation symlink before creating the outside target', () => {
+      const convPath = path.join(projectDir, '.claude', 'sidecar_sessions', 'abc123', 'conversation.jsonl');
+      const outsideTarget = path.join(tempDir, 'outside-conversation.jsonl');
+      fs.unlinkSync(convPath);
+      fs.symlinkSync(outsideTarget, convPath);
+
+      expect(() => {
+        saveConversation(projectDir, 'abc123', { role: 'user', content: 'escape' });
+      }).toThrow(/symbolic link|session directory|outside/i);
+
+      expect(fs.existsSync(outsideTarget)).toBe(false);
     });
   });
 
@@ -636,6 +664,27 @@ describe('Session Manager', () => {
         );
 
         expect(fs.readFileSync(convPath, 'utf-8')).toContain('Planning...');
+      });
+
+      it('rejects a dangling sub-agent conversation symlink before creating the outside target', () => {
+        const subagentId = 'subagent-dangling-conversation';
+        const subagentDir = createSubagentSession(projectDir, parentTaskId, subagentId, {
+          agentType: 'general',
+          briefing: 'Do work'
+        });
+        const convPath = path.join(subagentDir, 'conversation.jsonl');
+        const outsideTarget = path.join(tempDir, 'outside-subagent-conversation.jsonl');
+        fs.unlinkSync(convPath);
+        fs.symlinkSync(outsideTarget, convPath);
+
+        expect(() => {
+          appendSubagentConversation(projectDir, parentTaskId, subagentId, {
+            role: 'assistant',
+            content: 'escape'
+          });
+        }).toThrow(/symbolic link|session directory|outside/i);
+
+        expect(fs.existsSync(outsideTarget)).toBe(false);
       });
     });
   });
