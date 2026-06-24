@@ -339,25 +339,62 @@ function buildServerOptions(options = {}) {
   // Build config object for SDK
   const config = {};
   if (options.mcp) {
-    // Normalize MCP configs for OpenCode SDK format.
-    // Claude Desktop uses {command: "cmd", args: ["a","b"], env: {...}}
-    // OpenCode expects  {type: "local", enabled: true, command: ["cmd","a","b"], environment: {...}}
-    // Key differences:
-    //   1. type: "local" (discriminated union, required)
-    //   2. enabled: true (required boolean)
-    //   3. command: array that includes the binary AND args (merged)
-    //   4. environment: MCP-specific env plus masks for inherited secrets
+    // Normalize MCP configs for OpenCode's discriminated union format.
+    //
+    // OpenCode accepts exactly two type values (ConfigInvalidError otherwise):
+    //   { type: "local",  enabled: true, command: ["cmd", ...args], environment: {...} }
+    //   { type: "remote", enabled: true, url: "https://..." }
+    //
+    // Input formats we handle:
+    //   Claude Code internal : { type: "stdio", command: "cmd", args: [...] }
+    //   Claude Desktop       : { command: "cmd", args: [...] }   (no type field)
+    //   Claude Code remote   : { type: "http",  url: "..." }
+    //                          { type: "sse",   url: "..." }
+    //   Already normalized   : { type: "local", command: [...] } → local + masked env
+    //                          { type: "remote", ... }           → pass through
+    //
+    // OpenCode merges `environment` over process.env for local MCP servers,
+    // so include explicit masks for ambient secret keys instead of relying on
+    // omitted keys to prevent inheritance.
     const normalized = {};
     for (const [name, serverConfig] of Object.entries(options.mcp)) {
       if (!serverConfig || typeof serverConfig !== 'object') {
         normalized[name] = serverConfig;
-      } else if (serverConfig.command && (!serverConfig.type || serverConfig.type === 'local')) {
-        // Claude Desktop format → OpenCode format
-        // OpenCode merges `environment` over process.env for local MCP servers,
-        // so include explicit masks for ambient secret keys instead of relying
-        // on omitted keys to prevent inheritance.
+        continue;
+      }
+
+      const t = serverConfig.type;
+      if (t === 'stdio' || t === 'local' || (!t && serverConfig.command)) {
+        // stdio/local process (Claude Code, Claude Desktop, or OpenCode local) → local
+        if (!serverConfig.command) {
+          const { logger } = require('./utils/logger');
+          logger.warn(`MCP server "${name}": type "${t || 'local'}" requires a command — skipping`);
+          continue;
+        }
         normalized[name] = normalizeLocalMcpConfig(serverConfig);
+      } else if (t === 'http' || t === 'sse') {
+        // HTTP/SSE remote server → remote
+        if (!serverConfig.url) {
+          const { logger } = require('./utils/logger');
+          logger.warn(`MCP server "${name}": type "${t}" requires a url — skipping`);
+          continue;
+        }
+        // Preserve extra remote options (headers, oauth, timeout, etc.)
+        const rest = { ...serverConfig };
+        delete rest.type;
+        delete rest.args;
+        delete rest.command;
+        normalized[name] = {
+          ...rest,
+          type: 'remote',
+          enabled: rest.enabled !== undefined ? rest.enabled : true
+        };
       } else {
+        // Already in OpenCode remote format or unknown — pass through.
+        if (t && t !== 'remote') {
+          const { logger } = require('./utils/logger');
+          logger.warn(`MCP server "${name}": unrecognized type "${t}" — passing through unchanged`);
+        }
         normalized[name] = serverConfig;
       }
     }

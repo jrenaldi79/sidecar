@@ -166,3 +166,4 @@ describe('buildServerOptions provider model sync', () => {
     expect(opts.config.model).toBe('openrouter/x-ai/grok-4.1-fast');
   });
 });
+// MCP type normalization tests extracted to tests/mcp-normalization.test.js

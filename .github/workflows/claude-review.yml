@@ -1,6 +1,8 @@
 name: Claude Code
 
 on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
   issue_comment:
     types: [created]
   pull_request_review_comment:
@@ -9,18 +11,121 @@ on:
     types: [opened, assigned]
 
 concurrency:
-  group: claude-${{ github.event.issue.number || github.event.pull_request.number }}
+  group: claude-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.issue.number }}
   cancel-in-progress: true
 
 jobs:
-  claude:
+  auto-review:
+    if: github.event_name == 'pull_request' && !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          use_sticky_comment: true
+          prompt: |
+            Review this PR. Always post a review comment summarizing your findings, even if no issues are found.
+
+          plugin_marketplaces: |
+            https://github.com/anthropics/claude-code.git
+
+          plugins: |
+            pr-review-toolkit@claude-code-plugins
+
+          settings: |
+            {
+              "permissions": {
+                "allow": [
+                  "Bash(gh:*)",
+                  "Bash(git diff:*)",
+                  "Bash(git log:*)",
+                  "Bash(git show:*)",
+                  "Read",
+                  "Glob",
+                  "Grep"
+                ]
+              }
+            }
+
+  security-review:
+    if: github.event_name == 'pull_request' && !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+
+      - uses: anthropics/claude-code-security-review@main
+        id: security-scan
+        with:
+          claude-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          run-every-commit: true
+
+      - name: Post security review summary
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FINDINGS: ${{ steps.security-scan.outputs.findings-count }}
+        run: |
+          BODY="## Security Review\n\n"
+          if [ "$FINDINGS" = "0" ] || [ -z "$FINDINGS" ]; then
+            BODY="${BODY}No security vulnerabilities found. Clean bill of health."
+          else
+            BODY="${BODY}Found **${FINDINGS}** security issue(s). See inline comments above for details."
+          fi
+          BODY="${BODY}\n\n---\n*Scope: security vulnerabilities only (injection, auth, secrets, XSS, etc.). For code quality and logic review, see the separate Code Review comment.*"
+          # Update or create a sticky comment so we don't spam on every push
+          MARKER="<!-- security-review-sticky -->"
+          EXISTING=$(gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            --jq ".[] | select(.body | contains(\"$MARKER\")) | .id" | head -1)
+          FULL_BODY="${MARKER}\n${BODY}"
+          if [ -n "$EXISTING" ]; then
+            gh api "repos/${{ github.repository }}/issues/comments/$EXISTING" -X PATCH -f body="$(echo -e "$FULL_BODY")"
+          else
+            gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" -f body="$(echo -e "$FULL_BODY")"
+          fi
+
+  codex-audit:
+    needs: auto-review
+    if: github.event_name == 'pull_request' && !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Trigger Codex audit review
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr comment "$PR_NUMBER" --repo "$GH_REPO" --body "$(cat <<'BODY'
+          @codex review — You are an auditor of the Claude Code review above, not a fresh reviewer.
+          For each finding: confirm if valid, flag false positives with reasoning, and identify
+          meaningful gaps (security, logic, edge cases). Do not nitpick style, formatting, or naming.
+          Only comment when you have substantive input.
+          BODY
+          )"
+
+  claude-assist:
     if: >
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'issues' && contains(github.event.issue.body, '@claude'))
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       pull-requests: write
       issues: write
       id-token: write
@@ -36,4 +141,3 @@ jobs:
 
           plugins: |
             pr-review-toolkit@claude-code-plugins
-            security-guidance@claude-code-plugins
