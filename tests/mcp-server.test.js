@@ -10,6 +10,36 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+const repoRoot = fs.realpathSync(path.resolve(__dirname, '..'));
+
+async function captureMcpSpawnArgs(runHandler) {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-spawn-args-'));
+  const originalSharedServer = process.env.SIDECAR_SHARED_SERVER;
+  let capturedArgs = [];
+
+  try {
+    process.env.SIDECAR_SHARED_SERVER = '0';
+    await jest.isolateModulesAsync(async () => {
+      jest.doMock('child_process', () => ({
+        spawn: (_cmd, args, _opts) => {
+          capturedArgs = args;
+          return { pid: 1234, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
+        }
+      }));
+      const { handlers } = require('../src/mcp-server');
+      await runHandler(handlers, tmpDir);
+    });
+    return capturedArgs;
+  } finally {
+    if (originalSharedServer === undefined) {
+      delete process.env.SIDECAR_SHARED_SERVER;
+    } else {
+      process.env.SIDECAR_SHARED_SERVER = originalSharedServer;
+    }
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
 /**
  * Tests that verify the args passed to the spawned CLI process.
  * Uses jest.isolateModulesAsync + jest.doMock to mock child_process per-test.
@@ -26,7 +56,7 @@ describe('MCP spawn arg building', () => {
         }),
       }));
       const { handlers: h } = require('../src/mcp-server');
-      const result = await h.sidecar_start({ prompt: 'test task', noUi: true, model: 'google/gemini-test' }, '/tmp');
+      const result = await h.sidecar_start({ prompt: 'test task', noUi: true, model: 'google/gemini-test' }, repoRoot);
       const { taskId } = JSON.parse(result.content[0].text);
       const idx = capturedArgs.indexOf('--task-id');
       expect(idx).toBeGreaterThan(-1);
@@ -44,7 +74,7 @@ describe('MCP spawn arg building', () => {
         }),
       }));
       const { handlers: h } = require('../src/mcp-server');
-      await h.sidecar_start({ prompt: 'test task', noUi: true, model: 'google/gemini-test' }, '/tmp');
+      await h.sidecar_start({ prompt: 'test task', noUi: true, model: 'google/gemini-test' }, repoRoot);
       const idx = capturedArgs.indexOf('--client');
       expect(idx).toBeGreaterThan(-1);
       expect(capturedArgs[idx + 1]).toBe('cowork');
@@ -61,9 +91,34 @@ describe('MCP spawn arg building', () => {
         }),
       }));
       const { handlers: h } = require('../src/mcp-server');
-      await h.sidecar_start({ prompt: 'test task', noUi: true, model: 'google/gemini-test', parentSession: 'f58f2782-fc8c-41bc-afbc-e0c130b91aaf' }, '/tmp');
+      await h.sidecar_start({ prompt: 'test task', noUi: true, model: 'google/gemini-test', parentSession: 'f58f2782-fc8c-41bc-afbc-e0c130b91aaf' }, repoRoot);
       const idx = capturedArgs.indexOf('--session-id');
       expect(idx).toBeGreaterThan(-1);
+      expect(capturedArgs[idx + 1]).toBe('f58f2782-fc8c-41bc-afbc-e0c130b91aaf');
+    });
+  });
+
+  test('sidecar_start passes --include-context when includeContext is true', async () => {
+    let capturedArgs;
+    await jest.isolateModulesAsync(async () => {
+      jest.doMock('child_process', () => ({
+        spawn: jest.fn((cmd, args) => {
+          capturedArgs = args;
+          return { pid: 12345, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
+        }),
+      }));
+      const { handlers: h } = require('../src/mcp-server');
+      await h.sidecar_start({
+        prompt: 'test task',
+        noUi: true,
+        model: 'google/gemini-test',
+        includeContext: true,
+        parentSession: 'f58f2782-fc8c-41bc-afbc-e0c130b91aaf'
+      }, repoRoot);
+
+      expect(capturedArgs).toContain('--include-context');
+      expect(capturedArgs).not.toContain('--no-context');
+      const idx = capturedArgs.indexOf('--session-id');
       expect(capturedArgs[idx + 1]).toBe('f58f2782-fc8c-41bc-afbc-e0c130b91aaf');
     });
   });
@@ -78,11 +133,47 @@ describe('MCP spawn arg building', () => {
         }),
       }));
       const { handlers: h } = require('../src/mcp-server');
-      await h.sidecar_start({ prompt: 'test task', noUi: true, model: 'google/gemini-test', timeout: 30 }, '/tmp');
+      await h.sidecar_start({ prompt: 'test task', noUi: true, model: 'google/gemini-test', timeout: 30 }, repoRoot);
       const idx = capturedArgs.indexOf('--timeout');
       expect(idx).toBeGreaterThan(-1);
       expect(capturedArgs[idx + 1]).toBe('30');
     });
+  });
+
+  test('sidecar_start omits ambient secret env when spawning the sidecar CLI', async () => {
+    const originalEnv = { ...process.env };
+    let capturedOptions;
+
+    try {
+      process.env.AWS_SECRET_ACCESS_KEY = 'aws-secret';
+      process.env.OPENAI_API_KEY = 'openai-secret';
+      process.env.ANTHROPIC_API_KEY = 'anthropic-secret';
+      process.env.SIDECAR_ENV_DIR = path.join(os.tmpdir(), 'sidecar-env-dir');
+      process.env.SIDECAR_SHARED_SERVER = '0';
+      process.env.LOG_LEVEL = 'debug';
+
+      await jest.isolateModulesAsync(async () => {
+        jest.doMock('child_process', () => ({
+          spawn: jest.fn((cmd, args, options) => {
+            capturedOptions = options;
+            return { pid: 12345, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
+          }),
+        }));
+        const { handlers: h } = require('../src/mcp-server');
+        await h.sidecar_start({ prompt: 'test task', noUi: true, model: 'google/gemini-test' }, repoRoot);
+      });
+
+      expect(capturedOptions.env).toBeDefined();
+      expect(capturedOptions.env.PATH).toBe(process.env.PATH);
+      expect(capturedOptions.env.SIDECAR_ENV_DIR).toBe(process.env.SIDECAR_ENV_DIR);
+      expect(capturedOptions.env.LOG_LEVEL).toBe('debug');
+      expect(capturedOptions.env.SIDECAR_DEBUG_PORT).toBe('9223');
+      expect(capturedOptions.env.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+      expect(capturedOptions.env.OPENAI_API_KEY).toBeUndefined();
+      expect(capturedOptions.env.ANTHROPIC_API_KEY).toBeUndefined();
+    } finally {
+      process.env = originalEnv;
+    }
   });
 
   test('sidecar_continue returns a NEW taskId, not the parent taskId', async () => {
@@ -96,7 +187,7 @@ describe('MCP spawn arg building', () => {
       const { handlers: h } = require('../src/mcp-server');
       const parentTaskId = 'parent123';
       const result = await h.sidecar_continue(
-        { taskId: parentTaskId, prompt: 'follow-up task', noUi: true }, '/tmp'
+        { taskId: parentTaskId, prompt: 'follow-up task', noUi: true }, repoRoot
       );
       const { taskId } = JSON.parse(result.content[0].text);
       expect(taskId).not.toBe(parentTaskId);
@@ -115,13 +206,161 @@ describe('MCP spawn arg building', () => {
       }));
       const { handlers: h } = require('../src/mcp-server');
       const result = await h.sidecar_continue(
-        { taskId: 'old-parent', prompt: 'new task', noUi: true }, '/tmp'
+        { taskId: 'old-parent', prompt: 'new task', noUi: true }, repoRoot
       );
       const { taskId: newTaskId } = JSON.parse(result.content[0].text);
       const idx = capturedArgs.indexOf('--task-id');
       expect(idx).toBeGreaterThan(-1);
       expect(capturedArgs[idx + 1]).toBe(newTaskId);
     });
+  });
+});
+
+describe('MCP shared server exact context resolution', () => {
+  test('sidecar_start rejects missing exact parentSession instead of allowing fallback', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-shared-exact-'));
+    const sharedServerMock = {
+      enabled: true,
+      ensureServer: jest.fn(async () => ({
+        server: { url: 'http://127.0.0.1:43210', goPid: 1234 },
+        client: {}
+      })),
+      addSession: jest.fn(),
+      getSessionWatchdog: jest.fn(() => ({})),
+      removeSession: jest.fn(),
+      shutdown: jest.fn()
+    };
+    const buildContextMock = jest.fn((_project, _session, options) => {
+      if (options.exactSession === true) {
+        throw new Error('Exact session missing-session not found');
+      }
+      return 'fallback context';
+    });
+
+    try {
+      await jest.isolateModulesAsync(async () => {
+        jest.doMock('../src/utils/shared-server', () => ({
+          SharedServerManager: jest.fn(() => sharedServerMock)
+        }));
+        jest.doMock('../src/opencode-client', () => ({
+          createSession: jest.fn(async () => 'shared-opencode-session')
+        }));
+        jest.doMock('../src/sidecar/context-builder', () => ({
+          buildContext: buildContextMock
+        }));
+        jest.doMock('../src/prompt-builder', () => ({
+          buildPrompts: jest.fn(() => ({ system: 'sys', userMessage: 'user' }))
+        }));
+        jest.doMock('../src/headless', () => ({
+          runHeadless: jest.fn(async () => ({ summary: 'done' }))
+        }));
+        jest.doMock('../src/sidecar/session-utils', () => ({
+          finalizeSession: jest.fn()
+        }));
+
+        const { handlers: h } = require('../src/mcp-server');
+        const result = await h.sidecar_start({
+          prompt: 'test task',
+          noUi: true,
+          model: 'google/gemini-test',
+          includeContext: true,
+          parentSession: 'missing-session'
+        }, tmpDir);
+
+        expect(result.isError).toBe(true);
+        expect(result.content[0].text).toContain('Exact session missing-session not found');
+        expect(buildContextMock).toHaveBeenCalledWith(
+          fs.realpathSync(tmpDir),
+          'missing-session',
+          expect.objectContaining({ exactSession: true })
+        );
+      });
+    } finally {
+      jest.dontMock('../src/utils/shared-server');
+      jest.dontMock('../src/opencode-client');
+      jest.dontMock('../src/sidecar/context-builder');
+      jest.dontMock('../src/prompt-builder');
+      jest.dontMock('../src/headless');
+      jest.dontMock('../src/sidecar/session-utils');
+      jest.resetModules();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test('sidecar_start rejects fake coworkProcess includeContext before launching shared run', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-shared-cowork-'));
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-shared-home-'));
+    const originalHome = process.env.HOME;
+    const runHeadlessMock = jest.fn(async () => ({ summary: 'done' }));
+    const sharedServerMock = {
+      enabled: true,
+      ensureServer: jest.fn(async () => ({
+        server: { url: 'http://127.0.0.1:43210', goPid: 1234 },
+        client: {}
+      })),
+      addSession: jest.fn(),
+      getSessionWatchdog: jest.fn(() => ({})),
+      removeSession: jest.fn(),
+      shutdown: jest.fn()
+    };
+
+    try {
+      process.env.HOME = tmpHome;
+
+      await jest.isolateModulesAsync(async () => {
+        jest.doMock('child_process', () => ({
+          spawn: jest.fn(() => ({
+            pid: 12345,
+            unref: jest.fn(),
+            stdout: { on: jest.fn() },
+            stderr: { on: jest.fn() }
+          }))
+        }));
+        jest.doMock('../src/utils/shared-server', () => ({
+          SharedServerManager: jest.fn(() => sharedServerMock)
+        }));
+        jest.doMock('../src/opencode-client', () => ({
+          createSession: jest.fn(async () => 'shared-opencode-session')
+        }));
+        jest.doMock('../src/prompt-builder', () => ({
+          buildPrompts: jest.fn(() => ({ system: 'sys', userMessage: 'user' }))
+        }));
+        jest.doMock('../src/headless', () => ({
+          runHeadless: runHeadlessMock
+        }));
+        jest.doMock('../src/sidecar/session-utils', () => ({
+          finalizeSession: jest.fn()
+        }));
+
+        const { handlers: h } = require('../src/mcp-server');
+        const result = await h.sidecar_start({
+          prompt: 'test task',
+          noUi: true,
+          model: 'google/gemini-test',
+          includeContext: true,
+          coworkProcess: 'fake-process'
+        }, tmpDir);
+
+        expect(result.isError).toBe(true);
+        expect(result.content[0].text).toMatch(/Cowork session.*fake-process.*not found/i);
+        expect(runHeadlessMock).not.toHaveBeenCalled();
+      });
+    } finally {
+      if (originalHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = originalHome;
+      }
+      jest.dontMock('child_process');
+      jest.dontMock('../src/utils/shared-server');
+      jest.dontMock('../src/opencode-client');
+      jest.dontMock('../src/prompt-builder');
+      jest.dontMock('../src/headless');
+      jest.dontMock('../src/sidecar/session-utils');
+      jest.resetModules();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+    }
   });
 });
 
@@ -184,6 +423,8 @@ describe('MCP Server Handlers', () => {
       'sidecar_start', 'sidecar_status', 'sidecar_read',
       'sidecar_list', 'sidecar_resume', 'sidecar_continue',
       'sidecar_setup', 'sidecar_guide', 'sidecar_abort',
+      'sidecar_subagent_start', 'sidecar_subagent_status',
+      'sidecar_subagent_read', 'sidecar_subagent_abort',
     ];
     for (const name of expectedTools) {
       expect(handlers).toHaveProperty(name);
@@ -254,6 +495,41 @@ describe('MCP Server Handlers', () => {
         expect(parsed[0].model).toBe('gemini');
       } finally {
         fs.rmSync(tmpDir, { recursive: true });
+      }
+    });
+
+    test('skips symlinked session entries that resolve outside the sidecar sessions root', async () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-list-symlink-'));
+      const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-list-outside-'));
+      const sessionsBase = path.join(tmpDir, '.claude', 'sidecar_sessions');
+      const validDir = path.join(sessionsBase, 'inside1');
+      fs.mkdirSync(validDir, { recursive: true });
+      fs.writeFileSync(path.join(validDir, 'metadata.json'), JSON.stringify({
+        taskId: 'inside1',
+        status: 'complete',
+        model: 'gemini',
+        briefing: 'inside session',
+        createdAt: '2026-03-04T00:00:00.000Z',
+      }));
+      fs.writeFileSync(path.join(outsideDir, 'metadata.json'), JSON.stringify({
+        taskId: 'leak',
+        status: 'complete',
+        model: 'outside-model',
+        briefing: 'outside secret briefing',
+        createdAt: '2026-03-05T00:00:00.000Z',
+      }));
+      fs.symlinkSync(outsideDir, path.join(sessionsBase, 'leak'), 'dir');
+
+      try {
+        const result = await handlers.sidecar_list({}, tmpDir);
+        const parsed = JSON.parse(result.content[0].text);
+        expect(parsed).toHaveLength(1);
+        expect(parsed[0].id).toBe('inside1');
+        expect(result.content[0].text).not.toContain('outside secret briefing');
+        expect(result.content[0].text).not.toContain('outside-model');
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        fs.rmSync(outsideDir, { recursive: true, force: true });
       }
     });
 
@@ -346,6 +622,51 @@ describe('MCP Server Handlers', () => {
         expect(parsed).toHaveProperty('latest');
       } finally {
         fs.rmSync(tmpDir, { recursive: true });
+      }
+    });
+
+    test('does not expose progress from symlinked files outside a valid session directory', async () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-progress-symlink-'));
+      const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-progress-outside-'));
+      const sessDir = path.join(tmpDir, '.claude', 'sidecar_sessions', 'progx');
+      fs.mkdirSync(sessDir, { recursive: true });
+      fs.writeFileSync(path.join(sessDir, 'metadata.json'), JSON.stringify({
+        taskId: 'progx',
+        status: 'running',
+        pid: process.pid,
+        model: 'gemini',
+        headless: true,
+        createdAt: new Date().toISOString(),
+      }));
+      fs.writeFileSync(
+        path.join(outsideDir, 'conversation.jsonl'),
+        JSON.stringify({ role: 'assistant', content: 'outside secret progress' }) + '\n'
+      );
+      fs.writeFileSync(
+        path.join(outsideDir, 'progress.json'),
+        JSON.stringify({
+          stage: 'receiving',
+          stageLabel: 'outside secret stage',
+          updatedAt: new Date().toISOString()
+        })
+      );
+      fs.symlinkSync(path.join(outsideDir, 'conversation.jsonl'), path.join(sessDir, 'conversation.jsonl'));
+      fs.symlinkSync(path.join(outsideDir, 'progress.json'), path.join(sessDir, 'progress.json'));
+
+      try {
+        const result = await handlers.sidecar_status({ taskId: 'progx' }, tmpDir);
+        expect(result.isError).toBeUndefined();
+        const text = result.content.map(c => c.text).join('\n');
+        const parsed = JSON.parse(result.content[0].text);
+        expect(parsed.status).toBe('running');
+        expect(parsed.latest).toBe('Starting up...');
+        expect(parsed.messages).toBe(0);
+        expect(parsed.stage).toBeUndefined();
+        expect(text).not.toContain('outside secret progress');
+        expect(text).not.toContain('outside secret stage');
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        fs.rmSync(outsideDir, { recursive: true, force: true });
       }
     });
 
@@ -887,7 +1208,7 @@ describe('MCP Server Handlers', () => {
           }),
         }));
         const { handlers: h } = require('../src/mcp-server');
-        const result = await h.sidecar_start({ prompt: 'analyze auth', noUi: false, model: 'google/gemini-test' }, '/tmp');
+        const result = await h.sidecar_start({ prompt: 'analyze auth', noUi: false, model: 'google/gemini-test' }, repoRoot);
         const parsed = JSON.parse(result.content[0].text);
         expect(parsed.mode).toBe('interactive');
         expect(parsed.message).toContain('Do NOT poll');
@@ -905,7 +1226,7 @@ describe('MCP Server Handlers', () => {
           }),
         }));
         const { handlers: h } = require('../src/mcp-server');
-        const result = await h.sidecar_start({ prompt: 'implement feature', noUi: true, model: 'google/gemini-test' }, '/tmp');
+        const result = await h.sidecar_start({ prompt: 'implement feature', noUi: true, model: 'google/gemini-test' }, repoRoot);
         const parsed = JSON.parse(result.content[0].text);
         expect(parsed.mode).toBe('headless');
         expect(parsed.message).toContain('headless');
@@ -918,7 +1239,7 @@ describe('MCP Server Handlers', () => {
           spawn: jest.fn(() => ({ pid: 12345, unref: jest.fn() })),
         }));
         const { handlers: h } = require('../src/mcp-server');
-        const result = await h.sidecar_start({ prompt: 'test task', noUi: true, model: 'google/gemini-test' }, '/tmp');
+        const result = await h.sidecar_start({ prompt: 'test task', noUi: true, model: 'google/gemini-test' }, repoRoot);
         expect(result.content).toHaveLength(2);
         expect(result.content[1].text).toContain('<system-reminder>');
         expect(result.content[1].text).toContain('sleep 25');
@@ -931,7 +1252,7 @@ describe('MCP Server Handlers', () => {
           spawn: jest.fn(() => ({ pid: 12345, unref: jest.fn() })),
         }));
         const { handlers: h } = require('../src/mcp-server');
-        const result = await h.sidecar_start({ prompt: 'analyze auth', noUi: false, model: 'google/gemini-test' }, '/tmp');
+        const result = await h.sidecar_start({ prompt: 'analyze auth', noUi: false, model: 'google/gemini-test' }, repoRoot);
         expect(result.content).toHaveLength(1);
         expect(result.content[0].text).not.toContain('<system-reminder>');
       });
@@ -941,6 +1262,42 @@ describe('MCP Server Handlers', () => {
   describe('sidecar_resume', () => {
     test('handler is an async function', () => {
       expect(typeof handlers.sidecar_resume).toBe('function');
+    });
+
+    test('does not truncate an outside debug.log target when debug.log is a symlink', async () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-resume-debug-'));
+      const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-resume-outside-'));
+      const sessionDir = path.join(tmpDir, '.claude', 'sidecar_sessions', 'resume-debug');
+      const outsideDebug = path.join(outsideDir, 'debug.log');
+
+      try {
+        fs.mkdirSync(sessionDir, { recursive: true });
+        fs.writeFileSync(path.join(sessionDir, 'metadata.json'), JSON.stringify({
+          taskId: 'resume-debug',
+          status: 'running',
+          model: 'gemini',
+          project: tmpDir,
+          projectDir: tmpDir,
+          createdAt: new Date().toISOString()
+        }));
+        fs.writeFileSync(outsideDebug, 'outside debug content');
+        fs.symlinkSync(outsideDebug, path.join(sessionDir, 'debug.log'));
+
+        await jest.isolateModulesAsync(async () => {
+          jest.doMock('child_process', () => ({
+            spawn: jest.fn(() => {
+              return { pid: 12345, unref: jest.fn() };
+            }),
+          }));
+          const { handlers: h } = require('../src/mcp-server');
+          await h.sidecar_resume({ taskId: 'resume-debug', noUi: true }, tmpDir);
+        });
+
+        expect(fs.readFileSync(outsideDebug, 'utf-8')).toBe('outside debug content');
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        fs.rmSync(outsideDir, { recursive: true, force: true });
+      }
     });
   });
 
@@ -1061,197 +1418,76 @@ describe('MCP Server Handlers', () => {
 
 describe('sidecar_start context and summary args', () => {
   it('passes --context-turns to CLI', async () => {
-    let capturedArgs = [];
-    await jest.isolateModulesAsync(async () => {
-      jest.doMock('child_process', () => ({
-        spawn: (_cmd, args, _opts) => {
-          capturedArgs = args;
-          return { pid: 1234, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
-        }
-      }));
-      jest.doMock('fs', () => ({
-        ...jest.requireActual('fs'),
-        mkdirSync: jest.fn(),
-        writeFileSync: jest.fn(),
-        existsSync: jest.fn(() => false)
-      }));
-      const { handlers } = require('../src/mcp-server');
-      await handlers.sidecar_start({ prompt: 'test', model: 'openrouter/test/model', contextTurns: 25 }, '/tmp/proj');
+    const capturedArgs = await captureMcpSpawnArgs(async (handlers, tmpDir) => {
+      await handlers.sidecar_start({ prompt: 'test', model: 'openrouter/test/model', contextTurns: 25 }, tmpDir);
     });
     expect(capturedArgs).toContain('--context-turns');
     expect(capturedArgs).toContain('25');
   });
 
   it('passes --context-since to CLI', async () => {
-    let capturedArgs = [];
-    await jest.isolateModulesAsync(async () => {
-      jest.doMock('child_process', () => ({
-        spawn: (_cmd, args, _opts) => {
-          capturedArgs = args;
-          return { pid: 1234, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
-        }
-      }));
-      jest.doMock('fs', () => ({
-        ...jest.requireActual('fs'),
-        mkdirSync: jest.fn(),
-        writeFileSync: jest.fn(),
-        existsSync: jest.fn(() => false)
-      }));
-      const { handlers } = require('../src/mcp-server');
-      await handlers.sidecar_start({ prompt: 'test', model: 'openrouter/test/model', contextSince: '2h' }, '/tmp/proj');
+    const capturedArgs = await captureMcpSpawnArgs(async (handlers, tmpDir) => {
+      await handlers.sidecar_start({ prompt: 'test', model: 'openrouter/test/model', contextSince: '2h' }, tmpDir);
     });
     expect(capturedArgs).toContain('--context-since');
     expect(capturedArgs).toContain('2h');
   });
 
   it('passes --context-max-tokens to CLI', async () => {
-    let capturedArgs = [];
-    await jest.isolateModulesAsync(async () => {
-      jest.doMock('child_process', () => ({
-        spawn: (_cmd, args, _opts) => {
-          capturedArgs = args;
-          return { pid: 1234, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
-        }
-      }));
-      jest.doMock('fs', () => ({
-        ...jest.requireActual('fs'),
-        mkdirSync: jest.fn(),
-        writeFileSync: jest.fn(),
-        existsSync: jest.fn(() => false)
-      }));
-      const { handlers } = require('../src/mcp-server');
-      await handlers.sidecar_start({ prompt: 'test', model: 'openrouter/test/model', contextMaxTokens: 40000 }, '/tmp/proj');
+    const capturedArgs = await captureMcpSpawnArgs(async (handlers, tmpDir) => {
+      await handlers.sidecar_start({ prompt: 'test', model: 'openrouter/test/model', contextMaxTokens: 40000 }, tmpDir);
     });
     expect(capturedArgs).toContain('--context-max-tokens');
     expect(capturedArgs).toContain('40000');
   });
 
   it('passes --summary-length to CLI', async () => {
-    let capturedArgs = [];
-    await jest.isolateModulesAsync(async () => {
-      jest.doMock('child_process', () => ({
-        spawn: (_cmd, args, _opts) => {
-          capturedArgs = args;
-          return { pid: 1234, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
-        }
-      }));
-      jest.doMock('fs', () => ({
-        ...jest.requireActual('fs'),
-        mkdirSync: jest.fn(),
-        writeFileSync: jest.fn(),
-        existsSync: jest.fn(() => false)
-      }));
-      const { handlers } = require('../src/mcp-server');
-      await handlers.sidecar_start({ prompt: 'test', model: 'openrouter/test/model', summaryLength: 'verbose' }, '/tmp/proj');
+    const capturedArgs = await captureMcpSpawnArgs(async (handlers, tmpDir) => {
+      await handlers.sidecar_start({ prompt: 'test', model: 'openrouter/test/model', summaryLength: 'verbose' }, tmpDir);
     });
     expect(capturedArgs).toContain('--summary-length');
     expect(capturedArgs).toContain('verbose');
   });
 
   it('passes --no-context to CLI when includeContext is false', async () => {
-    let capturedArgs = [];
-    await jest.isolateModulesAsync(async () => {
-      jest.doMock('child_process', () => ({
-        spawn: (_cmd, args, _opts) => {
-          capturedArgs = args;
-          return { pid: 1234, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
-        }
-      }));
-      jest.doMock('fs', () => ({
-        ...jest.requireActual('fs'),
-        mkdirSync: jest.fn(),
-        writeFileSync: jest.fn(),
-        existsSync: jest.fn(() => false)
-      }));
-      const { handlers } = require('../src/mcp-server');
-      await handlers.sidecar_start({ prompt: 'self-contained task', model: 'openrouter/test/model', includeContext: false }, '/tmp/proj');
+    const capturedArgs = await captureMcpSpawnArgs(async (handlers, tmpDir) => {
+      await handlers.sidecar_start({ prompt: 'self-contained task', model: 'openrouter/test/model', includeContext: false }, tmpDir);
     });
     expect(capturedArgs).toContain('--no-context');
   });
 
   it('does NOT pass --no-context when includeContext is true', async () => {
-    let capturedArgs = [];
-    await jest.isolateModulesAsync(async () => {
-      jest.doMock('child_process', () => ({
-        spawn: (_cmd, args, _opts) => {
-          capturedArgs = args;
-          return { pid: 1234, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
-        }
-      }));
-      jest.doMock('fs', () => ({
-        ...jest.requireActual('fs'),
-        mkdirSync: jest.fn(),
-        writeFileSync: jest.fn(),
-        existsSync: jest.fn(() => false)
-      }));
-      const { handlers } = require('../src/mcp-server');
-      await handlers.sidecar_start({ prompt: 'needs context', model: 'openrouter/test/model', includeContext: true }, '/tmp/proj');
+    const capturedArgs = await captureMcpSpawnArgs(async (handlers, tmpDir) => {
+      await handlers.sidecar_start({
+        prompt: 'needs context',
+        model: 'openrouter/test/model',
+        includeContext: true,
+        parentSession: 'session-a'
+      }, tmpDir);
     });
     expect(capturedArgs).not.toContain('--no-context');
   });
 
-  it('does NOT pass --no-context when includeContext is omitted', async () => {
-    let capturedArgs = [];
-    await jest.isolateModulesAsync(async () => {
-      jest.doMock('child_process', () => ({
-        spawn: (_cmd, args, _opts) => {
-          capturedArgs = args;
-          return { pid: 1234, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
-        }
-      }));
-      jest.doMock('fs', () => ({
-        ...jest.requireActual('fs'),
-        mkdirSync: jest.fn(),
-        writeFileSync: jest.fn(),
-        existsSync: jest.fn(() => false)
-      }));
-      const { handlers } = require('../src/mcp-server');
-      await handlers.sidecar_start({ prompt: 'default behavior', model: 'openrouter/test/model' }, '/tmp/proj');
+  it('passes --no-context when includeContext is omitted', async () => {
+    const capturedArgs = await captureMcpSpawnArgs(async (handlers, tmpDir) => {
+      await handlers.sidecar_start({ prompt: 'default behavior', model: 'openrouter/test/model' }, tmpDir);
     });
-    expect(capturedArgs).not.toContain('--no-context');
+    expect(capturedArgs).toContain('--no-context');
   });
 });
 
 describe('sidecar_continue context args', () => {
   it('passes --context-turns to CLI', async () => {
-    let capturedArgs = [];
-    await jest.isolateModulesAsync(async () => {
-      jest.doMock('child_process', () => ({
-        spawn: (_cmd, args, _opts) => {
-          capturedArgs = args;
-          return { pid: 1234, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
-        }
-      }));
-      jest.doMock('fs', () => ({
-        ...jest.requireActual('fs'),
-        mkdirSync: jest.fn(),
-        writeFileSync: jest.fn(),
-        existsSync: jest.fn(() => false)
-      }));
-      const { handlers } = require('../src/mcp-server');
-      await handlers.sidecar_continue({ taskId: 'abc123', prompt: 'continue task', contextTurns: 10 }, '/tmp/proj');
+    const capturedArgs = await captureMcpSpawnArgs(async (handlers, tmpDir) => {
+      await handlers.sidecar_continue({ taskId: 'abc123', prompt: 'continue task', contextTurns: 10 }, tmpDir);
     });
     expect(capturedArgs).toContain('--context-turns');
     expect(capturedArgs).toContain('10');
   });
 
   it('passes --context-max-tokens to CLI', async () => {
-    let capturedArgs = [];
-    await jest.isolateModulesAsync(async () => {
-      jest.doMock('child_process', () => ({
-        spawn: (_cmd, args, _opts) => {
-          capturedArgs = args;
-          return { pid: 1234, unref: jest.fn(), stdout: { on: jest.fn() }, stderr: { on: jest.fn() } };
-        }
-      }));
-      jest.doMock('fs', () => ({
-        ...jest.requireActual('fs'),
-        mkdirSync: jest.fn(),
-        writeFileSync: jest.fn(),
-        existsSync: jest.fn(() => false)
-      }));
-      const { handlers } = require('../src/mcp-server');
-      await handlers.sidecar_continue({ taskId: 'abc123', prompt: 'continue task', contextMaxTokens: 20000 }, '/tmp/proj');
+    const capturedArgs = await captureMcpSpawnArgs(async (handlers, tmpDir) => {
+      await handlers.sidecar_continue({ taskId: 'abc123', prompt: 'continue task', contextMaxTokens: 20000 }, tmpDir);
     });
     expect(capturedArgs).toContain('--context-max-tokens');
     expect(capturedArgs).toContain('20000');

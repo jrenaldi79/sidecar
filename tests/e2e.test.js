@@ -56,16 +56,19 @@ const { startSidecar, listSidecars, readSidecar, FOLD_MARKER, COMPLETE_MARKER } 
 describe('End-to-End Sidecar Flow', () => {
   let tmpDir;       // Project directory
   let tmpHomeDir;   // Mock home directory for Claude sessions
+  let originalAllowedRoots;
   let consoleSpy;
   let stdoutSpy;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    originalAllowedRoots = process.env.SIDECAR_ALLOWED_ROOTS;
 
     // Create temp directories for test using system temp dir
     const systemTmpDir = require('os').tmpdir();
     tmpDir = fs.mkdtempSync(path.join(systemTmpDir, 'sidecar-e2e-'));
     tmpHomeDir = fs.mkdtempSync(path.join(systemTmpDir, 'sidecar-home-'));
+    process.env.SIDECAR_ALLOWED_ROOTS = tmpDir;
 
     // Mock os.homedir to return our test home directory
     mockHomeDir = tmpHomeDir;
@@ -78,6 +81,11 @@ describe('End-to-End Sidecar Flow', () => {
   afterEach(() => {
     // Reset mock
     mockHomeDir = null;
+    if (originalAllowedRoots === undefined) {
+      delete process.env.SIDECAR_ALLOWED_ROOTS;
+    } else {
+      process.env.SIDECAR_ALLOWED_ROOTS = originalAllowedRoots;
+    }
 
     // Cleanup temp directories
     if (fs.existsSync(tmpDir)) {
@@ -393,7 +401,7 @@ ${FOLD_MARKER}`;
 
     it('should pass sessionDir through to context building', async () => {
       // Create session file in an explicit directory (simulating code-web)
-      const webSessionDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-web-'));
+      const webSessionDir = fs.mkdtempSync(path.join(tmpDir, 'sidecar-web-'));
       const sessionFile = path.join(webSessionDir, 'web-session.jsonl');
       fs.writeFileSync(sessionFile, JSON.stringify({
         type: 'user', message: { content: 'from web sandbox' }, timestamp: new Date().toISOString()

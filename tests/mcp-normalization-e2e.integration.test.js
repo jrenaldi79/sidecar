@@ -90,18 +90,20 @@ describe('MCP normalization pipeline (config file → buildServerOptions)', () =
     const mcp = opts.config.mcp;
 
     // Verify stdio → local
-    expect(mcp['local-stdio']).toEqual({
+    expect(mcp['local-stdio']).toMatchObject({
       type: 'local',
       enabled: true,
       command: ['node', 'server.js', '--port', '3000']
     });
+    expect(mcp['local-stdio'].environment).toBeDefined();
 
     // Verify Claude Desktop (no type) → local
-    expect(mcp['local-desktop']).toEqual({
+    expect(mcp['local-desktop']).toMatchObject({
       type: 'local',
       enabled: true,
       command: ['npx', '-y', '@modelcontextprotocol/server-filesystem']
     });
+    expect(mcp['local-desktop'].environment).toBeDefined();
 
     // Verify http → remote, with headers preserved
     expect(mcp['remote-http']).toEqual({
@@ -120,11 +122,12 @@ describe('MCP normalization pipeline (config file → buildServerOptions)', () =
     });
 
     // Verify pass-through for already-normalized entries
-    expect(mcp['already-local']).toEqual({
+    expect(mcp['already-local']).toMatchObject({
       type: 'local',
       enabled: true,
       command: ['python', '-m', 'mcp_server']
     });
+    expect(mcp['already-local'].environment).toBeDefined();
     expect(mcp['already-remote']).toEqual({
       type: 'remote',
       enabled: true,

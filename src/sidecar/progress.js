@@ -7,7 +7,10 @@
  */
 
 const fs = require('fs');
-const path = require('path');
+const {
+  resolveContainedSessionFile,
+  writeContainedSessionFile
+} = require('../utils/sidecar-session-boundaries');
 
 /** Lifecycle stage labels */
 const STAGE_LABELS = {
@@ -95,14 +98,28 @@ function computeLastActivity(mtime) {
  * @param {object} [extra={}] - Additional fields (e.g., messagesReceived)
  */
 function writeProgress(sessionDir, stage, extra = {}) {
-  const progressPath = path.join(sessionDir, 'progress.json');
   const data = {
     stage,
     stageLabel: STAGE_LABELS[stage] || stage,
     updatedAt: new Date().toISOString(),
     ...extra
   };
-  fs.writeFileSync(progressPath, JSON.stringify(data), { mode: 0o600 });
+  writeContainedSessionFile(sessionDir, 'progress.json', JSON.stringify(data), { mode: 0o600 });
+}
+
+function readOptionalProgressInput(sessionDir, filename) {
+  try {
+    const resolved = resolveContainedSessionFile(sessionDir, filename, { optional: true });
+    if (resolved === null) {
+      return null;
+    }
+    return {
+      content: fs.readFileSync(resolved.path, 'utf-8'),
+      stat: resolved.stat
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -112,18 +129,15 @@ function writeProgress(sessionDir, stage, extra = {}) {
  * @returns {{ messages: number, lastActivity: string, latest: string, stage?: string }}
  */
 function readProgress(sessionDir) {
-  const convPath = path.join(sessionDir, 'conversation.jsonl');
-  const progressPath = path.join(sessionDir, 'progress.json');
-
   let convStat = null;
   const entries = [];
+  const conversation = readOptionalProgressInput(sessionDir, 'conversation.jsonl');
+  const progressInput = readOptionalProgressInput(sessionDir, 'progress.json');
 
   // Read conversation.jsonl if it exists
-  if (fs.existsSync(convPath)) {
-    convStat = fs.statSync(convPath);
-    const content = fs.readFileSync(convPath, 'utf-8');
-
-    for (const line of content.split('\n')) {
+  if (conversation) {
+    convStat = conversation.stat;
+    for (const line of conversation.content.split('\n')) {
       if (!line.trim()) {
         continue;
       }
@@ -149,9 +163,9 @@ function readProgress(sessionDir) {
   // Read progress.json for lifecycle stage info
   let stage;
 
-  if (fs.existsSync(progressPath)) {
+  if (progressInput) {
     try {
-      const progress = JSON.parse(fs.readFileSync(progressPath, 'utf-8'));
+      const progress = JSON.parse(progressInput.content);
       stage = progress.stage;
 
       // Use progress stage label when no assistant entries exist yet
@@ -188,9 +202,9 @@ function readProgress(sessionDir) {
     lastActivityMs = Date.now() - convStat.mtime.getTime();
   }
   // Use progress.json updatedAt if more recent
-  if (fs.existsSync(progressPath)) {
+  if (progressInput) {
     try {
-      const progress = JSON.parse(fs.readFileSync(progressPath, 'utf-8'));
+      const progress = JSON.parse(progressInput.content);
       if (progress.updatedAt) {
         const progressMs = Date.now() - new Date(progress.updatedAt).getTime();
         if (lastActivityMs === null || progressMs < lastActivityMs) {

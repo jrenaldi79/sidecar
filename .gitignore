@@ -46,6 +46,12 @@ tests/screenshots/*
 # Sidecar session data (user-specific)
 .claude/sidecar_sessions/
 
+# Local agent skill links
+.claude/skills/
+.codex/skills/
+.cursor/skills/
+.gemini/skills/
+
 # Agent instruction files (local development only)
 CLAUDE.md
 GEMINI.md

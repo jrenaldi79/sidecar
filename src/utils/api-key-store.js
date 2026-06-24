@@ -33,6 +33,19 @@ function getEnvPath() {
   return path.join(homeDir, '.config', 'sidecar', '.env');
 }
 
+/** Ensure the secret env directory is owner-only. */
+function ensureSecureEnvDir(envDir) {
+  fs.mkdirSync(envDir, { recursive: true, mode: 0o700 });
+  fs.chmodSync(envDir, 0o700);
+}
+
+/** Write the secret env file with owner-only permissions. */
+function writeSecureEnvFile(envPath, content) {
+  ensureSecureEnvDir(path.dirname(envPath));
+  fs.writeFileSync(envPath, content, { mode: 0o600 });
+  fs.chmodSync(envPath, 0o600);
+}
+
 /** Parse a .env file into a key-value map (comments/blanks excluded) */
 function parseEnvContent(content) {
   const entries = new Map();
@@ -60,7 +73,7 @@ function migrateEnvFileKey(envPath, oldName, newName) {
     const re = new RegExp(`^${oldName}=`, 'm');
     const updated = content.replace(re, `${newName}=`);
     if (updated !== content) {
-      fs.writeFileSync(envPath, updated, { mode: 0o600 });
+      writeSecureEnvFile(envPath, updated);
     }
   } catch (_err) {
     // Best effort
@@ -153,7 +166,7 @@ function saveApiKey(provider, key) {
 
   const envPath = getEnvPath();
   const envDir = path.dirname(envPath);
-  fs.mkdirSync(envDir, { recursive: true });
+  ensureSecureEnvDir(envDir);
 
   // Read existing .env content, preserving comments and other lines
   let lines = [];
@@ -186,7 +199,7 @@ function saveApiKey(provider, key) {
 
   // Write with trailing newline
   const output = lines.join('\n') + '\n';
-  fs.writeFileSync(envPath, output, { mode: 0o600 });
+  writeSecureEnvFile(envPath, output);
 
   // Also set process.env so the key is immediately available
   process.env[envVar] = key;
@@ -219,7 +232,7 @@ function removeApiKey(provider) {
     }
 
     const output = lines.length > 0 ? lines.join('\n') + '\n' : '';
-    fs.writeFileSync(envPath, output, { mode: 0o600 });
+    writeSecureEnvFile(envPath, output);
   } catch (_err) {
     // Ignore
   }

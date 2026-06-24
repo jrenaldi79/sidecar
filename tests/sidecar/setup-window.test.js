@@ -23,6 +23,7 @@ describe('setup-window', () => {
   let mockProcess;
 
   beforeEach(() => {
+    spawn.mockClear();
     mockProcess = {
       stdout: {
         on: jest.fn(),
@@ -61,6 +62,33 @@ describe('setup-window', () => {
     expect(env.SIDECAR_MODE).toBe('setup');
 
     expect(result.success).toBe(true);
+  });
+
+  it('should not copy ambient API credentials into the setup Electron env', async () => {
+    const originalEnv = { ...process.env };
+    try {
+      process.env.OPENAI_API_KEY = 'openai-secret';
+      process.env.ANTHROPIC_API_KEY = 'anthropic-secret';
+      process.env.SIDECAR_ENV_DIR = '/tmp/sidecar-env-dir';
+
+      const promise = launchSetupWindow();
+
+      const dataCallback = mockProcess.stdout.on.mock.calls.find(c => c[0] === 'data')[1];
+      dataCallback('{"status":"complete"}\n');
+
+      const closeCallback = mockProcess.on.mock.calls.find(c => c[0] === 'close')[1];
+      closeCallback(0);
+
+      await promise;
+
+      const env = spawn.mock.calls[0][2].env;
+      expect(env.SIDECAR_MODE).toBe('setup');
+      expect(env.SIDECAR_ENV_DIR).toBe('/tmp/sidecar-env-dir');
+      expect(env.OPENAI_API_KEY).toBeUndefined();
+      expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+    } finally {
+      process.env = originalEnv;
+    }
   });
 
   it('should pass --remote-debugging-port when SIDECAR_DEBUG_PORT is set', async () => {

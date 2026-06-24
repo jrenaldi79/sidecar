@@ -8,7 +8,11 @@
 
 const fs = require('fs');
 const path = require('path');
-const { SessionPaths } = require('./session-utils');
+const {
+  readContainedSessionFile,
+  validateSidecarSessionDir,
+  writeContainedSessionFile
+} = require('../utils/sidecar-session-boundaries');
 
 /**
  * Create a crash handler that updates session metadata on error.
@@ -20,14 +24,14 @@ const { SessionPaths } = require('./session-utils');
 function installCrashHandler(taskId, project) {
   return function handleCrash(err) {
     try {
-      const sessionDir = SessionPaths.sessionDir(project, taskId);
-      const metaPath = SessionPaths.metadataFile(sessionDir);
+      const sessionDir = validateSidecarSessionDir(project, taskId);
+      const metadataText = readContainedSessionFile(sessionDir, 'metadata.json', { optional: true });
 
-      if (!fs.existsSync(metaPath)) {
+      if (metadataText === null) {
         return;
       }
 
-      const metadata = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+      const metadata = JSON.parse(metadataText);
 
       if (metadata.status !== 'running') {
         return;
@@ -37,7 +41,7 @@ function installCrashHandler(taskId, project) {
       metadata.reason = err.message;
       metadata.errorAt = new Date().toISOString();
 
-      fs.writeFileSync(metaPath, JSON.stringify(metadata, null, 2), { mode: 0o600 });
+      writeContainedSessionFile(sessionDir, 'metadata.json', JSON.stringify(metadata, null, 2), { mode: 0o600 });
 
       // Delete session lock if it exists
       const lockPath = path.join(sessionDir, 'session.lock');

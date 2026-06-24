@@ -4,11 +4,10 @@
  */
 
 const crypto = require('crypto');
-const fs = require('fs');
+const path = require('path');
 
 const { buildContext } = require('./context-builder');
 const {
-  SessionPaths,
   saveInitialContext,
   finalizeSession,
   outputSummary,
@@ -23,6 +22,16 @@ const { acquireLock, releaseLock } = require('../utils/session-lock');
 const { loadMcpConfig, parseMcpSpec } = require('../opencode-client');
 const { mapAgentToOpenCode } = require('../utils/agent-mapping');
 const { discoverParentMcps } = require('../utils/mcp-discovery');
+const {
+  assertContextBinding,
+  defaultIncludeContext,
+  validateProjectPath
+} = require('../utils/sidecar-boundaries');
+const {
+  ensureSidecarSessionDir,
+  readContainedSessionFile,
+  writeContainedSessionFile
+} = require('../utils/sidecar-session-boundaries');
 
 /** Generate a unique 8-character hex task ID */
 function generateTaskId() {
@@ -33,21 +42,20 @@ function generateTaskId() {
 function createSessionMetadata(taskId, project, options) {
   const { model, prompt, briefing, noUi, headless, agent, thinking } = options;
 
-  const sessionDir = SessionPaths.sessionDir(project, taskId);
-  fs.mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
+  const sessionDir = ensureSidecarSessionDir(project, taskId);
 
   const effectiveBriefing = prompt || briefing;
   const isHeadless = noUi !== undefined ? noUi : headless;
 
   // Preserve fields from existing metadata (e.g., pid written by MCP handler)
-  const metaPath = SessionPaths.metadataFile(sessionDir);
   let existing = {};
-  if (fs.existsSync(metaPath)) {
-    try {
-      existing = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
-    } catch {
-      // ignore corrupt metadata
+  try {
+    const metadataText = readContainedSessionFile(sessionDir, 'metadata.json', { optional: true });
+    if (metadataText !== null) {
+      existing = JSON.parse(metadataText);
     }
+  } catch {
+    // ignore corrupt metadata
   }
 
   const metadata = {
@@ -64,7 +72,7 @@ function createSessionMetadata(taskId, project, options) {
     createdAt: existing.createdAt || new Date().toISOString()
   };
 
-  fs.writeFileSync(metaPath, JSON.stringify(metadata, null, 2), { mode: 0o600 });
+  writeContainedSessionFile(sessionDir, 'metadata.json', JSON.stringify(metadata, null, 2), { mode: 0o600 });
 
   return sessionDir;
 }
@@ -146,13 +154,13 @@ async function startSidecar(options) {
     cwd, project = process.cwd(), contextTurns = 50, contextSince,
     contextMaxTokens = 80000, noUi, headless = false, timeout = 15,
     agent, mcp, mcpConfig, summaryLength = 'normal', thinking,
-    client, sessionDir, noMcp, excludeMcp, opencodePort, coworkProcess, includeContext = true,
+    client, sessionDir, noMcp, excludeMcp, opencodePort, coworkProcess, includeContext = defaultIncludeContext(),
     position = 'right'
   } = options;
 
   const effectivePrompt = prompt || briefing;
   const effectiveSession = sessionId || session;
-  const effectiveProject = cwd || project;
+  const effectiveProject = validateProjectPath(path.resolve(cwd || project), { cwd: process.cwd() });
   const effectiveHeadless = noUi !== undefined ? noUi : headless;
   const mcpServers = buildMcpConfig({ mcp, mcpConfig, clientType: client, noMcp, excludeMcp });
   const taskId = options.taskId || generateTaskId();
@@ -160,9 +168,20 @@ async function startSidecar(options) {
 
   logger.info('Starting task', { taskId, model, mode: effectiveHeadless ? 'headless' : 'interactive' });
 
-  const context = includeContext !== false
-    ? buildContext(effectiveProject, effectiveSession, { contextTurns, contextSince, contextMaxTokens, sessionDir, client, coworkProcess })
-    : '[Context excluded by caller - briefing is self-contained]';
+  let context = '[Context excluded by caller - briefing is self-contained]';
+  if (includeContext === true) {
+    assertContextBinding({ sessionId, session, sessionDir, coworkProcess, client });
+    context = buildContext(effectiveProject, effectiveSession, {
+      contextTurns,
+      contextSince,
+      contextMaxTokens,
+      sessionDir,
+      client,
+      coworkProcess,
+      parentProject: effectiveProject,
+      exactSession: true
+    });
+  }
   const { system: systemPrompt, userMessage } = buildPrompts(
     effectivePrompt, context, effectiveProject, effectiveHeadless, agent, summaryLength, client
   );
@@ -202,13 +221,12 @@ async function startSidecar(options) {
   }
 
   outputSummary(summary);
-  const metaPath = SessionPaths.metadataFile(sessDir);
-  const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+  const meta = JSON.parse(readContainedSessionFile(sessDir, 'metadata.json'));
 
   // Persist OpenCode session ID for resume capability
   if (result && result.opencodeSessionId) {
     meta.opencodeSessionId = result.opencodeSessionId;
-    fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), { mode: 0o600 });
+    writeContainedSessionFile(sessDir, 'metadata.json', JSON.stringify(meta, null, 2), { mode: 0o600 });
   }
 
   // Mark error results as 'error' instead of 'complete'
@@ -216,7 +234,7 @@ async function startSidecar(options) {
     meta.status = 'error';
     meta.reason = result.error;
     meta.completedAt = new Date().toISOString();
-    fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), { mode: 0o600 });
+    writeContainedSessionFile(sessDir, 'metadata.json', JSON.stringify(meta, null, 2), { mode: 0o600 });
     logger.error('Session completed with error', { taskId, error: result.error });
   } else {
     finalizeSession(sessDir, summary, effectiveProject, meta);

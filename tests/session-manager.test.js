@@ -24,7 +24,8 @@ const {
   updateSubagentSession,
   getSubagentSession,
   listSubagents,
-  saveSubagentSummary
+  saveSubagentSummary,
+  appendSubagentConversation
 } = require('../src/session-manager');
 
 describe('Session Manager', () => {
@@ -119,6 +120,21 @@ describe('Session Manager', () => {
       expect(() => {
         createSession(projectDir, taskId, { model: 'test/model', project: projectDir });
       }).toThrow(/already exists/);
+    });
+
+    it('rejects a symlinked sessions root before creating a session outside the project', () => {
+      const taskId = 'root-escape';
+      const claudeDir = path.join(projectDir, '.claude');
+      const outsideSessionsRoot = path.join(tempDir, 'outside-sessions-root');
+      fs.mkdirSync(claudeDir, { recursive: true });
+      fs.mkdirSync(outsideSessionsRoot, { recursive: true });
+      fs.symlinkSync(outsideSessionsRoot, path.join(claudeDir, 'sidecar_sessions'), 'dir');
+
+      expect(() => {
+        createSession(projectDir, taskId, { model: 'test/model', project: projectDir });
+      }).toThrow(/sidecar sessions root|symbolic link|outside/i);
+
+      expect(fs.existsSync(path.join(outsideSessionsRoot, taskId, 'metadata.json'))).toBe(false);
     });
 
     it('should save thinking level in metadata', () => {
@@ -233,6 +249,29 @@ describe('Session Manager', () => {
         updateSession(projectDir, 'nonexistent', { status: 'complete' });
       }).toThrow(/not found/);
     });
+
+    it('rejects a metadata symlink before updating an outside target', () => {
+      const metaPath = path.join(projectDir, '.claude', 'sidecar_sessions', 'abc123', 'metadata.json');
+      const outsideMetadata = path.join(tempDir, 'outside-metadata.json');
+      fs.writeFileSync(outsideMetadata, JSON.stringify({
+        taskId: 'abc123',
+        model: 'outside/model',
+        project: projectDir,
+        status: 'running',
+        filesRead: [],
+        filesWritten: [],
+        conflicts: []
+      }));
+      fs.unlinkSync(metaPath);
+      fs.symlinkSync(outsideMetadata, metaPath);
+
+      expect(() => {
+        updateSession(projectDir, 'abc123', { status: SESSION_STATUS.COMPLETE });
+      }).toThrow(/symbolic link|session directory|outside/i);
+
+      const outside = JSON.parse(fs.readFileSync(outsideMetadata, 'utf-8'));
+      expect(outside.status).toBe('running');
+    });
   });
 
   describe('getSession', () => {
@@ -312,6 +351,19 @@ describe('Session Manager', () => {
         saveConversation(projectDir, 'nonexistent', { role: 'user', content: 'Test' });
       }).toThrow(/not found/);
     });
+
+    it('rejects a dangling conversation symlink before creating the outside target', () => {
+      const convPath = path.join(projectDir, '.claude', 'sidecar_sessions', 'abc123', 'conversation.jsonl');
+      const outsideTarget = path.join(tempDir, 'outside-conversation.jsonl');
+      fs.unlinkSync(convPath);
+      fs.symlinkSync(outsideTarget, convPath);
+
+      expect(() => {
+        saveConversation(projectDir, 'abc123', { role: 'user', content: 'escape' });
+      }).toThrow(/symbolic link|session directory|outside/i);
+
+      expect(fs.existsSync(outsideTarget)).toBe(false);
+    });
   });
 
   describe('saveSummary', () => {
@@ -371,6 +423,19 @@ describe('Session Manager', () => {
       expect(() => {
         saveSummary(projectDir, 'nonexistent', 'Test summary');
       }).toThrow(/not found/);
+    });
+
+    it('rejects a summary symlink before overwriting an outside target', () => {
+      const summaryPath = path.join(projectDir, '.claude', 'sidecar_sessions', 'abc123', 'summary.md');
+      const outsideSummary = path.join(tempDir, 'outside-summary.md');
+      fs.writeFileSync(outsideSummary, 'outside summary');
+      fs.symlinkSync(outsideSummary, summaryPath);
+
+      expect(() => {
+        saveSummary(projectDir, 'abc123', 'escaped summary');
+      }).toThrow(/symbolic link|session directory|outside/i);
+
+      expect(fs.readFileSync(outsideSummary, 'utf-8')).toBe('outside summary');
     });
   });
 
@@ -451,6 +516,64 @@ describe('Session Manager', () => {
         expect(metadata.briefing).toBe('Audit authentication');
         expect(metadata.status).toBe(SESSION_STATUS.RUNNING);
       });
+
+      it('should preserve optional backend metadata', () => {
+        const subagentId = 'subagent-backend';
+        createSubagentSession(projectDir, parentTaskId, subagentId, {
+          agentType: 'explore',
+          briefing: 'Find auth flows',
+          backend: 'codex',
+          sandboxMode: 'read-only',
+          pid: 4321
+        });
+
+        const metadata = getSubagentSession(projectDir, parentTaskId, subagentId);
+        expect(metadata.backend).toBe('codex');
+        expect(metadata.sandboxMode).toBe('read-only');
+        expect(metadata.pid).toBe(4321);
+      });
+
+      it('rejects a symlinked sub-agents root before writing outside metadata', () => {
+        const subagentId = 'subagent-root-escape';
+        const parentDir = path.join(projectDir, '.claude', 'sidecar_sessions', parentTaskId);
+        const subagentsRoot = path.join(parentDir, 'subagents');
+        const outsideRoot = path.join(tempDir, 'outside-subagents-root');
+        fs.mkdirSync(outsideRoot, { recursive: true });
+        fs.symlinkSync(outsideRoot, subagentsRoot, 'dir');
+
+        expect(() => {
+          createSubagentSession(projectDir, parentTaskId, subagentId, {
+            agentType: 'general',
+            briefing: 'Do work'
+          });
+        }).toThrow(/symbolic link|sub-agent|outside|session/i);
+
+        expect(fs.existsSync(path.join(outsideRoot, subagentId, 'metadata.json'))).toBe(false);
+      });
+
+      it('rejects a preexisting symlinked sub-agent directory before writing outside metadata', () => {
+        const subagentId = 'subagent-dir-escape';
+        const subagentsRoot = path.join(
+          projectDir, '.claude', 'sidecar_sessions', parentTaskId, 'subagents'
+        );
+        const outsideDir = path.join(tempDir, 'outside-subagent-dir');
+        fs.mkdirSync(subagentsRoot, { recursive: true });
+        fs.mkdirSync(outsideDir, { recursive: true });
+        fs.writeFileSync(path.join(outsideDir, 'metadata.json'), JSON.stringify({
+          status: SESSION_STATUS.RUNNING
+        }));
+        fs.symlinkSync(outsideDir, path.join(subagentsRoot, subagentId), 'dir');
+
+        expect(() => {
+          createSubagentSession(projectDir, parentTaskId, subagentId, {
+            agentType: 'general',
+            briefing: 'Do work'
+          });
+        }).toThrow(/symbolic link|sub-agent|outside|session/i);
+
+        const outside = JSON.parse(fs.readFileSync(path.join(outsideDir, 'metadata.json'), 'utf-8'));
+        expect(outside.status).toBe(SESSION_STATUS.RUNNING);
+      });
     });
 
     describe('updateSubagentSession', () => {
@@ -475,6 +598,35 @@ describe('Session Manager', () => {
         expect(() => {
           updateSubagentSession(projectDir, parentTaskId, 'non-existent', {});
         }).toThrow('Sub-agent non-existent not found');
+      });
+
+      it('should reject a symlinked sub-agent directory before writing outside metadata', () => {
+        const subagentId = 'subagent-escape';
+        const subagentsRoot = path.join(
+          projectDir, '.claude', 'sidecar_sessions', parentTaskId, 'subagents'
+        );
+        const outsideDir = path.join(tempDir, 'outside-subagent-metadata');
+        fs.mkdirSync(subagentsRoot, { recursive: true });
+        fs.mkdirSync(outsideDir, { recursive: true });
+        fs.writeFileSync(path.join(outsideDir, 'metadata.json'), JSON.stringify({
+          subagentId,
+          parentTaskId,
+          agentType: 'general',
+          briefing: 'outside',
+          status: SESSION_STATUS.RUNNING
+        }));
+        fs.symlinkSync(outsideDir, path.join(subagentsRoot, subagentId), 'dir');
+
+        expect(() => {
+          updateSubagentSession(projectDir, parentTaskId, subagentId, {
+            status: SESSION_STATUS.ABORTED
+          });
+        }).toThrow(/outside|sub-agent|session/i);
+
+        const outsideMetadata = JSON.parse(
+          fs.readFileSync(path.join(outsideDir, 'metadata.json'), 'utf-8')
+        );
+        expect(outsideMetadata.status).toBe(SESSION_STATUS.RUNNING);
       });
     });
 
@@ -501,6 +653,38 @@ describe('Session Manager', () => {
       it('should return empty array if no sub-agents', () => {
         const subagents = listSubagents(projectDir, parentTaskId);
         expect(subagents).toEqual([]);
+      });
+
+      it('should return empty array without reading a symlinked sub-agents root', () => {
+        const parentDir = path.join(projectDir, '.claude', 'sidecar_sessions', parentTaskId);
+        const subagentsRoot = path.join(parentDir, 'subagents');
+        const outsideRoot = path.join(tempDir, 'outside-list-subagents-root');
+        fs.mkdirSync(path.join(outsideRoot, 'outside-subagent'), { recursive: true });
+        fs.writeFileSync(path.join(outsideRoot, 'outside-subagent', 'metadata.json'), JSON.stringify({
+          subagentId: 'outside-subagent',
+          parentTaskId,
+          agentType: 'general',
+          briefing: 'outside',
+          status: SESSION_STATUS.RUNNING
+        }));
+        fs.symlinkSync(outsideRoot, subagentsRoot, 'dir');
+
+        const readdirSpy = jest.spyOn(fs, 'readdirSync');
+        try {
+          const subagents = listSubagents(projectDir, parentTaskId);
+          const readOutsideRoot = readdirSpy.mock.calls.some(([candidate]) => {
+            try {
+              return fs.realpathSync(candidate) === fs.realpathSync(outsideRoot);
+            } catch {
+              return false;
+            }
+          });
+
+          expect(subagents).toEqual([]);
+          expect(readOutsideRoot).toBe(false);
+        } finally {
+          readdirSpy.mockRestore();
+        }
       });
 
       it('should list all sub-agents', () => {
@@ -569,6 +753,48 @@ describe('Session Manager', () => {
         const metadata = getSubagentSession(projectDir, parentTaskId, subagentId);
         expect(metadata.status).toBe(SESSION_STATUS.COMPLETE);
         expect(metadata.completedAt).toBeDefined();
+      });
+    });
+
+    describe('appendSubagentConversation', () => {
+      it('should append a JSONL conversation entry for a sub-agent', () => {
+        const subagentId = 'subagent-conversation';
+        createSubagentSession(projectDir, parentTaskId, subagentId, {
+          agentType: 'general',
+          briefing: 'Do work'
+        });
+
+        appendSubagentConversation(projectDir, parentTaskId, subagentId, {
+          role: 'assistant',
+          content: 'Planning...'
+        });
+
+        const convPath = path.join(
+          projectDir, '.claude', 'sidecar_sessions', parentTaskId, 'subagents', subagentId, 'conversation.jsonl'
+        );
+
+        expect(fs.readFileSync(convPath, 'utf-8')).toContain('Planning...');
+      });
+
+      it('rejects a dangling sub-agent conversation symlink before creating the outside target', () => {
+        const subagentId = 'subagent-dangling-conversation';
+        const subagentDir = createSubagentSession(projectDir, parentTaskId, subagentId, {
+          agentType: 'general',
+          briefing: 'Do work'
+        });
+        const convPath = path.join(subagentDir, 'conversation.jsonl');
+        const outsideTarget = path.join(tempDir, 'outside-subagent-conversation.jsonl');
+        fs.unlinkSync(convPath);
+        fs.symlinkSync(outsideTarget, convPath);
+
+        expect(() => {
+          appendSubagentConversation(projectDir, parentTaskId, subagentId, {
+            role: 'assistant',
+            content: 'escape'
+          });
+        }).toThrow(/symbolic link|session directory|outside/i);
+
+        expect(fs.existsSync(outsideTarget)).toBe(false);
       });
     });
   });

@@ -4,9 +4,20 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { getTools, getGuideText } = require('./mcp-tools');
 const { tryResolveModel } = require('./utils/config');
-const os = require('os');
 const { logger } = require('./utils/logger');
-const { safeSessionDir } = require('./utils/validators');
+const {
+  assertContextBinding,
+  buildChildProcessEnv,
+  ensureSidecarSessionDir,
+  openContainedSessionFileForWrite,
+  readContainedSessionFile,
+  validateProjectPath,
+  validateSidecarSessionDir,
+  validateSidecarSessionsRoot,
+  validateSidecarSubagentSessionDir,
+  validateSubagentParent,
+  writeContainedSessionFile,
+} = require('./utils/sidecar-boundaries');
 const { readProgress } = require('./sidecar/progress');
 const { SharedServerManager } = require('./utils/shared-server');
 
@@ -14,19 +25,62 @@ const sharedServer = new SharedServerManager({ logger });
 
 /** Resolve the project directory with smart fallback. */
 function getProjectDir(explicitProject) {
-  if (explicitProject && fs.existsSync(explicitProject)) { return explicitProject; }
   const cwd = process.cwd();
-  if (cwd !== '/' && fs.existsSync(cwd)) { return cwd; }
-  if (cwd === '/') { logger.warn('cwd is root (/), falling back to $HOME'); }
-  return os.homedir();
+  if (explicitProject && fs.existsSync(explicitProject)) {
+    return validateProjectPath(path.resolve(explicitProject), { cwd });
+  }
+  return validateProjectPath(path.resolve(cwd), { cwd });
+}
+
+/** Resolve and validate the project path used by an MCP handler. */
+function resolveHandlerProject(input = {}, project) {
+  if (project) {
+    const resolved = path.resolve(project);
+    return validateProjectPath(resolved, { cwd: resolved, allowedRoots: [resolved] });
+  }
+  return getProjectDir(input.project);
 }
 
 /** Read session metadata from disk, or null if not found */
+function readMetadataFromSessionDir(sessionDir) {
+  const metadataText = readContainedSessionFile(sessionDir, 'metadata.json', { optional: true });
+  if (metadataText === null) { return null; }
+  return JSON.parse(metadataText);
+}
+
 function readMetadata(taskId, project) {
-  const sessionDir = safeSessionDir(project, taskId);
-  const metaPath = path.join(sessionDir, 'metadata.json');
-  if (!fs.existsSync(metaPath)) { return null; }
-  return JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+  let sessionDir;
+  try {
+    sessionDir = validateSidecarSessionDir(project, taskId);
+  } catch (err) {
+    if (/not found/i.test(err.message)) { return null; }
+    throw err;
+  }
+  return readMetadataFromSessionDir(sessionDir);
+}
+
+/** Read and validate parent metadata before using subagent files. */
+function readValidatedParentMetadata(taskId, project) {
+  const metadata = readMetadata(taskId, project);
+  if (!metadata) { return null; }
+  validateSubagentParent({
+    ...metadata,
+    taskId: metadata.taskId || taskId
+  }, project);
+  return metadata;
+}
+
+/** Resolve a subagent session directory safely beneath a parent sidecar task. */
+function getSubagentSessionDir(project, parentTaskId, subagentId) {
+  return validateSidecarSubagentSessionDir(project, parentTaskId, subagentId);
+}
+
+/** Read subagent metadata from disk, or null if not found. */
+function readSubagentMetadata(project, parentTaskId, subagentId) {
+  const sessionDir = getSubagentSessionDir(project, parentTaskId, subagentId);
+  const metadataText = readContainedSessionFile(sessionDir, 'metadata.json', { optional: true });
+  if (metadataText === null) { return null; }
+  return JSON.parse(metadataText);
 }
 
 /** Build an MCP text response */
@@ -56,14 +110,16 @@ function spawnSidecarProcess(args, sessionDir) {
   let stderrFd = 'ignore';
   if (sessionDir) {
     try {
-      fs.mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
-      stderrFd = fs.openSync(path.join(sessionDir, 'debug.log'), 'w');
+      stderrFd = openContainedSessionFileForWrite(sessionDir, 'debug.log', { mode: 0o600 });
     } catch { /* fall back to ignore */ }
   }
   const child = spawn('node', [sidecarBin, ...args], {
     cwd: getProjectDir(),
     stdio: ['ignore', 'ignore', stderrFd],
-    env: { ...process.env, SIDECAR_DEBUG_PORT: '9223', LOG_LEVEL: process.env.LOG_LEVEL || 'info' },
+    env: buildChildProcessEnv({
+      SIDECAR_DEBUG_PORT: '9223',
+      LOG_LEVEL: process.env.LOG_LEVEL || 'info'
+    }),
   });
   child.unref();
   return child;
@@ -83,9 +139,22 @@ const handlers = {
     }
     const resolvedModel = validation.resolvedModel;
 
-    const cwd = project || getProjectDir(input.project);
+    const cwd = resolveHandlerProject(input, project);
     const { generateTaskId } = require('./sidecar/start');
     const taskId = generateTaskId();
+    const includeContext = input.includeContext === true;
+    if (includeContext) {
+      try {
+        assertContextBinding({
+          parentSession: input.parentSession,
+          session: input.parentSession,
+          coworkProcess: input.coworkProcess,
+          client: input.coworkProcess ? 'cowork' : undefined
+        });
+      } catch (err) {
+        return textResult(err.message, true);
+      }
+    }
 
     const args = ['start', '--prompt', input.prompt, '--task-id', taskId, '--client', 'cowork'];
     if (resolvedModel) { args.push('--model', resolvedModel); }
@@ -99,13 +168,19 @@ const handlers = {
     if (input.contextSince)     { args.push('--context-since', input.contextSince); }
     if (input.contextMaxTokens) { args.push('--context-max-tokens', String(input.contextMaxTokens)); }
     if (input.summaryLength)    { args.push('--summary-length', input.summaryLength); }
-    if (input.includeContext === false) { args.push('--no-context'); }
+    if (includeContext) { args.push('--include-context'); }
+    if (!includeContext) { args.push('--no-context'); }
     if (input.coworkProcess)    { args.push('--cowork-process', input.coworkProcess); }
     if (input.parentSession)    { args.push('--session-id', input.parentSession); }
     if (input.windowPosition)   { args.push('--position', input.windowPosition); }
     args.push('--cwd', cwd);
 
-    const sessionDir = path.join(cwd, '.claude', 'sidecar_sessions', taskId);
+    let sessionDir;
+    try {
+      sessionDir = ensureSidecarSessionDir(cwd, taskId, { allowExisting: false });
+    } catch (err) {
+      return textResult(err.message, true);
+    }
 
     if (sharedServer.enabled && input.noUi) {
       // Shared server path: headless only, delegates to runHeadless()
@@ -122,31 +197,34 @@ const handlers = {
         sessionId = await createSession(client);
 
         // Write initial metadata (MCP handler owns this, runHeadless skips it)
-        fs.mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
-        const metaPath = path.join(sessionDir, 'metadata.json');
         const serverPort = server.url ? new URL(server.url).port : null;
-        fs.writeFileSync(metaPath, JSON.stringify({
+        writeContainedSessionFile(sessionDir, 'metadata.json', JSON.stringify({
           taskId, status: 'running',
           pid: null, // Shared server path: don't store MCP server PID (abort would kill all sessions)
           opencodeSessionId: sessionId,
           opencodePort: serverPort,
           goPid: server.goPid || null,
+          project: cwd,
+          projectDir: cwd,
           createdAt: new Date().toISOString(),
           headless: true, model: resolvedModel,
         }, null, 2), { mode: 0o600 });
 
         // Build context from parent conversation (unless --no-context)
         let context = null;
-        if (input.includeContext !== false) {
+        if (includeContext) {
           try {
             context = buildContext(cwd, input.parentSession, {
               contextTurns: input.contextTurns,
               contextSince: input.contextSince,
               contextMaxTokens: input.contextMaxTokens,
               coworkProcess: input.coworkProcess,
+              client: input.coworkProcess ? 'cowork' : undefined,
+              parentProject: cwd,
+              exactSession: true,
             });
           } catch (ctxErr) {
-            logger.warn('Failed to build context, proceeding without', { error: ctxErr.message });
+            return textResult(`Failed to build context: ${ctxErr.message}`, true);
           }
         }
 
@@ -158,10 +236,11 @@ const handlers = {
         // Register session with idle eviction
         sharedServer.addSession(sessionId, (_evictedId) => {
           try {
-            const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+            const meta = readMetadataFromSessionDir(sessionDir);
+            if (!meta) { return; }
             meta.status = 'idle-timeout';
             meta.completedAt = new Date().toISOString();
-            fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), { mode: 0o600 });
+            writeContainedSessionFile(sessionDir, 'metadata.json', JSON.stringify(meta, null, 2), { mode: 0o600 });
           } catch (err) {
             logger.warn('Failed to update evicted session metadata', { error: err.message });
           }
@@ -179,8 +258,10 @@ const handlers = {
         ).then((result) => {
           // Session complete - finalize and remove from tracking
           try {
-            const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
-            finalizeSession(sessionDir, result.summary || '', cwd, meta);
+            const meta = readMetadataFromSessionDir(sessionDir);
+            if (meta) {
+              finalizeSession(sessionDir, result.summary || '', cwd, meta);
+            }
           } catch (finErr) {
             logger.warn('Failed to finalize session', { error: finErr.message });
           }
@@ -189,11 +270,12 @@ const handlers = {
           logger.error('Shared server session failed', { taskId, error: err.message });
           sharedServer.removeSession(sessionId);
           try {
-            const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+            const meta = readMetadataFromSessionDir(sessionDir);
+            if (!meta) { return; }
             meta.status = 'error';
             meta.reason = err.message;
             meta.completedAt = new Date().toISOString();
-            fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), { mode: 0o600 });
+            writeContainedSessionFile(sessionDir, 'metadata.json', JSON.stringify(meta, null, 2), { mode: 0o600 });
           } catch (writeErr) {
             logger.warn('Failed to write error metadata', { error: writeErr.message });
           }
@@ -222,11 +304,10 @@ const handlers = {
     }
 
     if (child && child.pid) {
-      fs.mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
-      const metaPath = path.join(sessionDir, 'metadata.json');
-      if (!fs.existsSync(metaPath)) {
-        fs.writeFileSync(metaPath, JSON.stringify({
+      if (readMetadataFromSessionDir(sessionDir) === null) {
+        writeContainedSessionFile(sessionDir, 'metadata.json', JSON.stringify({
           taskId, status: 'running', pid: child.pid, createdAt: new Date().toISOString(),
+          project: cwd, projectDir: cwd,
           headless: !!input.noUi,
         }, null, 2), { mode: 0o600 });
       }
@@ -248,9 +329,15 @@ const handlers = {
   },
 
   async sidecar_status(input, project) {
-    const cwd = project || getProjectDir(input.project);
-    const sessionDir = safeSessionDir(cwd, input.taskId);
-    const metadata = readMetadata(input.taskId, cwd);
+    const cwd = resolveHandlerProject(input, project);
+    let sessionDir;
+    let metadata;
+    try {
+      sessionDir = validateSidecarSessionDir(cwd, input.taskId);
+      metadata = readMetadataFromSessionDir(sessionDir);
+    } catch (err) {
+      return textResult(err.message, true);
+    }
     if (!metadata) { return textResult(`Session ${input.taskId} not found.`, true); }
 
     if (metadata.status === 'running' && metadata.pid) {
@@ -259,8 +346,8 @@ const handlers = {
           status: 'crashed', crashedAt: new Date().toISOString(),
           reason: 'Process exited unexpectedly',
         });
-        fs.writeFileSync(path.join(sessionDir, 'metadata.json'),
-          JSON.stringify(metadata, null, 2));
+        writeContainedSessionFile(sessionDir, 'metadata.json',
+          JSON.stringify(metadata, null, 2), { mode: 0o600 });
       }
     }
 
@@ -300,46 +387,60 @@ const handlers = {
   },
 
   async sidecar_read(input, project) {
-    const cwd = project || getProjectDir(input.project);
-    const sessionDir = safeSessionDir(cwd, input.taskId);
-    if (!fs.existsSync(sessionDir)) {
-      return textResult(`Session ${input.taskId} not found.`, true);
+    const cwd = resolveHandlerProject(input, project);
+    let sessionDir;
+    try {
+      sessionDir = validateSidecarSessionDir(cwd, input.taskId);
+    } catch (err) {
+      return textResult(err.message, true);
     }
 
     const mode = input.mode || 'summary';
     if (mode === 'metadata') {
-      return textResult(fs.readFileSync(path.join(sessionDir, 'metadata.json'), 'utf-8'));
+      const metadataText = readContainedSessionFile(sessionDir, 'metadata.json', { optional: true });
+      if (metadataText === null) { return textResult(`Session ${input.taskId} not found.`, true); }
+      return textResult(metadataText);
     }
     if (mode === 'conversation') {
-      const convPath = path.join(sessionDir, 'conversation.jsonl');
-      if (!fs.existsSync(convPath)) { return textResult('No conversation recorded.'); }
-      return textResult(fs.readFileSync(convPath, 'utf-8'));
+      const conversation = readContainedSessionFile(sessionDir, 'conversation.jsonl', { optional: true });
+      if (conversation === null) { return textResult('No conversation recorded.'); }
+      return textResult(conversation);
     }
     // Default: summary
-    const summaryPath = path.join(sessionDir, 'summary.md');
-    if (!fs.existsSync(summaryPath)) {
+    const summaryText = readContainedSessionFile(sessionDir, 'summary.md', { optional: true });
+    if (summaryText === null) {
       return textResult('No summary available (session may still be running or was not folded).');
     }
     const metaForRead = (() => {
-      try { return JSON.parse(fs.readFileSync(path.join(sessionDir, 'metadata.json'), 'utf-8')); }
+      try {
+        const metadataText = readContainedSessionFile(sessionDir, 'metadata.json', { optional: true });
+        return metadataText === null ? {} : JSON.parse(metadataText);
+      }
       catch { return {}; }
     })();
-    const summaryText = fs.readFileSync(summaryPath, 'utf-8');
     const header = metaForRead.model ? `**Model:** ${metaForRead.model}\n\n` : '';
     return textResult(header + summaryText);
   },
 
   async sidecar_list(input, project) {
-    const cwd = project || getProjectDir(input.project);
-    const sessionsDir = path.join(cwd, '.claude', 'sidecar_sessions');
-    if (!fs.existsSync(sessionsDir)) { return textResult('No sidecar sessions found.'); }
+    const cwd = resolveHandlerProject(input, project);
+    let sessionsDir;
+    try {
+      sessionsDir = validateSidecarSessionsRoot(cwd);
+    } catch (err) {
+      if (/does not exist/i.test(err.message)) {
+        return textResult('No sidecar sessions found.');
+      }
+      return textResult(err.message, true);
+    }
 
     let sessions = fs.readdirSync(sessionsDir)
       .filter(d => /^[a-zA-Z0-9_-]{1,64}$/.test(d))
-      .filter(d => fs.existsSync(path.join(sessionsDir, d, 'metadata.json')))
       .map(d => {
         try {
-          const meta = JSON.parse(fs.readFileSync(path.join(sessionsDir, d, 'metadata.json'), 'utf-8'));
+          const sessionDir = validateSidecarSessionDir(cwd, d);
+          const meta = readMetadataFromSessionDir(sessionDir);
+          if (!meta) { return null; }
           return {
             id: d, model: meta.model, status: meta.status, agent: meta.agent,
             briefing: (String(meta.briefing || '')).slice(0, 80),
@@ -361,8 +462,13 @@ const handlers = {
   },
 
   async sidecar_resume(input, project) {
-    const cwd = project || getProjectDir(input.project);
-    const sessionDir = safeSessionDir(cwd, input.taskId);
+    const cwd = resolveHandlerProject(input, project);
+    let sessionDir;
+    try {
+      sessionDir = validateSidecarSessionDir(cwd, input.taskId);
+    } catch (err) {
+      return textResult(err.message, true);
+    }
     const args = ['resume', input.taskId, '--client', 'cowork', '--cwd', cwd];
     if (input.noUi) { args.push('--no-ui', '--agent', 'build'); }
     if (input.timeout) { args.push('--timeout', String(input.timeout)); }
@@ -383,10 +489,15 @@ const handlers = {
       }
     }
 
-    const cwd = project || getProjectDir(input.project);
+    const cwd = resolveHandlerProject(input, project);
     const { generateTaskId } = require('./sidecar/start');
     const newTaskId = generateTaskId();
-    const sessionDir = path.join(cwd, '.claude', 'sidecar_sessions', newTaskId);
+    let sessionDir;
+    try {
+      sessionDir = ensureSidecarSessionDir(cwd, newTaskId, { allowExisting: false });
+    } catch (err) {
+      return textResult(err.message, true);
+    }
 
     const args = ['continue', input.taskId, '--prompt', input.prompt,
       '--task-id', newTaskId, '--client', 'cowork', '--cwd', cwd];
@@ -405,8 +516,15 @@ const handlers = {
   },
 
   async sidecar_abort(input, project) {
-    const cwd = project || getProjectDir(input.project);
-    const metadata = readMetadata(input.taskId, cwd);
+    const cwd = resolveHandlerProject(input, project);
+    let sessionDir;
+    let metadata;
+    try {
+      sessionDir = validateSidecarSessionDir(cwd, input.taskId);
+      metadata = readMetadataFromSessionDir(sessionDir);
+    } catch (err) {
+      return textResult(err.message, true);
+    }
     if (!metadata) { return textResult(`Session ${input.taskId} not found.`, true); }
     if (metadata.status !== 'running') {
       return textResult(`Session ${input.taskId} is not running (status: ${metadata.status}).`);
@@ -419,15 +537,196 @@ const handlers = {
         }
       }
     }
-    const sessionDir = safeSessionDir(cwd, input.taskId);
-    const metaPath = path.join(sessionDir, 'metadata.json');
     metadata.status = 'aborted';
     metadata.abortedAt = new Date().toISOString();
-    fs.writeFileSync(metaPath, JSON.stringify(metadata, null, 2));
+    writeContainedSessionFile(
+      sessionDir,
+      'metadata.json',
+      JSON.stringify(metadata, null, 2),
+      { mode: 0o600 }
+    );
 
     return textResult(JSON.stringify({
       taskId: input.taskId, status: 'aborted',
       message: 'Session abort requested. The sidecar process will terminate shortly.',
+    }));
+  },
+
+  async sidecar_subagent_start(input, project) {
+    const cwd = resolveHandlerProject(input, project);
+    const parentMetadata = readValidatedParentMetadata(input.parentTaskId, cwd);
+    if (!parentMetadata) {
+      return textResult(`Parent session ${input.parentTaskId} not found.`, true);
+    }
+
+    const { generateTaskId } = require('./sidecar/start');
+    const { startCodexSubagent } = require('./subagents/codex-runner');
+    const subagentId = generateTaskId();
+    const run = await startCodexSubagent({
+      projectDir: cwd,
+      parentTaskId: input.parentTaskId,
+      subagentId,
+      briefing: input.prompt,
+      agentType: input.agentType,
+      model: input.model,
+    });
+
+    if (run && run.completion && typeof run.completion.catch === 'function') {
+      run.completion.catch((err) => {
+        logger.warn('Codex subagent completion rejected', {
+          parentTaskId: input.parentTaskId,
+          subagentId,
+          error: err.message
+        });
+      });
+    }
+
+    return textResult(JSON.stringify({
+      parentTaskId: input.parentTaskId,
+      subagentId,
+      status: 'running',
+      backend: 'codex',
+    }));
+  },
+
+  async sidecar_subagent_status(input, project) {
+    const cwd = resolveHandlerProject(input, project);
+    const parentMetadata = readValidatedParentMetadata(input.parentTaskId, cwd);
+    if (!parentMetadata) {
+      return textResult(`Parent session ${input.parentTaskId} not found.`, true);
+    }
+    let subagentDir;
+    let metadata;
+    try {
+      subagentDir = getSubagentSessionDir(cwd, input.parentTaskId, input.subagentId);
+      metadata = readSubagentMetadata(cwd, input.parentTaskId, input.subagentId);
+    } catch (err) {
+      return textResult(err.message, true);
+    }
+    if (!metadata) {
+      return textResult(`Sub-agent ${input.subagentId} not found under parent ${input.parentTaskId}.`, true);
+    }
+
+    if (metadata.status === 'running' && metadata.pid) {
+      try { process.kill(metadata.pid, 0); } catch {
+        const { updateSubagentSession } = require('./session-manager');
+        updateSubagentSession(cwd, input.parentTaskId, input.subagentId, {
+          status: 'crashed',
+          reason: 'Process exited unexpectedly',
+          completedAt: new Date().toISOString(),
+          pid: null
+        });
+      }
+    }
+
+    const refreshed = readSubagentMetadata(cwd, input.parentTaskId, input.subagentId);
+    const response = {
+      parentTaskId: input.parentTaskId,
+      subagentId: input.subagentId,
+      status: refreshed.status,
+      backend: refreshed.backend
+    };
+
+    if (refreshed.agentType) {
+      response.agentType = refreshed.agentType;
+    }
+    if (refreshed.status === 'running') {
+      Object.assign(response, readProgress(subagentDir));
+    }
+    if (refreshed.status === 'crashed' || refreshed.status === 'error') {
+      response.reason = refreshed.reason || 'Unknown error';
+    }
+
+    return textResult(JSON.stringify(response));
+  },
+
+  async sidecar_subagent_read(input, project) {
+    const cwd = resolveHandlerProject(input, project);
+    const parentMetadata = readValidatedParentMetadata(input.parentTaskId, cwd);
+    if (!parentMetadata) {
+      return textResult(`Parent session ${input.parentTaskId} not found.`, true);
+    }
+    let subagentDir;
+    try {
+      subagentDir = getSubagentSessionDir(cwd, input.parentTaskId, input.subagentId);
+    } catch (err) {
+      return textResult(err.message, true);
+    }
+
+    const mode = input.mode || 'summary';
+    if (mode === 'metadata') {
+      const metadataText = readContainedSessionFile(subagentDir, 'metadata.json', { optional: true });
+      if (metadataText === null) {
+        return textResult(`Sub-agent ${input.subagentId} not found under parent ${input.parentTaskId}.`, true);
+      }
+      return textResult(metadataText);
+    }
+    if (mode === 'conversation') {
+      try {
+        const conversation = readContainedSessionFile(subagentDir, 'conversation.jsonl', { optional: true });
+        if (conversation === null) { return textResult('No conversation recorded.'); }
+        return textResult(conversation);
+      } catch (err) {
+        return textResult(err.message, true);
+      }
+    }
+
+    try {
+      const summary = readContainedSessionFile(subagentDir, 'summary.md', { optional: true });
+      if (summary === null) {
+        return textResult('No summary available (subagent may still be running).');
+      }
+      return textResult(summary);
+    } catch (err) {
+      return textResult(err.message, true);
+    }
+  },
+
+  async sidecar_subagent_abort(input, project) {
+    const cwd = resolveHandlerProject(input, project);
+    const parentMetadata = readValidatedParentMetadata(input.parentTaskId, cwd);
+    if (!parentMetadata) {
+      return textResult(`Parent session ${input.parentTaskId} not found.`, true);
+    }
+    let metadata;
+    try {
+      metadata = readSubagentMetadata(cwd, input.parentTaskId, input.subagentId);
+    } catch (err) {
+      return textResult(err.message, true);
+    }
+    if (!metadata) {
+      return textResult(`Sub-agent ${input.subagentId} not found under parent ${input.parentTaskId}.`, true);
+    }
+    if (metadata.status !== 'running') {
+      return textResult(
+        `Sub-agent ${input.subagentId} is not running (status: ${metadata.status}).`
+      );
+    }
+
+    if (metadata.pid) {
+      try { process.kill(metadata.pid, 'SIGTERM'); } catch (err) {
+        if (err.code !== 'ESRCH') {
+          logger.warn('Failed to kill Codex subagent process', {
+            pid: metadata.pid,
+            error: err.message
+          });
+        }
+      }
+    }
+
+    const { updateSubagentSession } = require('./session-manager');
+    updateSubagentSession(cwd, input.parentTaskId, input.subagentId, {
+      status: 'aborted',
+      abortedAt: new Date().toISOString(),
+      pid: null
+    });
+
+    return textResult(JSON.stringify({
+      parentTaskId: input.parentTaskId,
+      subagentId: input.subagentId,
+      status: 'aborted',
+      backend: metadata.backend || 'codex',
+      message: 'Sub-agent abort requested. The Codex process will terminate shortly.',
     }));
   },
 

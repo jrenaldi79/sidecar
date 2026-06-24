@@ -24,22 +24,24 @@ describe('buildServerOptions MCP type normalization', () => {
     const opts = buildServerOptions({
       mcp: { myserver: { command: 'npx', args: ['-y', '@my/server'] } }
     });
-    expect(opts.config.mcp.myserver).toEqual({
+    expect(opts.config.mcp.myserver).toMatchObject({
       type: 'local',
       enabled: true,
       command: ['npx', '-y', '@my/server']
     });
+    expect(opts.config.mcp.myserver.environment).toBeDefined();
   });
 
   it('normalizes type: "stdio" (Claude Code internal format) to local', () => {
     const opts = buildServerOptions({
       mcp: { myserver: { type: 'stdio', command: 'node', args: ['server.js'] } }
     });
-    expect(opts.config.mcp.myserver).toEqual({
+    expect(opts.config.mcp.myserver).toMatchObject({
       type: 'local',
       enabled: true,
       command: ['node', 'server.js']
     });
+    expect(opts.config.mcp.myserver.environment).toBeDefined();
   });
 
   it('normalizes type: "http" to remote', () => {
@@ -64,10 +66,11 @@ describe('buildServerOptions MCP type normalization', () => {
     });
   });
 
-  it('passes through already-normalized local config unchanged', () => {
+  it('normalizes already-normalized local config with masked environment', () => {
     const already = { type: 'local', enabled: true, command: ['node', 'srv.js'] };
     const opts = buildServerOptions({ mcp: { s: already } });
-    expect(opts.config.mcp.s).toEqual(already);
+    expect(opts.config.mcp.s).toMatchObject(already);
+    expect(opts.config.mcp.s.environment).toBeDefined();
   });
 
   it('passes through already-normalized remote config unchanged', () => {
@@ -95,11 +98,12 @@ describe('buildServerOptions MCP type normalization', () => {
     const opts = buildServerOptions({
       mcp: { minimal: { type: 'stdio', command: '/usr/bin/mcp-server' } }
     });
-    expect(opts.config.mcp.minimal).toEqual({
+    expect(opts.config.mcp.minimal).toMatchObject({
       type: 'local',
       enabled: true,
       command: ['/usr/bin/mcp-server']
     });
+    expect(opts.config.mcp.minimal.environment).toBeDefined();
   });
 
   it('skips type:stdio server with no command', () => {

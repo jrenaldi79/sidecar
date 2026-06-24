@@ -48,7 +48,7 @@ function getTools() {
       'For interactive mode, do not poll. Wait for the user to tell you ' +
       'they\'ve clicked Fold, then use sidecar_read. ' +
       'Call sidecar_guide first if you need help choosing a model or writing a good briefing.' +
-      ' Pass includeContext: false when the briefing is fully self-contained.',
+      ' Pass includeContext: true only with an exact parentSession or coworkProcess binding.',
     inputSchema: {
       model: safeModel.optional().describe(
         `Short alias (${aliasNames}) or full provider/model ID. ` +
@@ -89,10 +89,10 @@ function getTools() {
         'Fold summary verbosity. brief: key findings only. normal (default): full ' +
         'structured output. verbose: maximum detail.'
       ),
-      includeContext: z.boolean().optional().default(true).describe(
+      includeContext: z.boolean().optional().default(false).describe(
         'Whether to include parent conversation history as context. '
-        + 'Default: true. Set to false when the briefing is self-contained '
-        + 'and does not depend on prior conversation. See sidecar_guide for guidance.'
+        + 'Default: false. Set to true only when parentSession or coworkProcess '
+        + 'binds the request to the exact parent context. See sidecar_guide for guidance.'
       ),
       coworkProcess: z.string().optional().describe(
         'Cowork VM process name (e.g., "modest-laughing-goodall"). ' +
@@ -254,6 +254,67 @@ function getTools() {
       'used sidecar before.',
     inputSchema: {},
   },
+  {
+    name: 'sidecar_subagent_start',
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    description:
+      'Start a Codex-backed subagent beneath an existing Sidecar task. ' +
+      'Experimental and intended for local/skunk-works use.',
+    inputSchema: {
+      parentTaskId: safeTaskId.describe('Existing parent Sidecar task ID.'),
+      prompt: z.string().describe('Subagent briefing.'),
+      agentType: z.enum(['plan', 'explore', 'build', 'general']).describe(
+        'plan/explore: read-only Codex. build/general: workspace-write Codex. chat is unsupported.'
+      ),
+      model: safeModel.optional().describe('Optional Codex model override.'),
+      project: z.string().optional().describe(
+        'Optional project directory path. Auto-detected from working directory if omitted.'
+      ),
+    },
+  },
+  {
+    name: 'sidecar_subagent_status',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    description:
+      'Check the status of a Codex-backed subagent beneath an existing Sidecar task.',
+    inputSchema: {
+      parentTaskId: safeTaskId.describe('Existing parent Sidecar task ID.'),
+      subagentId: safeTaskId.describe('The subagent ID returned by sidecar_subagent_start.'),
+      project: z.string().optional().describe(
+        'Optional project directory path. Auto-detected from working directory if omitted.'
+      ),
+    },
+  },
+  {
+    name: 'sidecar_subagent_read',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    description:
+      'Read the results of a Codex-backed subagent beneath an existing Sidecar task.',
+    inputSchema: {
+      parentTaskId: safeTaskId.describe('Existing parent Sidecar task ID.'),
+      subagentId: safeTaskId.describe('The subagent ID to read.'),
+      mode: z.enum(['summary', 'conversation', 'metadata']).optional()
+        .default('summary').describe(
+          'What to read. summary (default): the folded result. conversation: normalized records. metadata: session info.'
+        ),
+      project: z.string().optional().describe(
+        'Optional project directory path. Auto-detected from working directory if omitted.'
+      ),
+    },
+  },
+  {
+    name: 'sidecar_subagent_abort',
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    description:
+      'Abort a running Codex-backed subagent beneath an existing Sidecar task.',
+    inputSchema: {
+      parentTaskId: safeTaskId.describe('Existing parent Sidecar task ID.'),
+      subagentId: safeTaskId.describe('The running subagent ID to abort.'),
+      project: z.string().optional().describe(
+        'Optional project directory path. Auto-detected from working directory if omitted.'
+      ),
+    },
+  },
   ];
 }
 
@@ -321,7 +382,7 @@ Claude Code CLI: pass parentSession with your session UUID.
 
 ## Context Control (includeContext)
 
-By default, sidecar includes your parent conversation history as context. Set \`includeContext: false\` to skip this and save tokens when the briefing is self-contained.
+By default, sidecar does not include parent conversation history. Set \`includeContext: true\` only when passing an exact \`parentSession\` or \`coworkProcess\` binding.
 
 ### MUST Include Context (Red Flags)
 - Task references prior conversation ("the code we discussed", "that bug", "the approach you suggested")
@@ -338,7 +399,7 @@ By default, sidecar includes your parent conversation history as context. Set \`
 - Independent analysis unrelated to current conversation
 
 ### Self-Contained Briefing Template
-When setting \`includeContext: false\`, write a richer briefing:
+When leaving \`includeContext\` false, write a richer briefing:
 
 \`\`\`
 **Objective:** [Specific goal]
@@ -352,6 +413,8 @@ The sidecar has NO other context. Everything it needs must be in the briefing.
 
 ## Existing Sessions
 Call sidecar_list before spawning. Use sidecar_resume to reopen or sidecar_continue to build on previous findings.
+
+Experimental: \`sidecar_subagent_*\` tools can start Codex-backed subagents under an existing Sidecar task. This is currently intended for local/skunk-works use.
 `;
 }
 

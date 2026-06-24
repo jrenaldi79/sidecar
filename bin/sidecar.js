@@ -150,6 +150,7 @@ async function handleStart(args) {
     noMcp: args['no-mcp'],
     excludeMcp: args['exclude-mcp'],
     coworkProcess: args['cowork-process'],
+    includeContext: args['include-context'] === true && args['no-context'] !== true,
     position: args.position
   });
 }

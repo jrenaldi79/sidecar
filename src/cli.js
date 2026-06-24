@@ -101,6 +101,7 @@ function isBooleanFlag(key) {
      'no-ui',
      'no-mcp',
      'no-context',
+     'include-context',
      'setup',
      'all',
      // 'summary', // summary is now an option with a value
@@ -311,10 +312,11 @@ Options for 'start':
   --session-id <id|"current">  Session ID to pull context from (default: current)
   --cwd <path>                 Project directory (default: cwd)
   --no-ui                      Run without GUI (autonomous mode)
+  --include-context              Include parent conversation history context
   --no-context                   Skip parent conversation history context
   --timeout <minutes>          Headless timeout (default: 15)
   --client <type>              Client type: code-local, code-web, cowork
-  --session-dir <path>         Explicit session data directory
+  --session-dir <path>         Explicit session data directory under project
   --setup                      Force open configuration
   --fold-shortcut <key>        Customize fold shortcut
   --opencode-port <port>       Port override for OpenCode server

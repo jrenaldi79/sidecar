@@ -4,7 +4,7 @@ module.exports = {
   testPathIgnorePatterns: [
     '/node_modules/',
     '\\.integration\\.test\\.js$',
-    '\\.worktrees/'
+    '<rootDir>/\\.worktrees/'
   ],
   collectCoverageFrom: [
     'src/**/*.js',

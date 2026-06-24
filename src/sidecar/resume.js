@@ -17,23 +17,34 @@ const {
 const { acquireLock, releaseLock } = require('../utils/session-lock');
 const { runHeadless } = require('../headless');
 const { logger } = require('../utils/logger');
+const {
+  validateSidecarSessionDir,
+  validateSidecarSessionMetadata,
+  readContainedSessionFile,
+  writeContainedSessionFile
+} = require('../utils/sidecar-boundaries');
 
 /** Load session metadata from session directory */
 function loadSessionMetadata(sessionDir) {
   const metaPath = SessionPaths.metadataFile(sessionDir);
-  if (!fs.existsSync(metaPath)) {
+  let metadataText;
+  try {
+    metadataText = readContainedSessionFile(sessionDir, 'metadata.json', { optional: true });
+  } catch (err) {
+    if (/Session directory .*does not exist|Session file not found/i.test(err.message)) {
+      throw new Error(`Session metadata not found: ${metaPath}`);
+    }
+    throw err;
+  }
+  if (metadataText === null) {
     throw new Error(`Session metadata not found: ${metaPath}`);
   }
-  return JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+  return JSON.parse(metadataText);
 }
 
 /** Load initial context (system prompt) from session */
 function loadInitialContext(sessionDir) {
-  const contextPath = SessionPaths.contextFile(sessionDir);
-  if (fs.existsSync(contextPath)) {
-    return fs.readFileSync(contextPath, 'utf-8');
-  }
-  return '';
+  return readContainedSessionFile(sessionDir, 'initial_context.md', { optional: true }) || '';
 }
 
 /** Check for file drift - files that were read may have changed */
@@ -100,13 +111,12 @@ function buildResumeUserMessage(briefing, conversation) {
 
 /** Update session metadata status */
 function updateSessionStatus(sessionDir, status) {
-  const metaPath = SessionPaths.metadataFile(sessionDir);
-  const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+  const meta = JSON.parse(readContainedSessionFile(sessionDir, 'metadata.json'));
   meta.status = status;
   if (status === 'running') {
     meta.resumedAt = new Date().toISOString();
   }
-  fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+  writeContainedSessionFile(sessionDir, 'metadata.json', JSON.stringify(meta, null, 2), { mode: 0o600 });
   return meta;
 }
 
@@ -117,13 +127,11 @@ async function resumeSidecar(options) {
     mcp, mcpConfig, client, noMcp, excludeMcp
   } = options;
 
-  const sessionDir = SessionPaths.sessionDir(project, taskId);
-  if (!fs.existsSync(sessionDir)) {
-    throw new Error(`Session ${taskId} not found`);
-  }
+  const sessionDir = validateSidecarSessionDir(project, taskId);
 
   // Load previous session data
-  const metadata = loadSessionMetadata(sessionDir);
+  const metadata = validateSidecarSessionMetadata(loadSessionMetadata(sessionDir), project);
+  const effectiveProject = metadata.projectDir;
   const systemPrompt = loadInitialContext(sessionDir);
 
   // Dead-process detection: log if the previous process is no longer alive
@@ -143,7 +151,7 @@ async function resumeSidecar(options) {
     logger.info('Resuming session', { taskId, model: metadata.model, briefing: metadata.briefing });
 
     // Check for file drift
-    const drift = checkFileDrift(metadata, project);
+    const drift = checkFileDrift(metadata, effectiveProject);
     let resumePrompt = systemPrompt;
 
     if (drift.hasChanges) {
@@ -162,16 +170,14 @@ async function resumeSidecar(options) {
     const effectiveAgent = metadata.agent || 'Build';
 
     // Load conversation for both paths (interactive already did this, headless didn't)
-    const conversationPath = SessionPaths.conversationFile(sessionDir);
-    const existingConversation = fs.existsSync(conversationPath)
-      ? fs.readFileSync(conversationPath, 'utf-8')
-      : '';
+    const existingConversation =
+      readContainedSessionFile(sessionDir, 'conversation.jsonl', { optional: true }) || '';
 
     if (headless) {
       const userMessage = buildResumeUserMessage(metadata.briefing || '', existingConversation);
       const result = await runHeadless(
         metadata.model, resumePrompt, userMessage,
-        taskId, project, timeout * 60 * 1000, effectiveAgent, { mcp: mcpServers }
+        taskId, effectiveProject, timeout * 60 * 1000, effectiveAgent, { mcp: mcpServers }
       );
       summary = result.summary || '## Sidecar Results: No Output\n\nResumed session completed without summary.';
 
@@ -182,7 +188,7 @@ async function resumeSidecar(options) {
 
       const result = await runInteractive(
         metadata.model, resumePrompt, metadata.briefing || '',
-        taskId, project,
+        taskId, effectiveProject,
         {
           agent: effectiveAgent,
           isResume: true,
@@ -199,7 +205,7 @@ async function resumeSidecar(options) {
     outputSummary(summary);
 
     // Finalize session (use updatedMetadata which has resumedAt)
-    finalizeSession(sessionDir, summary, project, updatedMetadata);
+    finalizeSession(sessionDir, summary, effectiveProject, updatedMetadata);
   } finally {
     if (heartbeat) { heartbeat.stop(); }
     releaseLock(sessionDir);

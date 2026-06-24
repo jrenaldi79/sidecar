@@ -4,6 +4,20 @@
 # 1. Full test suite (skipped if tests already passed for this commit)
 # 2. npm audit (warn only)
 
+if ! command -v npm >/dev/null 2>&1; then
+  for node_dir in /opt/homebrew/bin /usr/local/bin; do
+    if [[ -x "$node_dir/npm" ]]; then
+      export PATH="$node_dir:$PATH"
+      break
+    fi
+  done
+fi
+
+command -v npm >/dev/null 2>&1 || {
+  echo "husky pre-push: npm is not on PATH" >&2
+  exit 1
+}
+
 # Check if tests already passed for the current HEAD commit
 HEAD_SHA=$(git rev-parse HEAD 2>/dev/null)
 CACHED_SHA=""

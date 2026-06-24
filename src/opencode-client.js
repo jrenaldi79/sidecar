@@ -27,6 +27,39 @@ async function getCreateOpencodeServer() {
   return sdk.createOpencodeServer;
 }
 
+function normalizeMcpCommand(serverConfig) {
+  if (Array.isArray(serverConfig.command)) {
+    return serverConfig.command.map(String);
+  }
+
+  const cmd = typeof serverConfig.command === 'string'
+    ? serverConfig.command
+    : String(serverConfig.command);
+  const args = Array.isArray(serverConfig.args) ? serverConfig.args.map(String) : [];
+  return [cmd, ...args];
+}
+
+function normalizeLocalMcpConfig(serverConfig) {
+  const { buildMcpServerEnvironment } = require('./utils/sidecar-env');
+  const rest = { ...serverConfig };
+  delete rest.args;
+  delete rest.command;
+  delete rest.env;
+  delete rest.environment;
+  delete rest.type;
+
+  const { env, environment } = serverConfig;
+  const explicitEnvironment = environment !== undefined ? environment : env;
+
+  return {
+    ...rest,
+    type: 'local',
+    enabled: serverConfig.enabled === undefined ? true : serverConfig.enabled,
+    command: normalizeMcpCommand(serverConfig),
+    environment: buildMcpServerEnvironment(explicitEnvironment)
+  };
+}
+
 /**
  * Parse a model string into SDK format
  *
@@ -309,7 +342,7 @@ function buildServerOptions(options = {}) {
     // Normalize MCP configs for OpenCode's discriminated union format.
     //
     // OpenCode accepts exactly two type values (ConfigInvalidError otherwise):
-    //   { type: "local",  enabled: true, command: ["cmd", ...args] }
+    //   { type: "local",  enabled: true, command: ["cmd", ...args], environment: {...} }
     //   { type: "remote", enabled: true, url: "https://..." }
     //
     // Input formats we handle:
@@ -317,28 +350,28 @@ function buildServerOptions(options = {}) {
     //   Claude Desktop       : { command: "cmd", args: [...] }   (no type field)
     //   Claude Code remote   : { type: "http",  url: "..." }
     //                          { type: "sse",   url: "..." }
-    //   Already normalized   : { type: "local"|"remote", ... }  → pass through
+    //   Already normalized   : { type: "local", command: [...] } → local + masked env
+    //                          { type: "remote", ... }           → pass through
     //
-    // Note: OpenCode's "local" schema does NOT support an `env` field.
-    // Environment variables from the source config are intentionally dropped;
-    // MCP servers inherit the parent process environment which is sufficient.
+    // OpenCode merges `environment` over process.env for local MCP servers,
+    // so include explicit masks for ambient secret keys instead of relying on
+    // omitted keys to prevent inheritance.
     const normalized = {};
     for (const [name, serverConfig] of Object.entries(options.mcp)) {
+      if (!serverConfig || typeof serverConfig !== 'object') {
+        normalized[name] = serverConfig;
+        continue;
+      }
+
       const t = serverConfig.type;
-      if (t === 'stdio' || (!t && serverConfig.command)) {
-        // stdio process (Claude Code or Claude Desktop format) → local
+      if (t === 'stdio' || t === 'local' || (!t && serverConfig.command)) {
+        // stdio/local process (Claude Code, Claude Desktop, or OpenCode local) → local
         if (!serverConfig.command) {
           const { logger } = require('./utils/logger');
-          logger.warn(`MCP server "${name}": type "stdio" requires a command — skipping`);
+          logger.warn(`MCP server "${name}": type "${t || 'local'}" requires a command — skipping`);
           continue;
         }
-        const cmd = typeof serverConfig.command === 'string' ? serverConfig.command : String(serverConfig.command);
-        const args = Array.isArray(serverConfig.args) ? serverConfig.args : [];
-        normalized[name] = {
-          type: 'local',
-          enabled: true,
-          command: [cmd, ...args]
-        };
+        normalized[name] = normalizeLocalMcpConfig(serverConfig);
       } else if (t === 'http' || t === 'sse') {
         // HTTP/SSE remote server → remote
         if (!serverConfig.url) {
@@ -347,15 +380,18 @@ function buildServerOptions(options = {}) {
           continue;
         }
         // Preserve extra remote options (headers, oauth, timeout, etc.)
-        const { type: _t, args: _a, command: _c, ...rest } = serverConfig;
+        const rest = { ...serverConfig };
+        delete rest.type;
+        delete rest.args;
+        delete rest.command;
         normalized[name] = {
           ...rest,
           type: 'remote',
           enabled: rest.enabled !== undefined ? rest.enabled : true
         };
       } else {
-        // Already in OpenCode format (type: "local"|"remote") or unknown — pass through
-        if (t && t !== 'local' && t !== 'remote') {
+        // Already in OpenCode remote format or unknown — pass through.
+        if (t && t !== 'remote') {
           const { logger } = require('./utils/logger');
           logger.warn(`MCP server "${name}": unrecognized type "${t}" — passing through unchanged`);
         }

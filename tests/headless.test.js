@@ -5,6 +5,7 @@
  */
 
 const fs = require('fs');
+const path = require('path');
 
 // Mock fs
 jest.mock('fs', () => ({
@@ -44,6 +45,19 @@ jest.mock('../src/utils/logger', () => ({
   }
 }));
 
+const mockAppendContainedSessionFile = jest.fn();
+const mockEnsureSidecarSessionDir = jest.fn();
+const mockReadContainedSessionFile = jest.fn();
+const mockWriteContainedSessionFile = jest.fn();
+
+jest.mock('../src/utils/sidecar-session-boundaries', () => ({
+  appendContainedSessionFile: (...args) => mockAppendContainedSessionFile(...args),
+  ensureSidecarSessionDir: (...args) => mockEnsureSidecarSessionDir(...args),
+  readContainedSessionFile: (...args) => mockReadContainedSessionFile(...args),
+  writeContainedSessionFile: (...args) => mockWriteContainedSessionFile(...args),
+  resolveContainedSessionFile: jest.fn(() => null)
+}));
+
 const { runHeadless, extractSummary, COMPLETE_MARKER, FOLD_MARKER, formatFoldOutput, DEFAULT_TIMEOUT } = require('../src/headless');
 
 describe('Headless Mode Runner', () => {
@@ -52,6 +66,16 @@ describe('Headless Mode Runner', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockEnsureSidecarSessionDir.mockImplementation((project, taskId) =>
+      path.join(project, '.claude', 'sidecar_sessions', taskId)
+    );
+    mockReadContainedSessionFile.mockReturnValue(null);
+    mockAppendContainedSessionFile.mockImplementation((sessionDir, filename, data, options) => {
+      fs.appendFileSync(path.join(sessionDir, filename), data, options);
+    });
+    mockWriteContainedSessionFile.mockImplementation((sessionDir, filename, data, options) => {
+      fs.writeFileSync(path.join(sessionDir, filename), data, options);
+    });
 
     // Setup fs mocks
     fs.existsSync.mockReturnValue(true);
@@ -293,10 +317,7 @@ describe('Headless Mode Runner', () => {
 
         await runHeadless(testModel, testSystemPrompt, testUserMessage, testTaskId, testProject, 5000);
 
-        expect(fs.mkdirSync).toHaveBeenCalledWith(
-          expect.stringContaining(testTaskId),
-          { recursive: true, mode: 0o700 }
-        );
+        expect(mockEnsureSidecarSessionDir).toHaveBeenCalledWith(testProject, testTaskId);
       });
 
       it('should log system prompt as first message', async () => {
@@ -606,22 +627,11 @@ describe('Headless Mode Runner', () => {
         }]);
       });
 
-      // On second poll, simulate metadata.status = 'aborted'
-      const originalReadFileSync = fs.readFileSync;
-      fs.readFileSync = jest.fn((filePath, encoding) => {
-        if (typeof filePath === 'string' && filePath.includes('metadata.json') && pollCount >= 2) {
+      mockReadContainedSessionFile.mockImplementation((_sessionDir, filename) => {
+        if (filename === 'metadata.json' && pollCount >= 2) {
           return JSON.stringify({ status: 'aborted' });
         }
-        // For other reads, return empty string
-        return '';
-      });
-
-      // existsSync should return true for metadata check
-      fs.existsSync.mockImplementation((p) => {
-        if (typeof p === 'string' && p.includes('metadata.json')) {
-          return pollCount >= 2;
-        }
-        return true;
+        return null;
       });
 
       const result = await runHeadless(
@@ -632,9 +642,6 @@ describe('Headless Mode Runner', () => {
       // Should have detected external abort
       expect(result.aborted).toBe(true);
       expect(mockServerClose).toHaveBeenCalled();
-
-      // Restore
-      fs.readFileSync = originalReadFileSync;
     }, 15000);
   });
 

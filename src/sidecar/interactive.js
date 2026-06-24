@@ -9,6 +9,7 @@ const { spawn } = require('child_process');
 const { startOpenCodeServer } = require('./session-utils');
 const { createSession, sendPromptAsync } = require('../opencode-client');
 const { mapAgentToOpenCode } = require('../utils/agent-mapping');
+const { buildChildProcessEnv } = require('../utils/sidecar-env');
 const { logger } = require('../utils/logger');
 
 /** Get the Electron binary path via require('electron').
@@ -30,13 +31,12 @@ function checkElectronAvailable() {
 /** Build environment variables for Electron process */
 function buildElectronEnv(taskId, model, project, nodeModulesBin, existingPath, options = {}) {
   const { agent, isResume, conversation, mcp, client, windowPosition } = options;
-  const env = {
-    ...process.env,
+  const env = buildChildProcessEnv({
     PATH: `${nodeModulesBin}:${existingPath}`,
     SIDECAR_TASK_ID: taskId,
     SIDECAR_MODEL: model,
     SIDECAR_PROJECT: project
-  };
+  });
 
   if (client) { env.SIDECAR_CLIENT = client; }
   if (windowPosition) { env.SIDECAR_WINDOW_POSITION = windowPosition; }

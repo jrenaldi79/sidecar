@@ -7,7 +7,21 @@
 # 4. Auto-regenerate doc sections (auto-stages CLAUDE.md if changed)
 # 5. CLAUDE.md drift warning
 
-npx lint-staged
+if ! command -v node >/dev/null 2>&1; then
+  for node_dir in /opt/homebrew/bin /usr/local/bin; do
+    if [[ -x "$node_dir/node" ]]; then
+      export PATH="$node_dir:$PATH"
+      break
+    fi
+  done
+fi
+
+command -v node >/dev/null 2>&1 || {
+  echo "husky pre-commit: node is not on PATH" >&2
+  exit 1
+}
+
+lint-staged
 
 node scripts/check-secrets.js
 node scripts/check-file-sizes.js

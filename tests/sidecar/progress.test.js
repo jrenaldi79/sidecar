@@ -169,6 +169,38 @@ describe('Progress Reader', () => {
       // Should use last valid assistant entry
       expect(result.latest).toBe('Using Bash');
     });
+
+    it('ignores symlinked progress inputs that resolve outside the session directory', () => {
+      const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'progress-outside-'));
+      try {
+        fs.writeFileSync(
+          path.join(outsideDir, 'conversation.jsonl'),
+          JSON.stringify({ role: 'assistant', content: 'outside secret progress' }) + '\n'
+        );
+        fs.writeFileSync(
+          path.join(outsideDir, 'progress.json'),
+          JSON.stringify({
+            stage: 'receiving',
+            stageLabel: 'outside secret stage',
+            updatedAt: new Date().toISOString()
+          })
+        );
+        fs.symlinkSync(path.join(outsideDir, 'conversation.jsonl'), path.join(tmpDir, 'conversation.jsonl'));
+        fs.symlinkSync(path.join(outsideDir, 'progress.json'), path.join(tmpDir, 'progress.json'));
+
+        const result = readProgress(tmpDir);
+
+        expect(result).toMatchObject({
+          messages: 0,
+          lastActivity: 'never',
+          latest: 'Starting up...',
+          lastActivityMs: null
+        });
+        expect(result.stage).toBeUndefined();
+      } finally {
+        fs.rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
   });
 
   describe('extractLatest', () => {

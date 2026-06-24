@@ -71,6 +71,20 @@ describe('Resume Operations', () => {
       const context = loadInitialContext(tmpDir);
       expect(context).toBe('');
     });
+
+    it('should reject an initial context symlink that escapes the session directory', () => {
+      const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-resume-outside-'));
+      const outsideContext = path.join(outsideDir, 'initial_context.md');
+
+      try {
+        fs.writeFileSync(outsideContext, 'external secret context');
+        fs.symlinkSync(outsideContext, path.join(tmpDir, 'initial_context.md'));
+
+        expect(() => loadInitialContext(tmpDir)).toThrow(/outside|session directory/i);
+      } finally {
+        fs.rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
   });
 
   describe('checkFileDrift', () => {
@@ -126,6 +140,28 @@ describe('Resume Operations', () => {
       const updated = updateSessionStatus(tmpDir, 'running');
       expect(updated.status).toBe('running');
       expect(updated.resumedAt).toBeDefined();
+    });
+
+    it('rejects a metadata symlink before updating an outside target', () => {
+      const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-resume-meta-outside-'));
+      const outsideMetadata = path.join(outsideDir, 'metadata.json');
+
+      try {
+        fs.writeFileSync(outsideMetadata, JSON.stringify({
+          taskId: 'abc123',
+          status: 'complete'
+        }));
+        fs.symlinkSync(outsideMetadata, path.join(tmpDir, 'metadata.json'));
+
+        expect(() => updateSessionStatus(tmpDir, 'running'))
+          .toThrow(/symbolic link|session directory|outside/i);
+
+        const outside = JSON.parse(fs.readFileSync(outsideMetadata, 'utf-8'));
+        expect(outside.status).toBe('complete');
+        expect(outside.resumedAt).toBeUndefined();
+      } finally {
+        fs.rmSync(outsideDir, { recursive: true, force: true });
+      }
     });
   });
 
@@ -188,6 +224,93 @@ describe('Resume Operations', () => {
 
       const loaded = loadSessionMetadata(tmpDir);
       expect(loaded.opencodeSessionId).toBeUndefined();
+    });
+  });
+
+  describe('resumeSidecar session boundary validation', () => {
+    let projectDir;
+    let otherProjectDir;
+
+    beforeEach(() => {
+      projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-resume-project-'));
+      otherProjectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-resume-other-'));
+    });
+
+    afterEach(() => {
+      fs.rmSync(projectDir, { recursive: true, force: true });
+      fs.rmSync(otherProjectDir, { recursive: true, force: true });
+      jest.resetModules();
+    });
+
+    function writeSession(sessionDir, metadataProject) {
+      fs.mkdirSync(sessionDir, { recursive: true });
+      fs.writeFileSync(path.join(sessionDir, 'metadata.json'), JSON.stringify({
+        taskId: 'resume-task',
+        project: metadataProject,
+        projectDir: metadataProject,
+        model: 'google/gemini-test',
+        agent: 'build',
+        briefing: 'resume external secret',
+        status: 'complete',
+        pid: null,
+        createdAt: new Date().toISOString()
+      }));
+      fs.writeFileSync(path.join(sessionDir, 'initial_context.md'), 'external secret context');
+      fs.writeFileSync(path.join(sessionDir, 'conversation.jsonl'),
+        JSON.stringify({ role: 'assistant', content: 'external secret conversation' }) + '\n');
+    }
+
+    async function expectResumeRejected(expectedPattern) {
+      await jest.isolateModulesAsync(async () => {
+        jest.doMock('../../src/sidecar/start', () => ({
+          runInteractive: jest.fn(async () => ({ summary: 'done' })),
+          buildMcpConfig: jest.fn(() => null)
+        }));
+        jest.doMock('../../src/headless', () => ({
+          runHeadless: jest.fn(async () => ({ summary: 'done' }))
+        }));
+        jest.doMock('../../src/utils/session-lock', () => ({
+          acquireLock: jest.fn(),
+          releaseLock: jest.fn()
+        }));
+
+        const { resumeSidecar } = require('../../src/sidecar/resume');
+        await expect(resumeSidecar({
+          taskId: 'resume-task',
+          project: projectDir,
+          headless: true
+        })).rejects.toThrow(expectedPattern);
+      });
+    }
+
+    it('rejects a task directory symlink that escapes the project sessions root', async () => {
+      const externalSessionDir = path.join(otherProjectDir, '.claude', 'sidecar_sessions', 'resume-task');
+      writeSession(externalSessionDir, fs.realpathSync(otherProjectDir));
+
+      const sessionsRoot = path.join(projectDir, '.claude', 'sidecar_sessions');
+      fs.mkdirSync(sessionsRoot, { recursive: true });
+      fs.symlinkSync(externalSessionDir, path.join(sessionsRoot, 'resume-task'), 'dir');
+
+      await expectResumeRejected(/outside|session root/i);
+    });
+
+    it('rejects metadata bound to a different project before loading prior context', async () => {
+      const sessionDir = path.join(projectDir, '.claude', 'sidecar_sessions', 'resume-task');
+      writeSession(sessionDir, fs.realpathSync(otherProjectDir));
+
+      await expectResumeRejected(/project/i);
+    });
+
+    it('rejects a conversation file symlink that escapes the session directory', async () => {
+      const sessionDir = path.join(projectDir, '.claude', 'sidecar_sessions', 'resume-task');
+      const outsideConversation = path.join(otherProjectDir, 'conversation.jsonl');
+      writeSession(sessionDir, fs.realpathSync(projectDir));
+      fs.writeFileSync(outsideConversation,
+        JSON.stringify({ role: 'assistant', content: 'external secret conversation' }) + '\n');
+      fs.unlinkSync(path.join(sessionDir, 'conversation.jsonl'));
+      fs.symlinkSync(outsideConversation, path.join(sessionDir, 'conversation.jsonl'));
+
+      await expectResumeRejected(/outside|session directory/i);
     });
   });
 });

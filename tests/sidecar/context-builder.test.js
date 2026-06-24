@@ -2,8 +2,8 @@
  * Context Builder Tests
  *
  * Tests for buildContext() with multi-environment support.
- * Validates that context can be built from arbitrary session directories
- * (not just the default ~/.claude/projects/ path).
+ * Validates that context can be built from explicit session directories
+ * when they remain inside the validated project boundary.
  */
 
 const path = require('path');
@@ -83,7 +83,6 @@ describe('Context Builder', () => {
     });
 
     it('should use sessionDir over default path resolution when both could apply', () => {
-      // Even with a real project path, sessionDir should take precedence
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-ctx-test-'));
       const sessionFile = path.join(tmpDir, 'priority-session.jsonl');
       fs.writeFileSync(sessionFile, JSON.stringify({
@@ -92,14 +91,15 @@ describe('Context Builder', () => {
         timestamp: new Date().toISOString()
       }) + '\n');
 
-      const context = buildContext('/some/project', 'priority-session', { sessionDir: tmpDir });
+      const context = buildContext(tmpDir, 'priority-session', { sessionDir: tmpDir });
       expect(context).toContain('from explicit session dir');
       fs.rmSync(tmpDir, { recursive: true });
     });
 
-    it('should handle missing sessionDir gracefully', () => {
-      const context = buildContext('/nonexistent', null, { sessionDir: '/nonexistent/session/dir' });
-      expect(context).toContain('No Claude Code conversation history');
+    it('should reject missing sessionDir when explicitly provided', () => {
+      expect(() => buildContext('/nonexistent', null, {
+        sessionDir: '/nonexistent/session/dir'
+      })).toThrow(/project root|session directory/i);
     });
 
     it('should handle empty session file in sessionDir', () => {
@@ -143,6 +143,67 @@ describe('Context Builder', () => {
       expect(context).toContain('user message 4');
       expect(context).not.toContain('user message 0');
       fs.rmSync(tmpDir, { recursive: true });
+    });
+
+    it('should reject current when exactSession is requested with sessionDir', () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-ctx-exact-'));
+      fs.writeFileSync(path.join(tmpDir, 'newest-session.jsonl'), JSON.stringify({
+        type: 'user',
+        message: { content: 'newest fallback should not be used' },
+        timestamp: new Date().toISOString()
+      }) + '\n');
+
+      try {
+        expect(() => buildContext(tmpDir, 'current', {
+          sessionDir: tmpDir,
+          exactSession: true
+        })).toThrow(/exact session/i);
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it('should reject nonexistent exact session instead of falling back to most recent', () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-ctx-exact-'));
+      fs.writeFileSync(path.join(tmpDir, 'newest-session.jsonl'), JSON.stringify({
+        type: 'user',
+        message: { content: 'newest fallback should not be used' },
+        timestamp: new Date().toISOString()
+      }) + '\n');
+
+      try {
+        expect(() => buildContext(tmpDir, 'missing-session', {
+          sessionDir: tmpDir,
+          exactSession: true
+        })).toThrow(/missing-session|not found/i);
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it('should read the requested file when exactSession is requested with an existing session', () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-ctx-exact-'));
+      fs.writeFileSync(path.join(tmpDir, 'target-session.jsonl'), JSON.stringify({
+        type: 'user',
+        message: { content: 'target exact context' },
+        timestamp: new Date().toISOString()
+      }) + '\n');
+      fs.writeFileSync(path.join(tmpDir, 'newest-session.jsonl'), JSON.stringify({
+        type: 'user',
+        message: { content: 'newest fallback should not be used' },
+        timestamp: new Date().toISOString()
+      }) + '\n');
+
+      try {
+        const context = buildContext(tmpDir, 'target-session', {
+          sessionDir: tmpDir,
+          exactSession: true
+        });
+        expect(context).toContain('target exact context');
+        expect(context).not.toContain('newest fallback should not be used');
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
     });
   });
 
@@ -316,9 +377,12 @@ describe('Context Builder', () => {
         JSON.stringify({ type: 'rate_limit_event', _audit_timestamp: new Date().toISOString() }),
       ];
       fs.writeFileSync(path.join(sessDir, 'audit.jsonl'), lines.join('\n') + '\n');
+      fs.writeFileSync(path.join(sessRoot, 'org-1', 'user-1', 'local_test-session.json'),
+        JSON.stringify({ processName: 'target-process' }));
 
       const context = buildContext('/Users/john_renaldi', null, {
         client: 'cowork',
+        coworkProcess: 'target-process',
         _homeDir: tmpHome
       });
       expect(context).toContain('cowork parent context');
@@ -333,10 +397,26 @@ describe('Context Builder', () => {
 
       const context = buildContext('/Users/john_renaldi', null, {
         client: 'cowork',
+        coworkProcess: 'missing-process',
         _homeDir: tmpHome
       });
       expect(context).toContain('No Claude Code conversation history');
       fs.rmSync(tmpHome, { recursive: true });
+    });
+
+    it('should reject a missing coworkProcess match when exactSession is required', () => {
+      const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-cowork-'));
+
+      try {
+        expect(() => buildContext('/Users/john_renaldi', null, {
+          client: 'cowork',
+          coworkProcess: 'fake-process',
+          exactSession: true,
+          _homeDir: tmpHome
+        })).toThrow(/Cowork session.*fake-process.*not found/i);
+      } finally {
+        fs.rmSync(tmpHome, { recursive: true, force: true });
+      }
     });
 
     it('should match correct session when coworkProcess is provided', () => {
@@ -383,9 +463,12 @@ describe('Context Builder', () => {
         lines.push(JSON.stringify({ type: 'assistant', message: { content: `reply ${i}` }, _audit_timestamp: new Date().toISOString() }));
       }
       fs.writeFileSync(path.join(sessDir, 'audit.jsonl'), lines.join('\n') + '\n');
+      fs.writeFileSync(path.join(sessRoot, 'org-1', 'user-1', 'local_test-session.json'),
+        JSON.stringify({ processName: 'filter-target' }));
 
       const context = buildContext('/Users/john_renaldi', null, {
         client: 'cowork',
+        coworkProcess: 'filter-target',
         _homeDir: tmpHome,
         contextTurns: 2
       });

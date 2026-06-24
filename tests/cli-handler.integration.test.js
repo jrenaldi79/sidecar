@@ -187,6 +187,35 @@ describe('CLI Handler Integration: path traversal safety', () => {
     }
   });
 
+  it('abort rejects a symlinked metadata file without modifying the outside target', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-abort-meta-'));
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-abort-outside-'));
+    try {
+      const sessDir = path.join(tmpDir, '.claude', 'sidecar_sessions', 'abort-meta');
+      fs.mkdirSync(sessDir, { recursive: true });
+      const outsideMetadata = path.join(outsideDir, 'metadata.json');
+      fs.writeFileSync(outsideMetadata, JSON.stringify({
+        taskId: 'abort-meta',
+        model: 'gemini',
+        status: 'running',
+        briefing: 'outside metadata',
+        createdAt: '2026-03-04T00:00:00Z'
+      }));
+      fs.symlinkSync(outsideMetadata, path.join(sessDir, 'metadata.json'));
+
+      const { stderr, code } = await runCli(['abort', 'abort-meta', '--cwd', tmpDir]);
+
+      expect(code).toBe(1);
+      expect(stderr.toLowerCase()).toMatch(/outside|session directory/);
+      const parsed = JSON.parse(fs.readFileSync(outsideMetadata, 'utf-8'));
+      expect(parsed.status).toBe('running');
+      expect(parsed.abortedAt).toBeUndefined();
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(outsideDir, { recursive: true, force: true });
+    }
+  });
+
   it('rejects path traversal in task ID for read', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-safety-'));
     try {
@@ -195,6 +224,98 @@ describe('CLI Handler Integration: path traversal safety', () => {
       expect(stderr.toLowerCase()).toMatch(/invalid|traversal|task/);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('read rejects a symlinked task directory before printing outside summary', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-read-symlink-'));
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-read-outside-'));
+    try {
+      const sessionsDir = path.join(tmpDir, '.claude', 'sidecar_sessions');
+      fs.mkdirSync(sessionsDir, { recursive: true });
+      fs.writeFileSync(path.join(outsideDir, 'metadata.json'), JSON.stringify({
+        taskId: 'leak',
+        status: 'complete',
+        createdAt: '2026-03-04T00:00:00Z'
+      }));
+      fs.writeFileSync(path.join(outsideDir, 'summary.md'), 'outside secret summary');
+      fs.symlinkSync(outsideDir, path.join(sessionsDir, 'leak'), 'dir');
+
+      const { stdout, stderr, code } = await runCli(['read', 'leak', '--cwd', tmpDir]);
+
+      expect(code).toBe(1);
+      expect(stdout).not.toContain('outside secret summary');
+      expect(stderr.toLowerCase()).toMatch(/outside|session root|session directory/);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(outsideDir, { recursive: true, force: true });
+    }
+  });
+
+  it('read --conversation rejects a symlinked conversation file before printing outside content', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-conv-symlink-'));
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-conv-outside-'));
+    try {
+      const sessDir = path.join(tmpDir, '.claude', 'sidecar_sessions', 'convleak');
+      fs.mkdirSync(sessDir, { recursive: true });
+      fs.writeFileSync(path.join(sessDir, 'metadata.json'), JSON.stringify({
+        taskId: 'convleak',
+        status: 'complete',
+        createdAt: '2026-03-04T00:00:00Z'
+      }));
+      const outsideConversation = path.join(outsideDir, 'conversation.jsonl');
+      fs.writeFileSync(
+        outsideConversation,
+        JSON.stringify({ role: 'assistant', content: 'outside secret conversation' }) + '\n'
+      );
+      fs.symlinkSync(outsideConversation, path.join(sessDir, 'conversation.jsonl'));
+
+      const { stdout, stderr, code } = await runCli([
+        'read', 'convleak', '--cwd', tmpDir, '--conversation'
+      ]);
+
+      expect(code).toBe(1);
+      expect(stdout).not.toContain('outside secret conversation');
+      expect(stderr.toLowerCase()).toMatch(/outside|session directory/);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(outsideDir, { recursive: true, force: true });
+    }
+  });
+
+  it('list skips symlinked task directories instead of printing outside metadata', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-list-symlink-'));
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sidecar-list-outside-'));
+    try {
+      const sessionsDir = path.join(tmpDir, '.claude', 'sidecar_sessions');
+      const validDir = path.join(sessionsDir, 'valid-task');
+      fs.mkdirSync(validDir, { recursive: true });
+      fs.writeFileSync(path.join(validDir, 'metadata.json'), JSON.stringify({
+        taskId: 'valid-task',
+        model: 'gemini',
+        status: 'complete',
+        briefing: 'inside session',
+        createdAt: '2026-03-04T00:00:00Z'
+      }));
+      fs.writeFileSync(path.join(outsideDir, 'metadata.json'), JSON.stringify({
+        taskId: 'leak',
+        model: 'outside-model',
+        status: 'complete',
+        briefing: 'outside secret briefing',
+        createdAt: '2026-03-05T00:00:00Z'
+      }));
+      fs.symlinkSync(outsideDir, path.join(sessionsDir, 'leak'), 'dir');
+
+      const { stdout, code } = await runCli(['list', '--cwd', tmpDir, '--json']);
+
+      expect(code).toBe(0);
+      const parsed = JSON.parse(stdout.trim());
+      expect(parsed.map(s => s.id)).toEqual(['valid-task']);
+      expect(stdout).not.toContain('outside secret briefing');
+      expect(stdout).not.toContain('outside-model');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(outsideDir, { recursive: true, force: true });
     }
   });
 });

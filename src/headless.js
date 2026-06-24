@@ -5,13 +5,17 @@
  * Uses OpenCode SDK for headless execution (no CLI spawning required).
  */
 
-const fs = require('fs');
 const path = require('path');
 const { logger } = require('./utils/logger');
 const { ensureNodeModulesBinInPath } = require('./utils/path-setup');
 const { ensurePortAvailable } = require('./utils/server-setup');
 const { mapAgentToOpenCode } = require('./utils/agent-mapping');
 const { writeProgress } = require('./sidecar/progress');
+const {
+  appendContainedSessionFile,
+  ensureSidecarSessionDir,
+  readContainedSessionFile
+} = require('./utils/sidecar-session-boundaries');
 
 /**
  * Fold marker that the agent outputs when done
@@ -72,13 +76,8 @@ async function runHeadless(model, systemPrompt, userMessage, taskId, project, ti
   } = require('./opencode-client');
 
   const { reasoning } = options;
-  const sessionDir = path.join(project, '.claude', 'sidecar_sessions', taskId);
+  const sessionDir = ensureSidecarSessionDir(project, taskId);
   const conversationPath = path.join(sessionDir, 'conversation.jsonl');
-
-  // Ensure session directory exists
-  if (!fs.existsSync(sessionDir)) {
-    fs.mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
-  }
 
   // Log system prompt as first message in conversation
   logMessage(conversationPath, {
@@ -261,9 +260,8 @@ async function runHeadless(model, systemPrompt, userMessage, taskId, project, ti
 
       // Check for external abort signal (MCP tool or CLI command)
       try {
-        const metaCheck = path.join(sessionDir, 'metadata.json');
-        if (fs.existsSync(metaCheck)) {
-          const metaContent = fs.readFileSync(metaCheck, 'utf-8');
+        const metaContent = readContainedSessionFile(sessionDir, 'metadata.json', { optional: true });
+        if (metaContent !== null) {
           const meta = JSON.parse(metaContent);
           if (meta.status === 'aborted') {
             logger.info('External abort signal received', { taskId });
@@ -606,7 +604,12 @@ function formatFoldOutput({ model, sessionId, client, cwd, mode, summary }) {
  * @param {object} message - Message object with role, content, timestamp
  */
 function logMessage(conversationPath, message) {
-  fs.appendFileSync(conversationPath, JSON.stringify(message) + '\n', { mode: 0o600 });
+  appendContainedSessionFile(
+    path.dirname(conversationPath),
+    path.basename(conversationPath),
+    JSON.stringify(message) + '\n',
+    { mode: 0o600 }
+  );
 }
 
 module.exports = {

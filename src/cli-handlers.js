@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 /**
  * CLI Command Handlers
  *
@@ -5,9 +6,12 @@
  * under the 300-line limit.
  */
 
-const fs = require('fs');
-const path = require('path');
-const { validateTaskId, safeSessionDir } = require('./utils/validators');
+const { validateTaskId } = require('./utils/validators');
+const {
+  readContainedSessionFile,
+  validateSidecarSessionDir,
+  writeContainedSessionFile,
+} = require('./utils/sidecar-boundaries');
 
 /**
  * Handle 'sidecar setup' command
@@ -69,24 +73,37 @@ async function handleAbort(args) {
   }
 
   const project = args.cwd || process.cwd();
-  const sessionDir = safeSessionDir(project, taskId);
-  const metaPath = path.join(sessionDir, 'metadata.json');
+  let sessionDir;
+  let metadataText;
 
-  if (!fs.existsSync(metaPath)) {
+  try {
+    sessionDir = validateSidecarSessionDir(project, taskId);
+    metadataText = readContainedSessionFile(sessionDir, 'metadata.json', { optional: true });
+  } catch (err) {
+    console.error(err.message);
+    process.exit(1);
+  }
+
+  if (metadataText === null) {
     console.error(`Session ${taskId} not found`);
     process.exit(1);
   }
 
   let meta;
   try {
-    meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+    meta = JSON.parse(metadataText);
   } catch (_err) {
     console.error(`Session ${taskId} has malformed metadata`);
     process.exit(1);
   }
   meta.status = 'aborted';
   meta.abortedAt = new Date().toISOString();
-  fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), { mode: 0o600 });
+  try {
+    writeContainedSessionFile(sessionDir, 'metadata.json', JSON.stringify(meta, null, 2), { mode: 0o600 });
+  } catch (err) {
+    console.error(err.message);
+    process.exit(1);
+  }
   console.log(`Session ${taskId} marked as aborted.`);
 }
 
@@ -105,7 +122,7 @@ async function handleUpdate() {
   }
   const result = await performUpdate();
   if (result.success) {
-    console.log(`Updated successfully! Run 'sidecar --version' to verify.`);
+    console.log('Updated successfully! Run \'sidecar --version\' to verify.');
   } else {
     console.error(`Update failed: ${result.error}`);
     process.exit(1);
